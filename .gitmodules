@@ -1,0 +1,3 @@
+[submodule "src/bayesicUtilities"]
+	path = src/bayesicUtilities
+	url = https://github.com/tonymugen/bayesicUtilities
