@@ -26,8 +26,16 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
+#include <vector>
+#include <array>
 
 #include "gvarHash.hpp"
 
+using std::vector;
+using std::array;
+
 using namespace BayesicSpace;
+
+const array<uint8_t, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
+
 

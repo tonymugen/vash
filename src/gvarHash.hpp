@@ -30,8 +30,48 @@
 #ifndef gvhash_hpp
 #define gvhash_hpp
 
-namespace BayesicSpace {
+#include <vector>
+#include <array>
+#include <string>
 
+#include "bayesicUtilities/random.hpp"
+
+using std::vector;
+using std::array;
+using std::string;
+
+namespace BayesicSpace {
+	class GenoTable;
+
+	/** \brief Class to store compressed genotype tables
+	 *
+	 * Provides facilities to store and manipulate compressed genotype tables. Genotypes are stored in a two-bit format as in plink .bed files.
+	 */
+	class GenoTable {
+	public:
+		/** \brief Default constructor */
+		GenoTable() {};
+		/** \brief Constructor with input file name
+		 *
+		 * \param[in] inputFileName input file name
+		 */
+		GenoTable(const string &inputFileName);
+
+	protected:
+		/**\brief Genotype table
+		 *
+		 * May store all or part of the genotype file, depending on memory availability.
+		 */
+		vector<uint8_t> genotypes_;
+		/** \brief Genotype table size */
+		size_t tableSize_;
+		/** \brief Radom number generator */
+		RanDraw rng_;
+		/** \brief Seeded PRNG for hashes */
+		RanDraw pRNG_;
+		/** \brief Leading bytes for .bed files */
+		static const array<uint8_t, 3> magicBytes_;
+	};
 }
 
 #endif // gvhash_hpp
