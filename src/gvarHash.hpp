@@ -30,6 +30,8 @@
 #ifndef gvhash_hpp
 #define gvhash_hpp
 
+#include <algorithm>
+#include <cstddef>
 #include <vector>
 #include <array>
 #include <string>
@@ -56,15 +58,40 @@ namespace BayesicSpace {
 		 * \param[in] inputFileName input file name
 		 */
 		GenoTable(const string &inputFileName);
+		/** \brief Constructor with count vector
+		 *
+		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
+		 *
+		 * \param[in] maCounts vector of minor allele numbers
+		 * \param[in] nIndividuals number of genotyped individuals
+		 */
+		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals);
 
+		/** \brief Copy constructor (deleted) */
+		GenoTable(const GenoTable &in) = delete;
+		/** \brief Copy assignment operator (deleted) */
+		GenoTable operator=(const GenoTable &in) = delete;
+		/** \brief Move constructor
+		 *
+		 * \param[in] in object to move
+		 */
+		GenoTable(GenoTable &&in);
+		/** \brief Move assignment operator
+		 *
+		 * \param[in] in object to be moved
+		 * \return `GenoTable` object
+		 */
+		GenoTable& operator=(GenoTable &&in);
 	protected:
 		/**\brief Genotype table
 		 *
 		 * May store all or part of the genotype file, depending on memory availability.
 		 */
 		vector<uint8_t> genotypes_;
-		/** \brief Genotype table size */
-		size_t tableSize_;
+		/** \brief Number of individuals */
+		size_t nIndividuals_;
+		/** \brief Number of loci */
+		size_t nLoci_;
 		/** \brief Radom number generator */
 		RanDraw rng_;
 		/** \brief Seeded PRNG for hashes */

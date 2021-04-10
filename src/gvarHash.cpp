@@ -26,16 +26,65 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
+#include <cstddef>
+#include <string>
 #include <vector>
 #include <array>
+#include <algorithm>
 
 #include "gvarHash.hpp"
 
 using std::vector;
 using std::array;
+using std::string;
+using std::to_string;
+using std::move;
 
 using namespace BayesicSpace;
 
 const array<uint8_t, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
 
+// Constructors
+GenoTable::GenoTable(const string &inputFileName) {}
 
+GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
+	if (nIndividuals == 0){
+		throw string("ERROR: number of individuals is 0 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
+	}
+	if (maCounts.size() % nIndividuals){
+		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
+			to_string(nIndividuals) + string(") in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
+	}
+	if ( maCounts.empty() ){
+		throw string("ERROR: empty vector of minor allele counts in the GenoTable(const vector<int8_t> &, const size_t &nIndividuals) constructor");
+	}
+	if (nIndividuals_ % 8){ // TODO: fix after initial binary-only testing is done; will have to be mod 4
+		genotypes_.reserve( (1 + nIndividuals_ / 8) * nLoci_ );
+	} else {
+		genotypes_.reserve( (nIndividuals_ / 8) * nLoci_ );
+	}
+}
+
+GenoTable::GenoTable(GenoTable &&in){
+	if (this != &in){
+		genotypes_    = move(in.genotypes_);
+		nIndividuals_ = in.nIndividuals_;
+		nLoci_        = in.nLoci_;
+
+		in.nIndividuals_ = 0;
+		in.nLoci_        = 0;
+	}
+}
+
+GenoTable& GenoTable::operator=(GenoTable &&in) {
+	if (this != &in){
+		genotypes_    = move(in.genotypes_);
+		nIndividuals_ = in.nIndividuals_;
+		nLoci_        = in.nLoci_;
+
+		in.nIndividuals_ = 0;
+		in.nLoci_        = 0;
+
+	}
+	return *this;
+}
