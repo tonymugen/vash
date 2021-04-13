@@ -82,6 +82,14 @@ namespace BayesicSpace {
 		 * \return `GenoTable` object
 		 */
 		GenoTable& operator=(GenoTable &&in);
+
+		/** \brief Save .bed genotype file
+		 *
+		 * Saves the raw genotype data in the _plink_ .bed format.
+		 *
+		 * \param[in] outFileName output file name
+		 */
+		void saveGenoBed(const string &outFileName) const;
 	protected:
 		/**\brief Genotype table
 		 *
