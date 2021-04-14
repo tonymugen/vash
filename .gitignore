@@ -8,3 +8,4 @@ src/compile_commands.json
 tests/.clangd/*
 tests/.cache/*
 tests/compile_commands.json
+tests/tstRun

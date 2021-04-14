@@ -34,6 +34,8 @@
 #include <algorithm>
 #include <fstream>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -74,26 +76,33 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 	for (const auto &mac : maCounts){
 		switch (mac) {
 			case 0:           // 00 for homozygous major allele
-				iInByte += 2;
-				return;
+				{
+					iInByte += 2;
+					break;
+				}
 			case 1:           // 10 for heterozygous
-				genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
-				iInByte += 2;
-				return;
+				{
+					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					iInByte += 2;
+					break;
+				}
 			case 2:           // 11 for homozygous minor allele
-				genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
-				iInByte++;
-				genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
-				iInByte++;
-				return;
+				{
+					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					iInByte++;
+					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					iInByte++;
+					break;
+				}
 			case -9:          // 01 for missing genotype
-				iInByte++;
-				genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
-				iInByte++;
-				return;
+				{
+					iInByte++;
+					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					iInByte++;
+					break;
+				}
 			default:
 				throw string("ERROR: unknown value ") + to_string(mac) + string(" in GenoTable(const vector<int8_t> &, const size_t &) constructor");
-				return;
 		}
 		iIndv++;
 		iIndv %= nIndividuals_;
