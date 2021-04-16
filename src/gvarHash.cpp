@@ -28,13 +28,12 @@
  */
 #include <bits/stdint-uintn.h>
 #include <cstddef>
+#include <ios>
 #include <string>
 #include <vector>
 #include <array>
 #include <algorithm>
 #include <fstream>
-
-#include <iostream>
 
 #include "gvarHash.hpp"
 
@@ -45,13 +44,49 @@ using std::to_string;
 using std::move;
 using std::fstream;
 using std::ios;
+using std::streampos;
 
 using namespace BayesicSpace;
 
-const array<uint8_t, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
+const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
 
 // Constructors
-GenoTable::GenoTable(const string &inputFileName) {}
+GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
+	if (nIndividuals == 0){
+		throw string("ERROR: number of individuals is 0 in the GenoTable(const string &, const size_t &) constructor");
+	}
+	size_t nBytes;
+	if (nIndividuals_ % 4){
+		nBytes = 1 + nIndividuals_ / 4;
+	} else {
+		nBytes = nIndividuals_ / 4;
+	}
+	fstream inStr;
+	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
+	inStr.seekg(0, inStr.end);
+	streampos inFileSize = inStr.tellg();
+	inStr.seekg(0, inStr.beg);
+	if ( inFileSize <= magicBytes_.size() ){
+		throw string("ERROR: input .bed file has no genotypes in the GenoTable(const string &, const size_t &) constructor");
+	}
+	inFileSize -= magicBytes_.size();
+	if (static_cast<size_t>(inFileSize) % nBytes){
+		throw string("ERROR: The .bed file size not evenly divisible by the number of individuals provided (") + to_string(nIndividuals_) + string(")");
+	}
+	char magicBuf[magicBytes_.size()]{};
+	inStr.read( magicBuf, magicBytes_.size() );
+	if (magicBuf[0] != magicBytes_[0]){
+		throw string("ERROR: first magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
+	} else if (magicBuf[1] != magicBytes_[1]) {
+		throw string("ERROR: second magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
+	} else if (magicBuf[2] != magicBytes_[2]) {
+		throw string("ERROR: third magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
+	}
+	genotypes_.resize(static_cast<size_t>(inFileSize));
+	inStr.read(reinterpret_cast<char *>( genotypes_.data() ), inFileSize);
+	inStr.close();
+	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
+}
 
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals == 0){
@@ -145,7 +180,7 @@ GenoTable& GenoTable::operator=(GenoTable &&in) {
 void GenoTable::saveGenoBed(const string &outFileName) const {
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::binary | ios::trunc);
-	out.write( reinterpret_cast<const char*>( magicBytes_.data() ), magicBytes_.size() );
+	out.write( magicBytes_.data(), magicBytes_.size() );
 	out.write( reinterpret_cast<const char*>( genotypes_.data() ), genotypes_.size() );
 	out.close();
 }

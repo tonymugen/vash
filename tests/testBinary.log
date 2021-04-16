@@ -1,0 +1,23 @@
+PLINK v1.90p 64-bit (16 Jun 2020)
+Options in effect:
+  --bfile testBinary
+  --out testBinary
+  --r square
+
+Hostname: blacklagoon
+Working directory: /home/tonyg/projects/vash/tests
+Start time: Fri Apr 16 13:32:29 2021
+
+Random number seed: 1618594349
+63925 MB RAM detected; reserving 31962 MB for main workspace.
+65 variants loaded from .bim file.
+200 people (0 males, 0 females, 200 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to testBinary.nosex .
+Using up to 15 threads (change this with --threads).
+Before main variant filters, 200 founders and 0 nonfounders present.
+Calculating allele frequencies... done.
+65 variants and 200 people pass filters and QC.
+Note: No phenotypes present.
+--r square to testBinary.ld ... done.
+
+End time: Fri Apr 16 13:32:29 2021

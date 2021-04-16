@@ -31,6 +31,7 @@
 #define gvhash_hpp
 
 #include <algorithm>
+#include <bits/stdint-uintn.h>
 #include <cstddef>
 #include <vector>
 #include <array>
@@ -56,8 +57,9 @@ namespace BayesicSpace {
 		/** \brief Constructor with input file name
 		 *
 		 * \param[in] inputFileName input file name
+		 * \param[in] nIndividuals number of genotyped individuals
 		 */
-		GenoTable(const string &inputFileName);
+		GenoTable(const string &inputFileName, const size_t &nIndividuals);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -91,11 +93,16 @@ namespace BayesicSpace {
 		 */
 		void saveGenoBed(const string &outFileName) const;
 	protected:
-		/**\brief Genotype table
+		/** \brief Genotype table
 		 *
 		 * May store all or part of the genotype file, depending on memory availability.
 		 */
 		vector<uint8_t> genotypes_;
+		/** \brief Binarized genotype table
+		 *
+		 * Stores on bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
+		 */
+		vector<uint8_t> binGenotypes_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
@@ -105,7 +112,7 @@ namespace BayesicSpace {
 		/** \brief Seeded PRNG for hashes */
 		RanDraw pRNG_;
 		/** \brief Leading bytes for .bed files */
-		static const array<uint8_t, 3> magicBytes_;
+		static const array<char, 3> magicBytes_;
 	};
 }
 
