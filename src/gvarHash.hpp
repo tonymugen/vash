@@ -92,6 +92,13 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBed(const string &outFileName) const;
+		/** \brief Save the binary genotype file
+		 *
+		 * Saves the binary approximate genotype data to a binary file.
+		 *
+		 * \param[in] outFileName output file name
+		 */
+		void saveGenoBinary(const string &outFileName) const;
 	protected:
 		/** \brief Genotype table
 		 *
@@ -100,7 +107,7 @@ namespace BayesicSpace {
 		vector<uint8_t> genotypes_;
 		/** \brief Binarized genotype table
 		 *
-		 * Stores on bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
+		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
 		 */
 		vector<uint8_t> binGenotypes_;
 		/** \brief Number of individuals */
@@ -113,6 +120,13 @@ namespace BayesicSpace {
 		RanDraw pRNG_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
+		/** \brief One set bit for masking */
+		static const uint8_t oneBit_;
+		/** \brief Generate binary genotypes
+		 *
+		 * Generate binary genotypes from the genotype table.
+		 */
+		void generateBinGeno_();
 	};
 }
 

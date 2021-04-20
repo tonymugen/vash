@@ -49,6 +49,7 @@ using std::streampos;
 using namespace BayesicSpace;
 
 const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
+const uint8_t GenoTable::oneBit_ = static_cast<uint8_t>(1);
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
@@ -86,6 +87,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	inStr.read(reinterpret_cast<char *>( genotypes_.data() ), inFileSize);
 	inStr.close();
 	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
+	generateBinGeno_();
 }
 
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -117,22 +119,22 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 				}
 			case 1:           // 10 for heterozygous
 				{
-					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					genotypes_[iGeno] |= oneBit_ << iInByte;
 					iInByte += 2;
 					break;
 				}
 			case 2:           // 11 for homozygous minor allele
 				{
-					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					genotypes_[iGeno] |= oneBit_ << iInByte;
 					iInByte++;
-					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					genotypes_[iGeno] |= oneBit_ << iInByte;
 					iInByte++;
 					break;
 				}
 			case -9:          // 01 for missing genotype
 				{
 					iInByte++;
-					genotypes_[iGeno] |= static_cast<uint8_t>(1) << iInByte;
+					genotypes_[iGeno] |= oneBit_ << iInByte;
 					iInByte++;
 					break;
 				}
@@ -145,12 +147,13 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 			iInByte = 0;
 			iGeno++;
 		} else {
-			iInByte %= 8;
+			iInByte %= 8;      // TODO: replace with testing iInByte == 8
 			if (iInByte == 0){
 				iGeno++;
 			}
 		}
 	}
+	generateBinGeno_();
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -164,7 +167,7 @@ GenoTable::GenoTable(GenoTable &&in){
 	}
 }
 
-GenoTable& GenoTable::operator=(GenoTable &&in) {
+GenoTable& GenoTable::operator=(GenoTable &&in){
 	if (this != &in){
 		genotypes_    = move(in.genotypes_);
 		nIndividuals_ = in.nIndividuals_;
@@ -183,4 +186,39 @@ void GenoTable::saveGenoBed(const string &outFileName) const {
 	out.write( magicBytes_.data(), magicBytes_.size() );
 	out.write( reinterpret_cast<const char*>( genotypes_.data() ), genotypes_.size() );
 	out.close();
+}
+
+void GenoTable::saveGenoBinary(const string &outFileName) const {
+	fstream out;
+	out.open(outFileName.c_str(), ios::out | ios::binary | ios::trunc);
+	out.write( reinterpret_cast<const char*>( binGenotypes_.data() ), binGenotypes_.size() );
+	out.close();
+}
+
+void GenoTable::generateBinGeno_(){
+	if (nIndividuals_ % 8){
+		binGenotypes_.resize(nLoci_ * (1 + nIndividuals_) / 8, 0);
+	} else {
+		binGenotypes_.resize(nLoci_ * nIndividuals_ / 8, 0);
+	}
+	uint8_t iInByteG = 0; // index within the current .bed genotype byte
+	uint8_t iInByteB = 0; // index within the current binary byte
+	size_t  iBinGeno = 0; // binGenotypes_ vector index
+	for (const auto &g : genotypes_){
+		if ( g & (oneBit_ << iInByteG) ){
+			binGenotypes_[iBinGeno] |= oneBit_ << iInByteB; // TODO: this is not right yet: add random assignment if heterozygous
+			iInByteB++;
+			iInByteG += 2;
+		} else {
+			iInByteB++;
+			iInByteG += 2; // do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the binary bit is zero
+		}
+		if (iInByteB == 8){
+			iInByteB = 0;
+			iBinGeno++;
+		}
+		if (iInByteG == 8){
+			iInByteG = 0;
+		}
+	}
 }
