@@ -26,9 +26,8 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
-#include <bits/stdint-uintn.h>
 #include <cstddef>
-#include <ios>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <array>
@@ -49,7 +48,9 @@ using std::streampos;
 using namespace BayesicSpace;
 
 const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
-const uint8_t GenoTable::oneBit_ = static_cast<uint8_t>(1);
+const uint8_t GenoTable::oneBit_            = static_cast<uint8_t>(1);
+const uint8_t GenoTable::byteSize_          = static_cast<uint8_t>(8);
+const uint8_t GenoTable::llWordSize_        = static_cast<uint8_t>(8);
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
@@ -201,24 +202,44 @@ void GenoTable::generateBinGeno_(){
 	} else {
 		binGenotypes_.resize(nLoci_ * nIndividuals_ / 8, 0);
 	}
-	uint8_t iInByteG = 0; // index within the current .bed genotype byte
-	uint8_t iInByteB = 0; // index within the current binary byte
-	size_t  iBinGeno = 0; // binGenotypes_ vector index
+	uint8_t iInByteB  = 0; // index within the current binary byte
+	size_t  iBinGeno  = 0; // binGenotypes_ vector index
+	array<uint8_t, llWordSize_> rand;
+	uint64_t randW = rng_.ranInt();
+	memcpy(rand.data(), &randW, llWordSize_);
+	uint8_t iInRand   = 0;
+	uint8_t iRandByte = 0;
 	for (const auto &g : genotypes_){
-		if ( g & (oneBit_ << iInByteG) ){
-			binGenotypes_[iBinGeno] |= oneBit_ << iInByteB; // TODO: this is not right yet: add random assignment if heterozygous
-			iInByteB++;
-			iInByteG += 2;
-		} else {
-			iInByteB++;
-			iInByteG += 2; // do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the binary bit is zero
-		}
-		if (iInByteB == 8){
-			iInByteB = 0;
-			iBinGeno++;
-		}
-		if (iInByteG == 8){
-			iInByteG = 0;
+		for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2) {
+			if ( g & (oneBit_ << iInByteG) ){
+				if ( g & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous minor allele
+					binGenotypes_[iBinGeno] |= oneBit_ << iInByteB;
+					iInByteB++;
+				} else {                                            // heterozygous
+					uint8_t testBit = (oneBit_ << iInRand) & rand[iRandByte];
+					if (testBit){
+						binGenotypes_[iBinGeno] |= oneBit_ << iInByteB;
+					}
+					iInRand++;
+					if (iInRand == byteSize_){
+						iInRand = 0;
+						iRandByte++;
+						if (iRandByte == llWordSize_){
+							randW = rng_.ranInt();
+							memcpy(rand.data(), &randW, llWordSize_);
+							iRandByte = 0;
+						}
+					}
+					iInByteB++;
+				}
+			} else {
+				iInByteB++;
+				// do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the binary bit is zero
+			}
+			if (iInByteB == byteSize_){
+				iInByteB = 0;
+				iBinGeno++;
+			}
 		}
 	}
 }

@@ -122,6 +122,10 @@ namespace BayesicSpace {
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
+		/** \brief Size of one byte in bits */
+		static const uint8_t byteSize_;
+		/** \brief 64 bit word size in bytes */
+		static const uint8_t llWordSize_;
 		/** \brief Generate binary genotypes
 		 *
 		 * Generate binary genotypes from the genotype table.
