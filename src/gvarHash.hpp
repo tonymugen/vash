@@ -131,6 +131,12 @@ namespace BayesicSpace {
 		 * Generate binary genotypes from the genotype table.
 		 */
 		void generateBinGeno_();
+		/** \brief Permute individuals
+		 *
+		 * Apply the same among-individual permutation to all loci. This is the first step in minHash-type algorithms. Applied to binarized genotypes.
+		 * Using the Fisher-Yates-Durstenfeld algorithm.
+		 */
+		void permuteIndv_();
 	};
 }
 

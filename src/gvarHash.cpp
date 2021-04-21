@@ -34,6 +34,8 @@
 #include <algorithm>
 #include <fstream>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -54,8 +56,8 @@ const uint8_t GenoTable::llWordSize_        = static_cast<uint8_t>(8);
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
-	if (nIndividuals == 0){
-		throw string("ERROR: number of individuals is 0 in the GenoTable(const string &, const size_t &) constructor");
+	if (nIndividuals <= 1){
+		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const string &, const size_t &) constructor");
 	}
 	size_t nBytes;
 	if (nIndividuals_ % 4){
@@ -89,11 +91,12 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	inStr.close();
 	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
 	generateBinGeno_();
+	permuteIndv_();
 }
 
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
-	if (nIndividuals == 0){
-		throw string("ERROR: number of individuals is 0 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
+	if (nIndividuals <= 1){
+		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	if (maCounts.size() % nIndividuals){
 		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
@@ -143,18 +146,19 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 				throw string("ERROR: unknown value ") + to_string(mac) + string(" in GenoTable(const vector<int8_t> &, const size_t &) constructor");
 		}
 		iIndv++;
-		iIndv %= nIndividuals_;
-		if (iIndv == 0){
+		if (iIndv == nIndividuals_){
 			iInByte = 0;
+			iIndv   = 0;
 			iGeno++;
 		} else {
-			iInByte %= 8;      // TODO: replace with testing iInByte == 8
-			if (iInByte == 0){
+			if (iInByte == byteSize_){
+				iInByte = 0;
 				iGeno++;
 			}
 		}
 	}
 	generateBinGeno_();
+	permuteIndv_();
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -241,5 +245,18 @@ void GenoTable::generateBinGeno_(){
 				iBinGeno++;
 			}
 		}
+	}
+}
+
+void GenoTable::permuteIndv_() {
+	// generate the sequence of random integers
+	vector<size_t> ranInts;
+	size_t i = nIndividuals_ - 1UL;
+	while (i >= 1UL) {
+		ranInts.push_back( rng_.sampleInt(i + 1UL) ); // the function samples from the open interval
+		i--;
+	}
+	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
+		size_t colInd = iLoc*nIndividuals_;
 	}
 }
