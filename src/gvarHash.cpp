@@ -26,6 +26,7 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
+#include <bits/stdint-uintn.h>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -33,8 +34,6 @@
 #include <array>
 #include <algorithm>
 #include <fstream>
-
-#include <iostream>
 
 #include "gvarHash.hpp"
 
@@ -200,6 +199,31 @@ void GenoTable::saveGenoBinary(const string &outFileName) const {
 	out.close();
 }
 
+void GenoTable::outputBits(string &bitString){
+	bitString.clear();
+	uint8_t i = 3;
+	uint8_t j = 2;
+	//uint8_t x = ((binGenotypes_[1] >> i) ^ (binGenotypes_[1] >> j)) & oneBit_;
+	uint8_t r = binGenotypes_[2] | (~(oneBit_ << j));
+	binGenotypes_[2] = r;
+	uint8_t iInByte = 0;
+	size_t  iOfByte = 0;
+	for (size_t iInd = 0; iInd < nIndividuals_; iInd++) {
+		if (binGenotypes_[iOfByte] & (oneBit_ << iInByte) ){
+			bitString += '1';
+			iInByte++;
+		} else {
+			bitString += '0';
+			iInByte++;
+		}
+		if (iInByte == byteSize_){
+			bitString += ' ';
+			iInByte = 0;
+			iOfByte++;
+		}
+	}
+}
+
 void GenoTable::generateBinGeno_(){
 	if (nIndividuals_ % 8){
 		binGenotypes_.resize(nLoci_ * (1 + nIndividuals_) / 8, 0);
@@ -249,7 +273,7 @@ void GenoTable::generateBinGeno_(){
 }
 
 void GenoTable::permuteIndv_() {
-	// generate the sequence of random integers
+	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
 	size_t i = nIndividuals_ - 1UL;
 	while (i >= 1UL) {
@@ -259,4 +283,9 @@ void GenoTable::permuteIndv_() {
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
 		size_t colInd = iLoc*nIndividuals_;
 	}
+	/* within-byte swap:
+	uint8_t x = ((binGenotypes_[1] >> i) ^ (binGenotypes_[1] >> j)) & oneBit_;
+	uint8_t r = binGenotypes_[1] ^ ((x << i) | (x << j));
+	binGenotypes_[1] = r;
+	*/
 }

@@ -99,6 +99,14 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const string &outFileName) const;
+		/** \brief Output bits
+		 *
+		 * Output bits as groups of eight 1s and 0s for debugging.
+		 *
+		 * \param[out] bitString string with bits
+		 *
+		 */
+		void outputBits(string &bitString);
 	protected:
 		/** \brief Genotype table
 		 *
@@ -116,8 +124,6 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Radom number generator */
 		RanDraw rng_;
-		/** \brief Seeded PRNG for hashes */
-		RanDraw pRNG_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */

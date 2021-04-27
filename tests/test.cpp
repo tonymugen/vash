@@ -81,6 +81,9 @@ int main() {
 		//const string inFile("testBinary.bed");
 		//GenoTable testTab( inFile, 200 );
 		testTab.saveGenoBinary("testBinary.bin");
+		string bits;
+		testTab.outputBits(bits);
+		std::cout << bits << "\n";
 	} catch(string problem) {
 		cerr << problem << "\n";
 		exit(1);
