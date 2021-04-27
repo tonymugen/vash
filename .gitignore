@@ -9,3 +9,6 @@ tests/.clangd/*
 tests/.cache/*
 tests/compile_commands.json
 tests/tstRun
+tests/.RData
+tests/.Rhistory
+tests/*.txt

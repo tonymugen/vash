@@ -201,11 +201,6 @@ void GenoTable::saveGenoBinary(const string &outFileName) const {
 
 void GenoTable::outputBits(string &bitString){
 	bitString.clear();
-	uint8_t i = 3;
-	uint8_t j = 2;
-	//uint8_t x = ((binGenotypes_[1] >> i) ^ (binGenotypes_[1] >> j)) & oneBit_;
-	uint8_t r = binGenotypes_[2] | (~(oneBit_ << j));
-	binGenotypes_[2] = r;
 	uint8_t iInByte = 0;
 	size_t  iOfByte = 0;
 	for (size_t iInd = 0; iInd < nIndividuals_; iInd++) {
@@ -226,7 +221,7 @@ void GenoTable::outputBits(string &bitString){
 
 void GenoTable::generateBinGeno_(){
 	if (nIndividuals_ % 8){
-		binGenotypes_.resize(nLoci_ * (1 + nIndividuals_) / 8, 0);
+		binGenotypes_.resize(nLoci_ * (1 + nIndividuals_ / 8), 0);
 	} else {
 		binGenotypes_.resize(nLoci_ * nIndividuals_ / 8, 0);
 	}
@@ -275,17 +270,35 @@ void GenoTable::generateBinGeno_(){
 void GenoTable::permuteIndv_() {
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
-	size_t i = nIndividuals_ - 1UL;
-	while (i >= 1UL) {
-		ranInts.push_back( rng_.sampleInt(i + 1UL) ); // the function samples from the open interval
+	size_t i = nIndividuals_;
+	while (i >= 2UL) {
+		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
 		i--;
 	}
+	size_t locusSize = (nIndividuals_ % byteSize_ ? 1 + nIndividuals_ / byteSize_ : nIndividuals_ / byteSize_);
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
-		size_t colInd = iLoc*nIndividuals_;
+		size_t colInd = iLoc * locusSize;
+		size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
+		for (const auto &ri : ranInts){
+			uint16_t firstIdx  = iIndiv % byteSize_;
+			size_t firstByte   = (iIndiv / byteSize_) + colInd;
+			uint16_t secondIdx = ri % byteSize_;
+			size_t secondByte  = (ri / byteSize_) + colInd;
+			uint16_t diff      = 8 * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
+
+			// swapping bits within a two-byte variable
+			// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
+			// if the same byte is being accessed, secondIdx is not shifted to the second byte
+			// This may be affected by endianness (did not test)
+			uint16_t twoBytes  = (static_cast<uint16_t>(binGenotypes_[secondByte]) << 8) | (static_cast<uint16_t>(binGenotypes_[firstByte]));
+			secondIdx         += diff;
+			uint16_t x         = ((twoBytes >> firstIdx) ^ (twoBytes >> secondIdx)) & 1;
+			twoBytes          ^= ((x << firstIdx) | (x << secondIdx));
+
+			memcpy(binGenotypes_.data() + firstByte, &twoBytes, sizeof(uint8_t));
+			twoBytes = twoBytes >> diff;
+			memcpy(binGenotypes_.data() + secondByte, &twoBytes, sizeof(uint8_t));
+			iIndiv--;
+		}
 	}
-	/* within-byte swap:
-	uint8_t x = ((binGenotypes_[1] >> i) ^ (binGenotypes_[1] >> j)) & oneBit_;
-	uint8_t r = binGenotypes_[1] ^ ((x << i) | (x << j));
-	binGenotypes_[1] = r;
-	*/
 }
