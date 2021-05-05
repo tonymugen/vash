@@ -84,6 +84,10 @@ int main() {
 		string bits;
 		testTab.outputBits(bits);
 		std::cout << bits << "\n";
+		for (size_t i = 0; i < 4; i++) {
+			std::cout << testTab.getSketchIdx(i) << " ";
+		}
+		std::cout << "\n";
 	} catch(string problem) {
 		cerr << problem << "\n";
 		exit(1);

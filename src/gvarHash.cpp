@@ -52,6 +52,7 @@ const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
 const uint8_t GenoTable::oneBit_            = static_cast<uint8_t>(1);
 const uint8_t GenoTable::byteSize_          = static_cast<uint8_t>(8);
 const uint8_t GenoTable::llWordSize_        = static_cast<uint8_t>(8);
+const uint8_t GenoTable::emptyBinToken_     = static_cast<uint8_t>(0xff);
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
@@ -91,6 +92,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
 	generateBinGeno_();
 	permuteIndv_();
+	makeSketches_();
 }
 
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -158,6 +160,7 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 	}
 	generateBinGeno_();
 	permuteIndv_();
+	makeSketches_();
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -299,6 +302,27 @@ void GenoTable::permuteIndv_() {
 			twoBytes = twoBytes >> diff;
 			memcpy(binGenotypes_.data() + secondByte, &twoBytes, sizeof(uint8_t));
 			iIndiv--;
+		}
+	}
+}
+
+void GenoTable::makeSketches_() {
+	// For now, each bin is 8 bytes
+	uint64_t bin    = 0;
+	size_t   nBytes = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
+	for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
+		for (size_t iByte = 0; iByte < nBytes; iByte += llWordSize_) {
+			bin = reinterpret_cast<uint64_t>(binGenotypes_.data() + iLocus * iByte);
+			if (bin == 0){
+				sketches_.push_back(emptyBinToken_);
+			} else {
+				uint8_t  firstSetBitPos = 0;
+				uint64_t oneBit64       = 1;
+				while ( ( (oneBit64 << firstSetBitPos) & bin ) == 0 ) {
+					firstSetBitPos++;
+				}
+				sketches_.push_back(firstSetBitPos);
+			}
 		}
 	}
 }

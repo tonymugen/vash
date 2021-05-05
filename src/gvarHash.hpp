@@ -107,6 +107,13 @@ namespace BayesicSpace {
 		 *
 		 */
 		void outputBits(string &bitString);
+		/** \brief Output _i_-th non-zero element ID
+		 *
+		 * \param[in] i index
+		 *
+		 * \return index of the first non-zero bit in the bin
+		 */
+		size_t getSketchIdx(const size_t &i) const { return static_cast<size_t>(sketches_[i]);};
 	protected:
 		/** \brief Genotype table
 		 *
@@ -118,6 +125,8 @@ namespace BayesicSpace {
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
 		 */
 		vector<uint8_t> binGenotypes_;
+		/** \brief Vector of sketches */
+		vector<uint8_t> sketches_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
@@ -132,6 +141,8 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
+		/** \brief Value corresponding to an empty token */
+		static const uint8_t emptyBinToken_;
 		/** \brief Generate binary genotypes
 		 *
 		 * Generate binary genotypes from the genotype table.
@@ -143,6 +154,11 @@ namespace BayesicSpace {
 		 * Using the Fisher-Yates-Durstenfeld algorithm.
 		 */
 		void permuteIndv_();
+		/** \brief Generate sketches
+		 *
+		 * Generate sketches from binary genotypes using modified one-permutation hash.
+		 */
+		void makeSketches_();
 	};
 }
 
