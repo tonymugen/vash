@@ -27,6 +27,7 @@
  *
  */
 #include <bits/stdint-uintn.h>
+#include <byteswap.h>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -34,6 +35,8 @@
 #include <array>
 #include <algorithm>
 #include <fstream>
+
+#include <iostream>
 
 #include "gvarHash.hpp"
 
@@ -215,9 +218,13 @@ void GenoTable::outputBits(string &bitString){
 			iInByte++;
 		}
 		if (iInByte == byteSize_){
-			bitString += ' ';
-			iInByte = 0;
 			iOfByte++;
+			if (iOfByte % llWordSize_){
+				bitString += ' ';
+			} else {
+				bitString += "\n";
+			}
+			iInByte = 0;
 		}
 	}
 }
@@ -307,12 +314,31 @@ void GenoTable::permuteIndv_() {
 }
 
 void GenoTable::makeSketches_() {
-	// For now, each bin is 8 bytes
-	uint64_t bin    = 0;
-	size_t   nBytes = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
-	for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
-		for (size_t iByte = 0; iByte < nBytes; iByte += llWordSize_) {
-			bin = reinterpret_cast<uint64_t>(binGenotypes_.data() + iLocus * iByte);
+	size_t nBytes        = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
+	size_t floorSketches = nBytes / llWordSize_;          // the floor of the number of sketches
+	//for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
+	for (size_t iLocus = 0; iLocus < 1; iLocus++) {
+		for (size_t iByte = 0; iByte < floorSketches; iByte++) {
+			// For now, each bin is 8 bytes
+			uint64_t *bin = reinterpret_cast<uint64_t *>(binGenotypes_.data() + iLocus * nBytes + iByte * llWordSize_);
+			std::cout << std::hex << (*bin) << "\n";
+			if ( (*bin) == 0 ){
+				sketches_.push_back(emptyBinToken_);
+			} else {
+				uint8_t  firstSetBitPos = 0;
+				uint64_t oneBit64       = 1;
+				while ( ( (oneBit64 << firstSetBitPos) & (*bin) ) == 0 ) {
+					firstSetBitPos++;
+				}
+				sketches_.push_back(firstSetBitPos);
+			}
+		}
+		// Remainder that does not take up the whole 64 bits
+		/* Cannot reinterpret_cast here, have to go byte by byte
+		size_t modSketches = nBytes % llWordSize_;
+		if (modSketches){
+			uint64_t bin = 0;
+			memcpy(&bin, binGenotypes_.data() + iLocus * floorSketches, modSketches);
 			if (bin == 0){
 				sketches_.push_back(emptyBinToken_);
 			} else {
@@ -323,6 +349,6 @@ void GenoTable::makeSketches_() {
 				}
 				sketches_.push_back(firstSetBitPos);
 			}
-		}
+		*/
 	}
 }
