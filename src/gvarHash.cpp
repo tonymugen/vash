@@ -321,7 +321,6 @@ void GenoTable::makeSketches_() {
 		for (size_t iByte = 0; iByte < floorSketches; iByte++) {
 			// For now, each bin is 8 bytes
 			uint64_t *bin = reinterpret_cast<uint64_t *>(binGenotypes_.data() + iLocus * nBytes + iByte * llWordSize_);
-			std::cout << std::hex << (*bin) << "\n";
 			if ( (*bin) == 0 ){
 				sketches_.push_back(emptyBinToken_);
 			} else {
@@ -334,21 +333,25 @@ void GenoTable::makeSketches_() {
 			}
 		}
 		// Remainder that does not take up the whole 64 bits
-		/* Cannot reinterpret_cast here, have to go byte by byte
+		// Cannot reinterpret_cast here, have to go byte by byte
 		size_t modSketches = nBytes % llWordSize_;
 		if (modSketches){
-			uint64_t bin = 0;
-			memcpy(&bin, binGenotypes_.data() + iLocus * floorSketches, modSketches);
-			if (bin == 0){
+			uint8_t firstSetBitPos = 0;
+			uint8_t iInByte        = 0;
+			size_t  iByte          = floorSketches * llWordSize_;
+			while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) && (iByte < nBytes) ) {
+				iInByte++;
+				if (iInByte == byteSize_){
+					iByte++;
+					iInByte = 0;
+				}
+				firstSetBitPos++;
+			}
+			if (firstSetBitPos == modSketches * byteSize_){ // TODO: this has not been tested yet
 				sketches_.push_back(emptyBinToken_);
 			} else {
-				uint8_t  firstSetBitPos = 0;
-				uint64_t oneBit64       = 1;
-				while ( ( (oneBit64 << firstSetBitPos) & bin ) == 0 ) {
-					firstSetBitPos++;
-				}
 				sketches_.push_back(firstSetBitPos);
 			}
-		*/
+		}
 	}
 }
