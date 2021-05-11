@@ -37,7 +37,7 @@ using namespace BayesicSpace;
 
 int main() {
 	try {
-		const string inFile("testBinaryVar.tsv");
+		const string inFile("testBinaryVar2.tsv");
 		string inputLine;
 		fstream input;
 		vector< vector<int8_t> > genoCodes; // file rows in the inner vector
@@ -84,10 +84,12 @@ int main() {
 		string bits;
 		testTab.outputBits(bits);
 		std::cout << bits << "\n";
+		/*
 		for (size_t i = 0; i < 4; i++) {
 			std::cout << testTab.getSketchIdx(i) << " ";
 		}
 		std::cout << "\n";
+		*/
 	} catch(string problem) {
 		cerr << problem << "\n";
 		exit(1);

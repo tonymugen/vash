@@ -36,7 +36,7 @@
 #include <algorithm>
 #include <fstream>
 
-#include <iostream>
+#include "../../smhasher/src/MurmurHash3.h"
 
 #include "gvarHash.hpp"
 
@@ -56,6 +56,8 @@ const uint8_t GenoTable::oneBit_            = static_cast<uint8_t>(1);
 const uint8_t GenoTable::byteSize_          = static_cast<uint8_t>(8);
 const uint8_t GenoTable::llWordSize_        = static_cast<uint8_t>(8);
 const uint8_t GenoTable::emptyBinToken_     = static_cast<uint8_t>(0xff);
+const uint64_t GenoTable::c1_               = 0x87c37b91114253d5ULL;
+const uint64_t GenoTable::c2_               = 0x4cf5ad432745937fULL;
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
@@ -162,8 +164,11 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 		}
 	}
 	generateBinGeno_();
-	permuteIndv_();
-	makeSketches_();
+	//permuteIndv_();
+	//makeSketches_();
+	testMMhash_.resize(16, 0);
+	const uint32_t seed = 1;
+	MurmurHash3_x64_128(binGenotypes_.data(), binGenotypes_.size(), seed, testMMhash_.data());
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -205,12 +210,37 @@ void GenoTable::saveGenoBinary(const string &outFileName) const {
 	out.close();
 }
 
+/*
 void GenoTable::outputBits(string &bitString){
 	bitString.clear();
 	uint8_t iInByte = 0;
 	size_t  iOfByte = 0;
 	for (size_t iInd = 0; iInd < nIndividuals_; iInd++) {
 		if (binGenotypes_[iOfByte] & (oneBit_ << iInByte) ){
+			bitString += '1';
+			iInByte++;
+		} else {
+			bitString += '0';
+			iInByte++;
+		}
+		if (iInByte == byteSize_){
+			iOfByte++;
+			if (iOfByte % llWordSize_){
+				bitString += ' ';
+			} else {
+				bitString += "\n";
+			}
+			iInByte = 0;
+		}
+	}
+}
+*/
+void GenoTable::outputBits(string &bitString){
+	bitString.clear();
+	uint8_t iInByte = 0;
+	size_t  iOfByte = 0;
+	for (size_t iInd = 0; iInd < testMMhash_.size(); iInd++) {
+		if (testMMhash_[iOfByte] & (oneBit_ << iInByte) ){
 			bitString += '1';
 			iInByte++;
 		} else {
@@ -316,8 +346,7 @@ void GenoTable::permuteIndv_() {
 void GenoTable::makeSketches_() {
 	size_t nBytes        = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
 	size_t floorSketches = nBytes / llWordSize_;          // the floor of the number of sketches
-	//for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
-	for (size_t iLocus = 0; iLocus < 1; iLocus++) {
+	for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
 		for (size_t iByte = 0; iByte < floorSketches; iByte++) {
 			// For now, each bin is 8 bytes
 			uint64_t *bin = reinterpret_cast<uint64_t *>(binGenotypes_.data() + iLocus * nBytes + iByte * llWordSize_);
@@ -347,7 +376,7 @@ void GenoTable::makeSketches_() {
 				}
 				firstSetBitPos++;
 			}
-			if (firstSetBitPos == modSketches * byteSize_){ // TODO: this has not been tested yet
+			if (firstSetBitPos == modSketches * byteSize_){
 				sketches_.push_back(emptyBinToken_);
 			} else {
 				sketches_.push_back(firstSetBitPos);

@@ -143,6 +143,11 @@ namespace BayesicSpace {
 		static const uint8_t llWordSize_;
 		/** \brief Value corresponding to an empty token */
 		static const uint8_t emptyBinToken_;
+		/** \brief MurMurHash c1 constant */
+		static const uint64_t c1_;
+		/** \brief MurMurHash c2 constant */
+		static const uint64_t c2_;
+		vector<uint8_t> testMMhash_;
 		/** \brief Generate binary genotypes
 		 *
 		 * Generate binary genotypes from the genotype table.
