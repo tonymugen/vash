@@ -81,9 +81,6 @@ int main() {
 		//const string inFile("testBinary.bed");
 		//GenoTable testTab( inFile, 200 );
 		//testTab.saveGenoBinary("testBinary.bin");
-		string bits;
-		testTab.outputBits(bits);
-		std::cout << bits << "\n";
 		/*
 		for (size_t i = 0; i < 4; i++) {
 			std::cout << testTab.getSketchIdx(i) << " ";

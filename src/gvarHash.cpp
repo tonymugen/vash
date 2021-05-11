@@ -36,7 +36,7 @@
 #include <algorithm>
 #include <fstream>
 
-#include "../../smhasher/src/MurmurHash3.h"
+#include <iostream>
 
 #include "gvarHash.hpp"
 
@@ -52,12 +52,14 @@ using std::streampos;
 using namespace BayesicSpace;
 
 const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
-const uint8_t GenoTable::oneBit_            = static_cast<uint8_t>(1);
-const uint8_t GenoTable::byteSize_          = static_cast<uint8_t>(8);
-const uint8_t GenoTable::llWordSize_        = static_cast<uint8_t>(8);
-const uint8_t GenoTable::emptyBinToken_     = static_cast<uint8_t>(0xff);
+const uint8_t GenoTable::oneBit_            = 1;
+const uint8_t GenoTable::byteSize_          = 8;
+const uint8_t GenoTable::llWordSize_        = 8;
+const uint8_t GenoTable::emptyBinToken_     = 0xff;
 const uint64_t GenoTable::c1_               = 0x87c37b91114253d5ULL;
 const uint64_t GenoTable::c2_               = 0x4cf5ad432745937fULL;
+const uint64_t GenoTable::m1_               = 0xff51afd7ed558ccdULL;
+const uint64_t GenoTable::m2_               = 0xc4ceb9fe1a85ec53ULL;
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
@@ -164,11 +166,16 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 		}
 	}
 	generateBinGeno_();
-	//permuteIndv_();
-	//makeSketches_();
-	testMMhash_.resize(16, 0);
-	const uint32_t seed = 1;
-	MurmurHash3_x64_128(binGenotypes_.data(), binGenotypes_.size(), seed, testMMhash_.data());
+	permuteIndv_();
+	makeSketches_();
+	const uint64_t seed = 1;
+	array<uint64_t, 2> hash;
+	murMurHash_(binGenotypes_, seed, hash);
+	vector<uint8_t> hashBytes(16);
+	memcpy(hashBytes.data(), hash.data(), 16);
+	string binStr;
+	this->outputBits(hashBytes, binStr);
+	std::cout << binStr << "\n";
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -235,12 +242,12 @@ void GenoTable::outputBits(string &bitString){
 	}
 }
 */
-void GenoTable::outputBits(string &bitString){
+void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString){
 	bitString.clear();
 	uint8_t iInByte = 0;
 	size_t  iOfByte = 0;
-	for (size_t iInd = 0; iInd < testMMhash_.size(); iInd++) {
-		if (testMMhash_[iOfByte] & (oneBit_ << iInByte) ){
+	while ( iOfByte < binVec.size() ) {
+		if (binVec[iOfByte] & (oneBit_ << iInByte) ){
 			bitString += '1';
 			iInByte++;
 		} else {
@@ -383,4 +390,111 @@ void GenoTable::makeSketches_() {
 			}
 		}
 	}
+}
+
+void GenoTable::murMurHash_(const vector<uint8_t> &key, const uint64_t &seed, array<uint64_t, 2> &hash) {
+	const size_t nblocks = key.size() / 16;
+
+	hash[0] = seed;
+	hash[1] = seed;
+
+	// body
+	auto blocks = reinterpret_cast<const uint64_t *>(key.data());
+
+	for(size_t i = 0; i < nblocks; i++) {
+		uint64_t k1 = blocks[i*2+0];
+		uint64_t k2 = blocks[i*2+1];
+
+		k1 *= c1_;
+		k1  = (k1 << 31) | (k1 >> 33);
+		k1 *= c2_;
+		hash[0] ^= k1;
+
+		hash[0]  = (hash[0] << 27) | (hash[0] >> 37);
+		hash[0] += hash[1];
+		hash[0]  = hash[0]*5+0x52dce729;
+
+		k2 *= c2_;
+		k2  = (k2 << 33) | (k2 >> 31);
+		k2 *= c1_;
+		hash[1] ^= k2;
+
+		hash[1]  = (hash[1] << 31) | (hash[1] >> 33);
+		hash[1] += hash[0];
+		hash[1]  = hash[1]*5+0x38495ab5;
+	}
+
+	// tail
+	const uint8_t * tail = key.data() + nblocks*16;
+
+	uint64_t k1 = 0;
+	uint64_t k2 = 0;
+
+	switch(key.size() & 15) {
+		case 15:
+			k2 ^= ( static_cast<uint64_t>(tail[14]) ) << 48;
+		case 14:
+			k2 ^= ( static_cast<uint64_t>(tail[13]) ) << 40;
+		case 13:
+			k2 ^= ( static_cast<uint64_t>(tail[12]) ) << 32;
+		case 12:
+			k2 ^= ( static_cast<uint64_t>(tail[11]) ) << 24;
+		case 11:
+			k2 ^= ( static_cast<uint64_t>(tail[10]) ) << 16;
+		case 10:
+			k2 ^= ( static_cast<uint64_t>(tail[9]) )  << 8;
+		case 9:
+			k2 ^= ( static_cast<uint64_t>(tail[8]) );
+			k2 *= c2_;
+			k2  = (k2 << 33) | (k2 >> 31);
+			k2 *= c1_;
+			hash[1] ^= k2;
+
+		case 8:
+			k1 ^= ( static_cast<uint64_t>(tail[7]) ) << 56;
+		case 7:
+			k1 ^= ( static_cast<uint64_t>(tail[6]) ) << 48;
+		case 6:
+			k1 ^= ( static_cast<uint64_t>(tail[5]) ) << 40;
+		case 5:
+			k1 ^= ( static_cast<uint64_t>(tail[4]) ) << 32;
+		case 4:
+			k1 ^= ( static_cast<uint64_t>(tail[3]) ) << 24;
+		case 3:
+			k1 ^= ( static_cast<uint64_t>(tail[2]) ) << 16;
+		case 2:
+			k1 ^= ( static_cast<uint64_t>(tail[1]) ) << 8;
+		case 1:
+			k1 ^= ( static_cast<uint64_t>(tail[0]) );
+			k1 *= c1_;
+			k1  = (k1 << 31) | (k1 >> 33);
+			k1 *= c2_;
+			hash[0] ^= k1;
+	};
+
+	// finalize
+	hash[0] ^= key.size();
+	hash[1] ^= key.size();
+
+	hash[0] += hash[1];
+	hash[1] += hash[0];
+
+	hash[0] ^= hash[0] >> 33;
+	hash[0] *= m1_;
+	hash[0] ^= hash[0] >> 33;
+	hash[0] *= m2_;
+	hash[0] ^= hash[0] >> 33;
+
+	hash[1] ^= hash[1] >> 33;
+	hash[1] *= m1_;
+	hash[1] ^= hash[1] >> 33;
+	hash[1] *= m2_;
+	hash[1] ^= hash[1] >> 33;
+
+	hash[0] += hash[1];
+	hash[1] += hash[0];
+
+	hash[0] = hash[0];
+	hash[1] = hash[1];
+
 }

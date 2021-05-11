@@ -103,10 +103,11 @@ namespace BayesicSpace {
 		 *
 		 * Output bits as groups of eight 1s and 0s for debugging.
 		 *
+		 * \param[in] binVec binary vector
 		 * \param[out] bitString string with bits
 		 *
 		 */
-		void outputBits(string &bitString);
+		void outputBits(const vector<uint8_t> &binVec, string &bitString);
 		/** \brief Output _i_-th non-zero element ID
 		 *
 		 * \param[in] i index
@@ -147,7 +148,10 @@ namespace BayesicSpace {
 		static const uint64_t c1_;
 		/** \brief MurMurHash c2 constant */
 		static const uint64_t c2_;
-		vector<uint8_t> testMMhash_;
+		/** \brief MurMurHash 64-bit mixing constant */
+		static const uint64_t m1_;
+		/** \brief MurMurHash 64-bit mixing constant */
+		static const uint64_t m2_;
 		/** \brief Generate binary genotypes
 		 *
 		 * Generate binary genotypes from the genotype table.
@@ -164,6 +168,15 @@ namespace BayesicSpace {
 		 * Generate sketches from binary genotypes using modified one-permutation hash.
 		 */
 		void makeSketches_();
+		/** \brief MurMurHash to fill in empty bins
+		 *
+		 * Generates a 128-bit hash using the MurMurHash3 x64 algorithm.
+		 *
+		 * \param[in] key the key to be hashed
+		 * \param[in] seed the seed
+		 * \param[out] hash the hash value
+		 */
+		void murMurHash_(const vector<uint8_t> &key, const uint64_t &seed, array<uint64_t, 2> &hash);
 	};
 }
 
