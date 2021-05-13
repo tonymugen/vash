@@ -107,7 +107,7 @@ namespace BayesicSpace {
 		 * \param[out] bitString string with bits
 		 *
 		 */
-		void outputBits(const vector<uint8_t> &binVec, string &bitString);
+		void outputBits(const vector<uint8_t> &binVec, string &bitString) const;
 		/** \brief Output _i_-th non-zero element ID
 		 *
 		 * \param[in] i index
@@ -145,9 +145,9 @@ namespace BayesicSpace {
 		/** \brief Value corresponding to an empty token */
 		static const uint8_t emptyBinToken_;
 		/** \brief MurMurHash c1 constant */
-		static const uint64_t c1_;
+		static const uint32_t c1_;
 		/** \brief MurMurHash c2 constant */
-		static const uint64_t c2_;
+		static const uint32_t c2_;
 		/** \brief MurMurHash 64-bit mixing constant */
 		static const uint64_t m1_;
 		/** \brief MurMurHash 64-bit mixing constant */
@@ -170,13 +170,16 @@ namespace BayesicSpace {
 		void makeSketches_();
 		/** \brief MurMurHash to fill in empty bins
 		 *
-		 * Generates a 128-bit hash using the MurMurHash3 x64 algorithm.
+		 * Generates a 32-bit hash using the MurMurHash3 algorithm.
 		 *
 		 * \param[in] key the key to be hashed
+		 * \param[in] start start position of the key in the input vector
+		 * \param[in] size number of elements to hash
 		 * \param[in] seed the seed
-		 * \param[out] hash the hash value
+		 *
+		 * \return the hash value
 		 */
-		void murMurHash_(const vector<uint8_t> &key, const uint64_t &seed, array<uint64_t, 2> &hash);
+		uint32_t murMurHash_(const vector<uint8_t> &key, const size_t &start, const size_t &size, const uint32_t &seed) const;
 	};
 }
 
