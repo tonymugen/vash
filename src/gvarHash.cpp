@@ -168,12 +168,12 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 	permuteIndv_();
 	makeSketches_();
 	string binStr;
-	vector<uint8_t> subs(binGenotypes_.begin() + 50, binGenotypes_.begin() + 75);
+	vector<uint8_t> subs(binGenotypes_.begin(), binGenotypes_.begin() + 25);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
-	const uint32_t seed = 1;
-	uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
-	std::cout << hash << "\n";
+	//const uint32_t seed = 1;
+	//uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
+	//std::cout << hash << "\n";
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -351,12 +351,20 @@ void GenoTable::permuteIndv_() {
 void GenoTable::makeSketches_() {
 	size_t nBytes        = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
 	size_t floorSketches = nBytes / llWordSize_;          // the floor of the number of sketches
-	for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
+	vector<uint8_t> nonEmptySketches;                     // vector with non-empty sketches
+	vector<uint64_t> nonEmptyBins;                        // vector with non-empty bins
+	vector<size_t> emptyIndexes;                          // indexes of the empty sketches in the sketches_ vector
+	uint32_t seed = 1; // TODO: this is just temporary
+	//for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
+	for (size_t iLocus = 0; iLocus < 1; iLocus++) {
+		size_t iSketch = 0;
 		for (size_t iByte = 0; iByte < floorSketches; iByte++) {
 			// For now, each bin is 8 bytes
 			uint64_t *bin = reinterpret_cast<uint64_t *>(binGenotypes_.data() + iLocus * nBytes + iByte * llWordSize_);
 			if ( (*bin) == 0 ){
 				sketches_.push_back(emptyBinToken_);
+				emptyIndexes.push_back(iSketch);
+				iSketch++;
 			} else {
 				uint8_t  firstSetBitPos = 0;
 				uint64_t oneBit64       = 1;
@@ -364,6 +372,9 @@ void GenoTable::makeSketches_() {
 					firstSetBitPos++;
 				}
 				sketches_.push_back(firstSetBitPos);
+				iSketch++;
+				nonEmptySketches.push_back(firstSetBitPos);
+				nonEmptyBins.push_back(*bin);
 			}
 		}
 		// Remainder that does not take up the whole 64 bits
@@ -383,10 +394,43 @@ void GenoTable::makeSketches_() {
 			}
 			if (firstSetBitPos == modSketches * byteSize_){
 				sketches_.push_back(emptyBinToken_);
+				emptyIndexes.push_back(iSketch);
 			} else {
 				sketches_.push_back(firstSetBitPos);
+				nonEmptySketches.push_back(firstSetBitPos);
+				uint64_t lastBin = 0;
+				memcpy(&lastBin, binGenotypes_.data() + floorSketches * llWordSize_, modSketches);
+				nonEmptyBins.push_back(lastBin);
 			}
 		}
+		if (nonEmptySketches.size() == 1){
+			for (const auto &e : emptyIndexes){
+				sketches_[e] = nonEmptySketches[0]; // TODO: will need to be fixed for loci after the 1st
+			}
+		} else if (nonEmptySketches.size() > 1){
+			size_t remainingEmpties = emptyIndexes.size();
+			while (remainingEmpties) {
+				for (const auto &neb : nonEmptyBins){
+					vector<uint8_t> key(sizeof(neb), 0);
+					memcpy(key.data(), &neb, sizeof(neb));
+					uint32_t hash = murMurHash_(key, 0, key.size(), seed);
+					hash %= nBytes; // TODO: need k; check if this is right
+				}
+			}
+		}
+		std::cout << "empty indexes:\n";
+		for (const auto &e : emptyIndexes){
+			std::cout << e << " ";
+		}
+		std::cout << "\nnon-empty sketches:\n";
+		for (const auto &s : nonEmptySketches){
+			std::cout << static_cast<uint16_t>(s) << " ";
+		}
+		std::cout << "\nsketches:\n";
+		for (const auto &ss : sketches_){
+			std::cout << static_cast<uint16_t>(ss) << " ";
+		}
+		std::cout << "\n";
 	}
 }
 
