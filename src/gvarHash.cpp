@@ -57,11 +57,9 @@ const uint8_t GenoTable::llWordSize_        = 8;
 const uint8_t GenoTable::emptyBinToken_     = 0xff;
 const uint32_t GenoTable::c1_               = 0xcc9e2d51;
 const uint32_t GenoTable::c2_               = 0x1b873593;
-const uint64_t GenoTable::m1_               = 0xff51afd7ed558ccdULL;
-const uint64_t GenoTable::m2_               = 0xc4ceb9fe1a85ec53ULL;
 
 // Constructors
-GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals} {
+GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const string &, const size_t &) constructor");
 	}
@@ -87,21 +85,27 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	inStr.read( magicBuf, magicBytes_.size() );
 	if (magicBuf[0] != magicBytes_[0]){
 		throw string("ERROR: first magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
-	} else if (magicBuf[1] != magicBytes_[1]) {
+	} else if (magicBuf[1] != magicBytes_[1]){
 		throw string("ERROR: second magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
-	} else if (magicBuf[2] != magicBytes_[2]) {
+	} else if (magicBuf[2] != magicBytes_[2]){
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
 	}
 	genotypes_.resize(static_cast<size_t>(inFileSize));
 	inStr.read(reinterpret_cast<char *>( genotypes_.data() ), inFileSize);
 	inStr.close();
 	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
+
+	// determine the number of sketches using the provided value as a guide
+	size_t sketchSize = nIndividuals_ / kSketches;
+	sketchSize       += sketchSize % byteSize_;
+	kSketches_        = nIndividuals_ / sketchSize;
+
 	generateBinGeno_();
 	permuteIndv_();
 	makeSketches_();
 }
 
-GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
+GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
@@ -122,7 +126,7 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 	size_t  iGeno   = 0; // genotype index in the genotype_ vector
 	size_t  iIndv   = 0; // current individual index
 	for (const auto &mac : maCounts){
-		switch (mac) {
+		switch (mac){
 			case 0:           // 00 for homozygous major allele
 				{
 					iInByte += 2;
@@ -164,13 +168,20 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 			}
 		}
 	}
+
+	// determine the number of sketches using the provided value as a guide
+	size_t sketchSize = nIndividuals_ / kSketches;
+	sketchSize       += sketchSize % byteSize_;
+	kSketches_        = nIndividuals_ / sketchSize + static_cast<bool>(nIndividuals % sketchSize);
+
 	generateBinGeno_();
-	permuteIndv_();
-	makeSketches_();
+	//permuteIndv_();
+	//makeSketches_();
 	string binStr;
 	vector<uint8_t> subs(binGenotypes_.begin(), binGenotypes_.begin() + 25);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
+	std::cout << kSketches_ << "\n";
 	//const uint32_t seed = 1;
 	//uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
 	//std::cout << hash << "\n";
@@ -179,8 +190,11 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 GenoTable::GenoTable(GenoTable &&in){
 	if (this != &in){
 		genotypes_    = move(in.genotypes_);
+		binGenotypes_ = move(in.binGenotypes_);
+		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
+		kSketches_    = in.kSketches_;
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
@@ -190,8 +204,11 @@ GenoTable::GenoTable(GenoTable &&in){
 GenoTable& GenoTable::operator=(GenoTable &&in){
 	if (this != &in){
 		genotypes_    = move(in.genotypes_);
+		binGenotypes_ = move(in.binGenotypes_);
+		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
+		kSketches_    = in.kSketches_;
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
@@ -220,7 +237,7 @@ void GenoTable::outputBits(string &bitString){
 	bitString.clear();
 	uint8_t iInByte = 0;
 	size_t  iOfByte = 0;
-	for (size_t iInd = 0; iInd < nIndividuals_; iInd++) {
+	for (size_t iInd = 0; iInd < nIndividuals_; iInd++){
 		if (binGenotypes_[iOfByte] & (oneBit_ << iInByte) ){
 			bitString += '1';
 			iInByte++;
@@ -242,10 +259,11 @@ void GenoTable::outputBits(string &bitString){
 */
 void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) const {
 	bitString.clear();
-	uint8_t iInByte = 0;
-	size_t  iOfByte = 0;
-	while ( iOfByte < binVec.size() ) {
-		if (binVec[iOfByte] & (oneBit_ << iInByte) ){
+	uint8_t iInByte   = 0;
+	size_t  iOfByte   = 0;
+	size_t sketchSize = nIndividuals_ / kSketches_; // TODO: not quite right
+	while ( iOfByte < binVec.size() ){
+		if ( binVec[iOfByte] & (oneBit_ << iInByte) ){
 			bitString += '1';
 			iInByte++;
 		} else {
@@ -254,7 +272,7 @@ void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) con
 		}
 		if (iInByte == byteSize_){
 			iOfByte++;
-			if (iOfByte % llWordSize_){
+			if (iOfByte % sketchSize){
 				bitString += ' ';
 			} else {
 				bitString += "\n";
@@ -278,7 +296,7 @@ void GenoTable::generateBinGeno_(){
 	uint8_t iInRand   = 0;
 	uint8_t iRandByte = 0;
 	for (const auto &g : genotypes_){
-		for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2) {
+		for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 			if ( g & (oneBit_ << iInByteG) ){
 				if ( g & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous minor allele
 					binGenotypes_[iBinGeno] |= oneBit_ << iInByteB;
@@ -312,16 +330,16 @@ void GenoTable::generateBinGeno_(){
 	}
 }
 
-void GenoTable::permuteIndv_() {
+void GenoTable::permuteIndv_(){
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
 	size_t i = nIndividuals_;
-	while (i >= 2UL) {
+	while (i >= 2UL){
 		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
 		i--;
 	}
 	size_t locusSize = (nIndividuals_ % byteSize_ ? 1 + nIndividuals_ / byteSize_ : nIndividuals_ / byteSize_);
-	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
+	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
 		size_t colInd = iLoc * locusSize;
 		size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
 		for (const auto &ri : ranInts){
@@ -348,17 +366,17 @@ void GenoTable::permuteIndv_() {
 	}
 }
 
-void GenoTable::makeSketches_() {
+void GenoTable::makeSketches_(){
 	size_t nBytes        = binGenotypes_.size() / nLoci_; // the number of binary genotype bytes per locus (reflect the # of individuals)
 	size_t floorSketches = nBytes / llWordSize_;          // the floor of the number of sketches
-	vector<uint8_t> nonEmptySketches;                     // vector with non-empty sketches
+	vector<uint16_t> nonEmptySketches;                    // vector with non-empty sketches
 	vector<uint64_t> nonEmptyBins;                        // vector with non-empty bins
 	vector<size_t> emptyIndexes;                          // indexes of the empty sketches in the sketches_ vector
 	uint32_t seed = 1; // TODO: this is just temporary
-	//for (size_t iLocus = 0; iLocus < nLoci_; iLocus++) {
-	for (size_t iLocus = 0; iLocus < 1; iLocus++) {
+	//for (size_t iLocus = 0; iLocus < nLoci_; iLocus++){
+	for (size_t iLocus = 0; iLocus < 1; iLocus++){
 		size_t iSketch = 0;
-		for (size_t iByte = 0; iByte < floorSketches; iByte++) {
+		for (size_t iByte = 0; iByte < floorSketches; iByte++){
 			// For now, each bin is 8 bytes
 			uint64_t *bin = reinterpret_cast<uint64_t *>(binGenotypes_.data() + iLocus * nBytes + iByte * llWordSize_);
 			if ( (*bin) == 0 ){
@@ -366,9 +384,9 @@ void GenoTable::makeSketches_() {
 				emptyIndexes.push_back(iSketch);
 				iSketch++;
 			} else {
-				uint8_t  firstSetBitPos = 0;
+				uint16_t firstSetBitPos = 0;
 				uint64_t oneBit64       = 1;
-				while ( ( (oneBit64 << firstSetBitPos) & (*bin) ) == 0 ) {
+				while ( ( (oneBit64 << firstSetBitPos) & (*bin) ) == 0 ){
 					firstSetBitPos++;
 				}
 				sketches_.push_back(firstSetBitPos);
@@ -381,10 +399,10 @@ void GenoTable::makeSketches_() {
 		// Cannot reinterpret_cast here, have to go byte by byte
 		size_t modSketches = nBytes % llWordSize_;
 		if (modSketches){
-			uint8_t firstSetBitPos = 0;
-			uint8_t iInByte        = 0;
-			size_t  iByte          = floorSketches * llWordSize_;
-			while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) && (iByte < nBytes) ) {
+			uint16_t firstSetBitPos = 0;
+			uint8_t  iInByte        = 0;
+			size_t   iByte          = floorSketches * llWordSize_;
+			while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) && (iByte < nBytes) ){
 				iInByte++;
 				if (iInByte == byteSize_){
 					iByte++;
@@ -409,7 +427,7 @@ void GenoTable::makeSketches_() {
 			}
 		} else if (nonEmptySketches.size() > 1){
 			size_t remainingEmpties = emptyIndexes.size();
-			while (remainingEmpties) {
+			while (remainingEmpties){
 				for (const auto &neb : nonEmptyBins){
 					vector<uint8_t> key(sizeof(neb), 0);
 					memcpy(key.data(), &neb, sizeof(neb));
@@ -442,7 +460,7 @@ uint32_t GenoTable::murMurHash_(const vector<uint8_t> &key, const size_t &start,
 	// body
 	auto blocks = reinterpret_cast<const uint32_t *>(key.data() + start);
 
-	for(size_t i = 0; i < nblocks; i++) {
+	for(size_t i = 0; i < nblocks; i++){
 		uint32_t k1 = blocks[i];
 
 		k1 *= c1_;
@@ -458,7 +476,7 @@ uint32_t GenoTable::murMurHash_(const vector<uint8_t> &key, const size_t &start,
 	const uint8_t * tail = key.data() + start + nblocks * 4;
 	uint32_t k1 = 0;
 
-	switch(size & 3) {
+	switch(size & 3){
 		case 3:
 			k1 ^= tail[2] << 16;
 		case 2:

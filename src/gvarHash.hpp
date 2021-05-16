@@ -53,21 +53,26 @@ namespace BayesicSpace {
 	class GenoTable {
 	public:
 		/** \brief Default constructor */
-		GenoTable() {};
+		GenoTable(){};
 		/** \brief Constructor with input file name
+		 *
+		 * The suggested number of sketches is modified so that the number of individuals per sketch is divisible by 8.
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches suggested number of sketches per locus
 		 */
-		GenoTable(const string &inputFileName, const size_t &nIndividuals);
+		GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
+		 * The suggested number of sketches is modified so that the number of individuals per sketch is divisible by 8.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches suggested number of sketches per locus
 		 */
-		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals);
+		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTable(const GenoTable &in) = delete;
@@ -126,12 +131,17 @@ namespace BayesicSpace {
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
 		 */
 		vector<uint8_t> binGenotypes_;
-		/** \brief Vector of sketches */
-		vector<uint8_t> sketches_;
+		/** \brief Vector of sketches
+		 *
+		 * A sketch is the position of the first set bit in a bin of permuted bits.
+		 */
+		vector<uint16_t> sketches_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
 		size_t nLoci_;
+		/** \brief Number of sketches per locus */
+		size_t kSketches_;
 		/** \brief Radom number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
@@ -148,10 +158,6 @@ namespace BayesicSpace {
 		static const uint32_t c1_;
 		/** \brief MurMurHash c2 constant */
 		static const uint32_t c2_;
-		/** \brief MurMurHash 64-bit mixing constant */
-		static const uint64_t m1_;
-		/** \brief MurMurHash 64-bit mixing constant */
-		static const uint64_t m2_;
 		/** \brief Generate binary genotypes
 		 *
 		 * Generate binary genotypes from the genotype table.

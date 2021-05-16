@@ -17,6 +17,7 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <cstddef>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -35,7 +36,7 @@ using std::cerr;
 
 using namespace BayesicSpace;
 
-int main() {
+int main(){
 	try {
 		const string inFile("testBinaryVar2.tsv");
 		string inputLine;
@@ -43,18 +44,18 @@ int main() {
 		vector< vector<int8_t> > genoCodes; // file rows in the inner vector
 		input.open(inFile.c_str(), ios::in);
 		size_t Ngeno = 0;
-		while ( getline(input, inputLine) ) {
+		while ( getline(input, inputLine) ){
 			stringstream lineSS(inputLine);
 			string field;
 			vector<int8_t> line;
-			while (lineSS >> field) {
+			while (lineSS >> field){
 				if (field == "0"){
 					line.push_back(0);
 				} else if (field == "1"){
 					line.push_back(1);
-				} else if (field == "2") {
+				} else if (field == "2"){
 					line.push_back(2);
-				} else if (field == "-9") {
+				} else if (field == "-9"){
 					line.push_back(-9);
 				} else {
 					throw string("ERROR: invalid genotype value ") + field ;
@@ -63,7 +64,7 @@ int main() {
 			if (Ngeno == 0){
 				Ngeno = line.size();
 				genoCodes.emplace_back(line);
-			} else if ( Ngeno != line.size() ) {
+			} else if ( Ngeno != line.size() ){
 				throw string("ERROR: new number of genotypes (") + to_string( line.size() ) + string(") not equal to the previous value (") + to_string(Ngeno) + string(")");
 			} else {
 				genoCodes.emplace_back(line);
@@ -72,22 +73,23 @@ int main() {
 		input.close();
 		// Convert the vector of vectors to a variant-major genotype vector
 		vector<int8_t> genoVec;
-		for (size_t jGeno = 0; jGeno < Ngeno; jGeno++) {
-			for (size_t iInd = 0; iInd < genoCodes.size(); iInd++) {
+		for (size_t jGeno = 0; jGeno < Ngeno; jGeno++){
+			for (size_t iInd = 0; iInd < genoCodes.size(); iInd++){
 				genoVec.push_back(genoCodes[iInd][jGeno]);
 			}
 		}
-		GenoTable testTab( genoVec, genoCodes.size() );
+		size_t k = 4;
+		GenoTable testTab(genoVec, genoCodes.size(), k);
 		//const string inFile("testBinary.bed");
 		//GenoTable testTab( inFile, 200 );
 		//testTab.saveGenoBinary("testBinary.bin");
 		/*
-		for (size_t i = 0; i < 4; i++) {
+		for (size_t i = 0; i < 4; i++){
 			std::cout << testTab.getSketchIdx(i) << " ";
 		}
 		std::cout << "\n";
 		*/
-	} catch(string problem) {
+	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);
 	}
