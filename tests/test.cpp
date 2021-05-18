@@ -78,7 +78,7 @@ int main(){
 				genoVec.push_back(genoCodes[iInd][jGeno]);
 			}
 		}
-		size_t k = 4;
+		size_t k = 7;
 		GenoTable testTab(genoVec, genoCodes.size(), k);
 		//const string inFile("testBinary.bed");
 		//GenoTable testTab( inFile, 200 );

@@ -141,7 +141,9 @@ namespace BayesicSpace {
 		/** \brief Number of loci */
 		size_t nLoci_;
 		/** \brief Number of sketches per locus */
-		size_t kSketches_;
+		uint16_t kSketches_;
+		/** \brief Sketch size in bits */
+		uint16_t sketchSize_;
 		/** \brief Radom number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
@@ -165,15 +167,19 @@ namespace BayesicSpace {
 		void generateBinGeno_();
 		/** \brief Permute individuals
 		 *
-		 * Apply the same among-individual permutation to all loci. This is the first step in minHash-type algorithms. Applied to binarized genotypes.
+		 * Apply the same among-individual permutation to a locus. This is the first step in minHash-type algorithms. Applied to binarized genotypes.
 		 * Using the Fisher-Yates-Durstenfeld algorithm.
+		 *
+		 * \param[in] locusIdx locus index
 		 */
-		void permuteIndv_();
+		void permuteIndv_(const size_t &locusIdx);
 		/** \brief Generate sketches
 		 *
 		 * Generate sketches from binary genotypes using modified one-permutation hash.
+		 *
+		 * \param[in] locusIdx locus index
 		 */
-		void makeSketches_();
+		void makeSketches_(const size_t &locusIdx);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash using the MurMurHash3 algorithm.
