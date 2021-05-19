@@ -140,6 +140,8 @@ namespace BayesicSpace {
 		size_t nIndividuals_;
 		/** \brief Number of loci */
 		size_t nLoci_;
+		/** \brief Locus size in bytes */
+		size_t locusSize_;
 		/** \brief Number of sketches per locus */
 		uint16_t kSketches_;
 		/** \brief Sketch size in bits */

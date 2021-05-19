@@ -97,6 +97,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 
 	sketchSize_ = static_cast<uint16_t>(nIndividuals_ / kSketches) + static_cast<bool>(nIndividuals_ % kSketches);
 	kSketches_  = static_cast<uint16_t>( nIndividuals_ / static_cast<size_t>(sketchSize_) ) + static_cast<bool>(nIndividuals % sketchSize_);
+	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 
 	generateBinGeno_();
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
@@ -171,16 +172,18 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 
 	sketchSize_ = static_cast<uint16_t>(nIndividuals_ / kSketches) + static_cast<bool>(nIndividuals_ % kSketches);
 	kSketches_  = static_cast<uint16_t>( nIndividuals_ / static_cast<size_t>(sketchSize_) ) + static_cast<bool>(nIndividuals % sketchSize_);
+	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 
 	generateBinGeno_();
 	//permuteIndv_(0);
-	//makeSketches_(0);
+	makeSketches_(0);
 	string binStr;
 	vector<uint8_t> subs(binGenotypes_.begin(), binGenotypes_.begin() + 25);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
 	std::cout << kSketches_ << "\n";
 	std::cout << sketchSize_ << "\n";
+	std::cout << locusSize_ << "\n";
 	//const uint32_t seed = 1;
 	//uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
 	//std::cout << hash << "\n";
@@ -367,41 +370,43 @@ void GenoTable::permuteIndv_(const size_t &locusIdx){
 }
 
 void GenoTable::makeSketches_(const size_t &locusIdx){
-	size_t locusSize = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_); // locus size in bytes; TODO: move this to the constructor
-	size_t colInd    = locusIdx * locusSize;
+	size_t colInd = locusIdx * locusSize_;
+	size_t colEnd = colInd + locusSize_;
 	vector<uint16_t> nonEmptySketches;                                                           // vector with non-empty sketches
 	vector<size_t> emptyIndexes;                                                                 // indexes of the empty sketches in the sketches_ vector
-	uint32_t seed  = 1; // TODO: this is just temporary
-	size_t iSketch = 0;
-	size_t iByte   = colInd;
-	while (iSketch < kSketches_){
-		uint16_t firstSetBitPos = 0;
-		uint8_t  iInByte        = 0;
-		while (iByte < colInd + locusSize) {
-			if (binGenotypes_[iByte]){
-				while ( (oneBit_ << iInByte) == 0){ // there MUST be a set bit in there
-					iInByte++;
-					firstSetBitPos++;
-					if (firstSetBitPos == sketchSize_){
-						firstSetBitPos = 0;
-						emptyIndexes.push_back(iSketch);
-						iSketch++;
-						break;
-					}
-				}
-				nonEmptySketches.push_back(firstSetBitPos);
+	uint32_t seed           = 1; // TODO: this is just temporary
+	size_t iSketch          = 0;
+	size_t iByte            = colInd;
+	uint8_t iInByte         = 0;
+	uint16_t firstSetBitPos = 0;
+	while ( (iSketch < kSketches_) && (iByte < colEnd) ){
+		if ( (iInByte == 0) && (binGenotypes_[iByte] == 0) ){ // the whole next byte is zero, no reason to iterate through it
+			firstSetBitPos += byteSize_;
+			if (firstSetBitPos >= sketchSize_){
+				firstSetBitPos -= sketchSize_;
+				emptyIndexes.push_back(iSketch);
+				iSketch++;
+			}
+			iByte++;
+			continue;
+		}
+		while ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ){
+			iInByte++;
+			firstSetBitPos++;
+			if (firstSetBitPos == sketchSize_){
+				firstSetBitPos = 0;
+				emptyIndexes.push_back(iSketch);
+				iSketch++;
 				break;
-			} else { // the whole next byte is zero, no reason to iterate through it
-				firstSetBitPos += byteSize_;
-				if (firstSetBitPos >= sketchSize_){
-					firstSetBitPos = 0;
-					emptyIndexes.push_back(iSketch);
-					iSketch++;
-					break;
-				}
+			}
+			if (iInByte == byteSize_){
+				iInByte = 0;
 				iByte++;
+				break;
 			}
 		}
+		nonEmptySketches.push_back(firstSetBitPos);
+		iSketch++;
 	}
 	/*
 	if (nonEmptySketches.size() == 1){
@@ -429,10 +434,12 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 		std::cout << static_cast<uint16_t>(s) << " ";
 	}
 	std::cout << "\nsketches:\n";
+	/*
 	for (const auto &ss : sketches_){
 		std::cout << static_cast<uint16_t>(ss) << " ";
 	}
 	std::cout << "\n";
+	*/
 }
 
 uint32_t GenoTable::murMurHash_(const vector<uint8_t> &key, const size_t &start, const size_t &size, const uint32_t &seed) const {
