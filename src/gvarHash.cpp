@@ -175,7 +175,7 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 
 	generateBinGeno_();
-	//permuteIndv_(0);
+	permuteIndv_(0);
 	makeSketches_(0);
 	string binStr;
 	vector<uint8_t> subs(binGenotypes_.begin(), binGenotypes_.begin() + 25);
@@ -375,11 +375,37 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 	vector<uint16_t> nonEmptySketches;                                                           // vector with non-empty sketches
 	vector<size_t> emptyIndexes;                                                                 // indexes of the empty sketches in the sketches_ vector
 	uint32_t seed           = 1; // TODO: this is just temporary
-	size_t iSketch          = 0;
 	size_t iByte            = colInd;
 	uint8_t iInByte         = 0;
-	uint16_t firstSetBitPos = 0;
-	while ( (iSketch < kSketches_) && (iByte < colEnd) ){
+	for (size_t iSketch = 0; iSketch < kSketches_; iSketch++) {
+		uint16_t firstSetBitPos = 0;
+		while ( (firstSetBitPos < sketchSize_) && (iByte < colEnd) ){
+			if ( (iInByte == 0) && (binGenotypes_[iByte] == 0) && ( (sketchSize_ - firstSetBitPos) < byteSize_) ){
+				iByte++;
+				firstSetBitPos += byteSize_;
+			}
+			if ( (oneBit_ << iInByte) & binGenotypes_[iByte] ){
+				nonEmptySketches.push_back(firstSetBitPos);
+				iInByte++;
+				if (iInByte == byteSize_){
+					iInByte = 0;
+					iByte++;
+				}
+				break;
+			}
+			firstSetBitPos++;
+			iInByte++;
+			if (iInByte == byteSize_){
+				iInByte = 0;
+				iByte++;
+			}
+		}
+		if (firstSetBitPos == sketchSize_){
+			emptyIndexes.push_back(iSketch);
+		}
+	}
+	/*
+	while (iSketch < kSketches_){
 		if ( (iInByte == 0) && (binGenotypes_[iByte] == 0) ){ // the whole next byte is zero, no reason to iterate through it
 			firstSetBitPos += byteSize_;
 			if (firstSetBitPos >= sketchSize_){
@@ -390,24 +416,26 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 			iByte++;
 			continue;
 		}
-		while ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ){
+		while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) && (iSketch < kSketches_) ){
 			iInByte++;
 			firstSetBitPos++;
 			if (firstSetBitPos == sketchSize_){
 				firstSetBitPos = 0;
 				emptyIndexes.push_back(iSketch);
 				iSketch++;
-				break;
 			}
 			if (iInByte == byteSize_){
 				iInByte = 0;
 				iByte++;
-				break;
 			}
 		}
-		nonEmptySketches.push_back(firstSetBitPos);
+		if (firstSetBitPos){
+			nonEmptySketches.push_back(firstSetBitPos);
+		}
+		firstSetBitPos = 0;
 		iSketch++;
 	}
+	*/
 	/*
 	if (nonEmptySketches.size() == 1){
 		for (const auto &e : emptyIndexes){
