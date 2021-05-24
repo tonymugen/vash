@@ -173,6 +173,7 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	sketchSize_ = static_cast<uint16_t>(nIndividuals_ / kSketches) + static_cast<bool>(nIndividuals_ % kSketches);
 	kSketches_  = static_cast<uint16_t>( nIndividuals_ / static_cast<size_t>(sketchSize_) ) + static_cast<bool>(nIndividuals % sketchSize_);
 	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	sketches_.resize(kSketches * nLoci_, 0);
 
 	generateBinGeno_();
 	permuteIndv_(0);
@@ -181,9 +182,9 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	vector<uint8_t> subs(binGenotypes_.begin(), binGenotypes_.begin() + 25);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
-	std::cout << kSketches_ << "\n";
-	std::cout << sketchSize_ << "\n";
-	std::cout << locusSize_ << "\n";
+	//std::cout << kSketches_ << "\n";
+	//std::cout << sketchSize_ << "\n";
+	//std::cout << locusSize_ << "\n";
 	//const uint32_t seed = 1;
 	//uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
 	//std::cout << hash << "\n";
@@ -370,17 +371,19 @@ void GenoTable::permuteIndv_(const size_t &locusIdx){
 }
 
 void GenoTable::makeSketches_(const size_t &locusIdx){
-	size_t iByte  = locusIdx * locusSize_;
-	size_t colEnd = iByte + locusSize_;
-	vector<uint16_t> nonEmptySketches;                                                           // vector with non-empty sketches
-	vector<size_t> emptyIndexes;                                                                 // indexes of the empty sketches in the sketches_ vector
-	uint32_t seed           = 1; // TODO: this is just temporary
-	uint8_t iInByte         = 0;
+	size_t iByte     = locusIdx * locusSize_;
+	size_t colEnd    = iByte + locusSize_;
+	size_t sketchBeg = locusIdx * kSketches_;
+	vector<uint16_t> nonEmptySketches;                           // vector with non-empty sketches
+	vector<size_t> emptyIndexes;                                 // indexes of the empty sketches in the sketches_ vector
+	uint32_t seed   = 1; // TODO: this is just temporary
+	uint8_t iInByte = 0;
 	// A possible optimization is to test a whole byte for 0
 	// Will test later
-	for (size_t iSketch = 0; iSketch < kSketches_; iSketch++) {
+	for (size_t iSketch = 0; iSketch < kSketches_; iSketch++){
 		uint16_t firstSetBitPos = 0;
-		while ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ){
+		while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) &&
+				(firstSetBitPos < sketchSize_) ){
 			iInByte++;
 			if (iInByte == byteSize_){
 				iInByte = 0;
@@ -391,76 +394,26 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 				}
 			}
 			firstSetBitPos++;
-			if (firstSetBitPos == sketchSize_){
-				emptyIndexes.push_back(iSketch);
-				break;
-			}
-		}
-		std::cout << firstSetBitPos << "\n";
-	}
-	/*
-		while ( (firstSetBitPos < sketchSize_) && (iByte < colEnd) ){
-			if ( (iInByte == 0) && (binGenotypes_[iByte] == 0) ){
-				iByte++;
-				firstSetBitPos += byteSize_;
-				if (firstSetBitPos >= sketchSize_){
-					firstSetBitPos -= sketchSize_;
-					emptyIndexes.push_back(iSketch);
-					break;
-				}
-			} else {
-				if ( (oneBit_ << iInByte) & binGenotypes_[iByte] ){
-					nonEmptySketches.push_back(firstSetBitPos);
-					iInByte++;
-					if (iInByte == byteSize_){
-						iInByte = 0;
-						iByte++;
-					}
-					break;
-				}
-				firstSetBitPos++;
-				iInByte++;
-				if (iInByte == byteSize_){
-					iInByte = 0;
-					iByte++;
-				}
-			}
 		}
 		if (firstSetBitPos == sketchSize_){
 			emptyIndexes.push_back(iSketch);
-			firstSetBitPos = 0;
-		}
-	while (iSketch < kSketches_){
-		if ( (iInByte == 0) && (binGenotypes_[iByte] == 0) ){ // the whole next byte is zero, no reason to iterate through it
-			firstSetBitPos += byteSize_;
-			if (firstSetBitPos >= sketchSize_){
-				firstSetBitPos -= sketchSize_;
-				emptyIndexes.push_back(iSketch);
-				iSketch++;
-			}
-			iByte++;
-			continue;
-		}
-		while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) && (iSketch < kSketches_) ){
-			iInByte++;
-			firstSetBitPos++;
-			if (firstSetBitPos == sketchSize_){
-				firstSetBitPos = 0;
-				emptyIndexes.push_back(iSketch);
-				iSketch++;
-			}
-			if (iInByte == byteSize_){
-				iInByte = 0;
-				iByte++;
+		} else {
+			if (iByte < colEnd){
+				nonEmptySketches.push_back(firstSetBitPos);
+				sketches_[sketchBeg + iSketch] = firstSetBitPos;
+				uint16_t remainder = sketchSize_ - firstSetBitPos;
+				uint16_t inByteMod = remainder % byteSize_;
+				uint16_t inByteSum = iInByte + inByteMod;
+				iByte  += remainder / byteSize_ + inByteSum / byteSize_;
+				iInByte = inByteSum % byteSize_;
 			}
 		}
-		if (firstSetBitPos){
-			nonEmptySketches.push_back(firstSetBitPos);
-		}
-		firstSetBitPos = 0;
-		iSketch++;
 	}
-	*/
+	if (nonEmptySketches.size() == 1){
+		for (size_t iSk = 0; iSk < kSketches_; iSk++) { // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
+			sketches_[sketchBeg + iSk] = nonEmptySketches[0];
+		}
+	}
 	/*
 	if (nonEmptySketches.size() == 1){
 		for (const auto &e : emptyIndexes){
@@ -483,12 +436,14 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 		std::cout << e << " ";
 	}
 	std::cout << "\nnon-empty sketches:\n";
-	/*
 	for (const auto &s : nonEmptySketches){
 		std::cout << static_cast<uint16_t>(s) << " ";
 	}
 	std::cout << "\nsketches:\n";
-	*/
+	for (size_t iSk = 0; iSk < kSketches_; iSk++) {
+		std::cout << sketches_[sketchBeg + iSk] << " ";
+	}
+	std::cout << "\n";
 	/*
 	for (const auto &ss : sketches_){
 		std::cout << static_cast<uint16_t>(ss) << " ";
