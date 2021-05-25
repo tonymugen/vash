@@ -156,6 +156,10 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
+		/** \brief MurMurHash number of blocks */
+		static const size_t nblocks_;
+		/** \brief MurMurHash key length */
+		static const uint32_t mmhKeyLen_;
 		/** \brief Value corresponding to an empty token */
 		static const uint8_t emptyBinToken_;
 		/** \brief MurMurHash c1 constant */
@@ -184,16 +188,14 @@ namespace BayesicSpace {
 		void makeSketches_(const size_t &locusIdx);
 		/** \brief MurMurHash to fill in empty bins
 		 *
-		 * Generates a 32-bit hash using the MurMurHash3 algorithm.
+		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
 		 *
 		 * \param[in] key the key to be hashed
-		 * \param[in] start start position of the key in the input vector
-		 * \param[in] size number of elements to hash
 		 * \param[in] seed the seed
 		 *
 		 * \return the hash value
 		 */
-		uint32_t murMurHash_(const vector<uint8_t> &key, const size_t &start, const size_t &size, const uint32_t &seed) const;
+		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
 	};
 }
 

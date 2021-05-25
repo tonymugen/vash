@@ -54,6 +54,8 @@ const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
 const uint8_t GenoTable::oneBit_            = 1;
 const uint8_t GenoTable::byteSize_          = 8;
 const uint8_t GenoTable::llWordSize_        = 8;
+const size_t GenoTable::nblocks_            = sizeof(size_t) / 4;
+const uint32_t GenoTable::mmhKeyLen_        = sizeof(size_t);
 const uint8_t GenoTable::emptyBinToken_     = 0xff;
 const uint32_t GenoTable::c1_               = 0xcc9e2d51;
 const uint32_t GenoTable::c2_               = 0x1b873593;
@@ -374,7 +376,7 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 	size_t iByte     = locusIdx * locusSize_;
 	size_t colEnd    = iByte + locusSize_;
 	size_t sketchBeg = locusIdx * kSketches_;
-	vector<uint16_t> nonEmptySketches;                           // vector with non-empty sketches
+	vector<size_t> filledIndexes;                                // indexes of the non-empty sketches
 	vector<size_t> emptyIndexes;                                 // indexes of the empty sketches in the sketches_ vector
 	uint32_t seed   = 1; // TODO: this is just temporary
 	uint8_t iInByte = 0;
@@ -399,7 +401,7 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 			emptyIndexes.push_back(iSketch);
 		} else {
 			if (iByte < colEnd){
-				nonEmptySketches.push_back(firstSetBitPos);
+				filledIndexes.push_back(iSketch);
 				sketches_[sketchBeg + iSketch] = firstSetBitPos;
 				uint16_t remainder = sketchSize_ - firstSetBitPos;
 				uint16_t inByteMod = remainder % byteSize_;
@@ -409,9 +411,12 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 			}
 		}
 	}
-	if (nonEmptySketches.size() == 1){
+	if (filledIndexes.size() == 1){
 		for (size_t iSk = 0; iSk < kSketches_; iSk++) { // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
-			sketches_[sketchBeg + iSk] = nonEmptySketches[0];
+			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
+		}
+	} else {
+		while ( emptyIndexes.size() ){
 		}
 	}
 	/*
@@ -435,9 +440,9 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 	for (const auto &e : emptyIndexes){
 		std::cout << e << " ";
 	}
-	std::cout << "\nnon-empty sketches:\n";
-	for (const auto &s : nonEmptySketches){
-		std::cout << static_cast<uint16_t>(s) << " ";
+	std::cout << "\nfilled indexes:\n";
+	for (const auto &f : filledIndexes){
+		std::cout << static_cast<uint16_t>(f) << " ";
 	}
 	std::cout << "\nsketches:\n";
 	for (size_t iSk = 0; iSk < kSketches_; iSk++) {
@@ -452,15 +457,13 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 	*/
 }
 
-uint32_t GenoTable::murMurHash_(const vector<uint8_t> &key, const size_t &start, const size_t &size, const uint32_t &seed) const {
-	const size_t nblocks = size / 4;
-
+uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
 	uint32_t hash = seed;
 
 	// body
-	auto blocks = reinterpret_cast<const uint32_t *>(key.data() + start);
+	auto blocks = reinterpret_cast<const uint32_t *>(&key);
 
-	for(size_t i = 0; i < nblocks; i++){
+	for(size_t i = 0; i < nblocks_; i++){
 		uint32_t k1 = blocks[i];
 
 		k1 *= c1_;
@@ -472,25 +475,9 @@ uint32_t GenoTable::murMurHash_(const vector<uint8_t> &key, const size_t &start,
 		hash  = hash * 5 + 0xe6546b64;
 	}
 
-	// tail
-	const uint8_t * tail = key.data() + start + nblocks * 4;
-	uint32_t k1 = 0;
-
-	switch(size & 3){
-		case 3:
-			k1 ^= tail[2] << 16;
-		case 2:
-			k1 ^= tail[1] << 8;
-		case 1:
-			k1   ^= tail[0];
-			k1   *= c1_;
-			k1    = (k1 << 15) | (k1 >> 17);
-			k1   *= c2_;
-			hash ^= k1;
-	};
-
+	// there is no tail since the input is fixed (at eight bytes typically)
 	// finalize
-	hash ^= static_cast<uint32_t>(size);
+	hash ^= mmhKeyLen_;
 	hash ^= hash >> 16;
 	hash *= 0x85ebca6b;
 	hash ^= hash >> 13;
