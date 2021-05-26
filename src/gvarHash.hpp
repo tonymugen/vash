@@ -31,7 +31,6 @@
 #define gvhash_hpp
 
 #include <algorithm>
-#include <bits/stdint-uintn.h>
 #include <cstddef>
 #include <vector>
 #include <array>
@@ -161,7 +160,7 @@ namespace BayesicSpace {
 		/** \brief MurMurHash key length */
 		static const uint32_t mmhKeyLen_;
 		/** \brief Value corresponding to an empty token */
-		static const uint8_t emptyBinToken_;
+		static const uint16_t emptyBinToken_;
 		/** \brief MurMurHash c1 constant */
 		static const uint32_t c1_;
 		/** \brief MurMurHash c2 constant */
