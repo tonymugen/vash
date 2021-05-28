@@ -101,7 +101,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 
 	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize >= emptyBinToken_){
-		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") + 
+		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") +
 			to_string(sketchSize) + string(") that is larger than ") + to_string(emptyBinToken_) +
 			string(", the largest allowed value in GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
@@ -111,9 +111,18 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
 
 	generateBinGeno_();
-	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++) {
-		permuteIndv_(iLoc);
-		makeSketches_(iLoc);
+	// generate the sequence of random integers; each column must be permuted the same
+	vector<size_t> ranInts;
+	size_t i = nIndividuals_;
+	while (i >= 2UL){
+		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
+		i--;
+	}
+	vector<uint32_t> seeds;
+	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
+		permuteIndv_(iLoc, ranInts);
+		makeSketches_(iLoc, seeds);
 	}
 }
 
@@ -183,7 +192,7 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 
 	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize >= emptyBinToken_){
-		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") + 
+		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") +
 			to_string(sketchSize) + string(") that is larger than ") + to_string(emptyBinToken_) +
 			string(", the largest allowed value in GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
@@ -193,10 +202,22 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
 
 	generateBinGeno_();
-	permuteIndv_(1);
-	makeSketches_(1);
+	// generate the sequence of random integers; each column must be permuted the same
+	vector<size_t> ranInts;
+	size_t i = nIndividuals_;
+	while (i >= 2UL){
+		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
+		i--;
+	}
+	vector<uint32_t> seeds;
+	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
+		permuteIndv_(iLoc, ranInts);
+		makeSketches_(iLoc, seeds);
+	}
 	string binStr;
-	vector<uint8_t> subs(binGenotypes_.begin() + 25, binGenotypes_.begin() + 50);
+	std::cout << "# of seeds used: " << seeds.size() << "\n";
+	vector<uint8_t> subs(binGenotypes_.begin() + 50, binGenotypes_.begin() + 75);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
 	//std::cout << kSketches_ << "\n";
@@ -254,31 +275,6 @@ void GenoTable::saveGenoBinary(const string &outFileName) const {
 	out.close();
 }
 
-/*
-void GenoTable::outputBits(string &bitString){
-	bitString.clear();
-	uint8_t iInByte = 0;
-	size_t  iOfByte = 0;
-	for (size_t iInd = 0; iInd < nIndividuals_; iInd++){
-		if (binGenotypes_[iOfByte] & (oneBit_ << iInByte) ){
-			bitString += '1';
-			iInByte++;
-		} else {
-			bitString += '0';
-			iInByte++;
-		}
-		if (iInByte == byteSize_){
-			iOfByte++;
-			if (iOfByte % llWordSize_){
-				bitString += ' ';
-			} else {
-				bitString += "\n";
-			}
-			iInByte = 0;
-		}
-	}
-}
-*/
 void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) const {
 	bitString.clear();
 	uint8_t iInByte   = 0;
@@ -353,16 +349,8 @@ void GenoTable::generateBinGeno_(){
 	}
 }
 
-void GenoTable::permuteIndv_(const size_t &locusIdx){
-	// generate the sequence of random integers; each column must be permuted the same
-	vector<size_t> ranInts;
-	size_t i = nIndividuals_;
-	while (i >= 2UL){
-		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
-		i--;
-	}
-	size_t locusSize = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	size_t colInd = locusIdx * locusSize;
+void GenoTable::permuteIndv_(const size_t &locusIdx, const vector<size_t> &ranInts){
+	size_t colInd = locusIdx * locusSize_;
 	size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
 	for (const auto &ri : ranInts){
 		uint16_t firstIdx  = iIndiv % byteSize_;
@@ -387,12 +375,12 @@ void GenoTable::permuteIndv_(const size_t &locusIdx){
 	}
 }
 
-void GenoTable::makeSketches_(const size_t &locusIdx){
-	vector<size_t> filledIndexes;                                // indexes of the non-empty sketches
+void GenoTable::makeSketches_(const size_t &locusIdx, vector<uint32_t> &seeds){
+	vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
 	size_t iByte     = locusIdx * locusSize_;
 	size_t colEnd    = iByte + locusSize_;
 	size_t sketchBeg = locusIdx * kSketches_;
-	uint32_t seed    = 1; // TODO: this is just temporary
+	size_t iSeed     = 0;                             // index into the seed vector
 	uint8_t iInByte  = 0;
 	// A possible optimization is to test a whole byte for 0
 	// Will test later
@@ -423,32 +411,26 @@ void GenoTable::makeSketches_(const size_t &locusIdx){
 		}
 	}
 	if (filledIndexes.size() == 1){
-		for (size_t iSk = 0; iSk < kSketches_; iSk++) { // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
+		for (size_t iSk = 0; iSk < kSketches_; iSk++){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
 			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
 		}
 	} else if (filledIndexes.size() != kSketches_){
 		size_t emptyCount = kSketches_ - filledIndexes.size();
 		while (emptyCount){
 			for (const auto &f : filledIndexes){
-				uint32_t newIdx = murMurHash_(f, seed) % kSketches_ + sketchBeg;
+				uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
 				if ( sketches_[newIdx] == emptyBinToken_ ){
 					sketches_[newIdx] = sketches_[f + sketchBeg];
 					emptyCount--;
 					break;
 				}
 			}
-			seed++; // TODO: this is temporary; will use RNG seeding eventually
+			iSeed++;
+			if ( iSeed == seeds.size() ){
+				seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+			}
 		}
 	}
-	std::cout << "filled indexes:\n";
-	for (const auto &f : filledIndexes){
-		std::cout << static_cast<uint16_t>(f) << " ";
-	}
-	std::cout << "\nsketches:\n";
-	for (size_t iSk = 0; iSk < kSketches_; iSk++) {
-		std::cout << sketches_[sketchBeg + iSk] << " ";
-	}
-	std::cout << "\n";
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {

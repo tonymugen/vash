@@ -176,15 +176,18 @@ namespace BayesicSpace {
 		 * Using the Fisher-Yates-Durstenfeld algorithm.
 		 *
 		 * \param[in] locusIdx locus index
+		 * \param[in] ranInts permutation integer vector (must be common among loci)
 		 */
-		void permuteIndv_(const size_t &locusIdx);
+		void permuteIndv_(const size_t &locusIdx, const vector<size_t> &ranInts);
 		/** \brief Generate sketches
 		 *
 		 * Generate sketches from binary genotypes using modified one-permutation hash.
+		 * The vector of seeds is updated as new seeds are required and re-used for subsequent loci.
 		 *
 		 * \param[in] locusIdx locus index
+		 * \param[in,out] seeds updateable vector of seeds
 		 */
-		void makeSketches_(const size_t &locusIdx);
+		void makeSketches_(const size_t &locusIdx, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
