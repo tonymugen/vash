@@ -26,7 +26,6 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
-#include <bits/stdint-uintn.h>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -66,6 +65,8 @@ const uint32_t GenoTable::c2_               = 0x1b873593;
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const string &, const size_t &) constructor");
+	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
+		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const string &, const size_t &) constructor");
 	}
 	size_t nBytes;
 	if (nIndividuals_ % 4){
@@ -129,6 +130,8 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
+	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
+		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	if (maCounts.size() % nIndividuals){
 		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
@@ -215,11 +218,13 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 		permuteIndv_(iLoc, ranInts);
 		makeSketches_(iLoc, seeds);
 	}
+	/*
 	string binStr;
 	std::cout << "# of seeds used: " << seeds.size() << "\n";
 	vector<uint8_t> subs(binGenotypes_.begin() + 50, binGenotypes_.begin() + 75);
 	outputBits(subs, binStr);
 	std::cout << binStr << "\n";
+	*/
 	//std::cout << kSketches_ << "\n";
 	//std::cout << sketchSize_ << "\n";
 	//std::cout << locusSize_ << "\n";
@@ -297,6 +302,26 @@ void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) con
 		if (iInSketch == sketchSize_){
 			bitString += "\n";
 			iInSketch = 0;
+		}
+	}
+}
+
+void GenoTable::allSimilarity(vector<double> &similarityMat) const {
+	similarityMat.resize(nIndividuals_ * nIndividuals_, 1.0);
+	const double dNind = static_cast<double>(sketchSize_);
+	for (size_t iRow = 0; iRow < nIndividuals_; iRow++) {
+		for (size_t jCol = iRow + 1; jCol < nIndividuals_; jCol++){
+			double simVal = 0.0;
+			size_t sketchRowInd = iRow * sketchSize_;
+			size_t sketchColInd = jCol * sketchSize_;
+			for (size_t iSk = 0; iSk < sketchSize_; iSk++){
+				if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
+					simVal += 1.0;
+				}
+			}
+			simVal /= dNind;
+			similarityMat[nIndividuals_ * jCol + iRow] = simVal;
+			similarityMat[nIndividuals_ * iRow + jCol] = simVal;
 		}
 	}
 }

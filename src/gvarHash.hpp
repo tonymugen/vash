@@ -119,6 +119,14 @@ namespace BayesicSpace {
 		 * \return index of the first non-zero bit in the bin
 		 */
 		size_t getSketchIdx(const size_t &i) const { return static_cast<size_t>(sketches_[i]);};
+		/** \brief All by all similarity
+		 *
+		 * Calculate similarities among all individuals using our modified OPH.
+		 * Result is in a vectorized symmetric \f$N \times N\f$ matrix, where \f$N\f$ is the number of individuals.
+		 *
+		 * \param[out] similarityMat vectorized similarity matrix
+		 */
+		void allSimilarity(vector<double> &similarityMat) const;
 	protected:
 		/** \brief Genotype table
 		 *
