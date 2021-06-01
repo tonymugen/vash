@@ -143,6 +143,11 @@ namespace BayesicSpace {
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
 		 */
 		vector<uint16_t> sketches_;
+		/** \brief Alternative allele frequencies
+		 *
+		 * One value per locus.
+		 */
+		vector<double> aaf_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
@@ -178,24 +183,17 @@ namespace BayesicSpace {
 		 * Generate binary genotypes from the genotype table.
 		 */
 		void generateBinGeno_();
-		/** \brief Permute individuals
-		 *
-		 * Apply the same among-individual permutation to a locus. This is the first step in minHash-type algorithms. Applied to binarized genotypes.
-		 * Using the Fisher-Yates-Durstenfeld algorithm.
-		 *
-		 * \param[in] locusIdx locus index
-		 * \param[in] ranInts permutation integer vector (must be common among loci)
-		 */
-		void permuteIndv_(const size_t &locusIdx, const vector<size_t> &ranInts);
 		/** \brief Generate sketches
 		 *
 		 * Generate sketches from binary genotypes using modified one-permutation hash.
+		 * The permutation of bits is using the Fisher-Yates-Durstenfeld algorithm.
 		 * The vector of seeds is updated as new seeds are required and re-used for subsequent loci.
 		 *
 		 * \param[in] locusIdx locus index
+		 * \param[in] ranInts permutation integer vector (must be common among loci)
 		 * \param[in,out] seeds updateable vector of seeds
 		 */
-		void makeSketches_(const size_t &locusIdx, vector<uint32_t> &seeds);
+		void makeSketches_(const size_t &locusIdx, const vector<size_t> &ranInts, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

@@ -99,6 +99,9 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	inStr.read(reinterpret_cast<char *>( genotypes_.data() ), inFileSize);
 	inStr.close();
 	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
+	if (nLoci_ > numeric_limits<size_t>::max() / nLoci_ ){ // a square will overflow
+		throw string("ERROR: the number of loci (") + to_string(nLoci_) + string(") is too big to make a square LD matrix in the GenoTable(const string &, const size_t &) constructor");
+	}
 
 	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize >= emptyBinToken_){
@@ -122,8 +125,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	vector<uint32_t> seeds;
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
-		permuteIndv_(iLoc, ranInts);
-		makeSketches_(iLoc, seeds);
+		makeSketches_(iLoc, ranInts, seeds);
 	}
 }
 
@@ -132,6 +134,8 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
+	} else if (nLoci_ > numeric_limits<size_t>::max() / nLoci_ ){ // a square will overflow
+		throw string("ERROR: the number of loci (") + to_string(nLoci_) + string(") is too big to make a square LD matrix in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	if (maCounts.size() % nIndividuals){
 		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
@@ -215,22 +219,8 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	vector<uint32_t> seeds;
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
-		permuteIndv_(iLoc, ranInts);
-		makeSketches_(iLoc, seeds);
+		makeSketches_(iLoc, ranInts, seeds);
 	}
-	/*
-	string binStr;
-	std::cout << "# of seeds used: " << seeds.size() << "\n";
-	vector<uint8_t> subs(binGenotypes_.begin() + 50, binGenotypes_.begin() + 75);
-	outputBits(subs, binStr);
-	std::cout << binStr << "\n";
-	*/
-	//std::cout << kSketches_ << "\n";
-	//std::cout << sketchSize_ << "\n";
-	//std::cout << locusSize_ << "\n";
-	//const uint32_t seed = 1;
-	//uint32_t hash = murMurHash_(binGenotypes_, 50, 25, seed);
-	//std::cout << hash << "\n";
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -307,21 +297,22 @@ void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) con
 }
 
 void GenoTable::allSimilarity(vector<double> &similarityMat) const {
-	similarityMat.resize(nIndividuals_ * nIndividuals_, 1.0);
-	const double dNind = static_cast<double>(sketchSize_);
-	for (size_t iRow = 0; iRow < nIndividuals_; iRow++) {
-		for (size_t jCol = iRow + 1; jCol < nIndividuals_; jCol++){
+	similarityMat.resize(nLoci_ * nLoci_, 1.0);            // Overflow checked at construction
+	const double dNind = 1.0 / static_cast<double>(kSketches_);
+	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
+		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
 			double simVal = 0.0;
-			size_t sketchRowInd = iRow * sketchSize_;
-			size_t sketchColInd = jCol * sketchSize_;
-			for (size_t iSk = 0; iSk < sketchSize_; iSk++){
+			size_t sketchRowInd = iRow * kSketches_;
+			size_t sketchColInd = jCol * kSketches_;
+			for (size_t iSk = 0; iSk < kSketches_; iSk++){
 				if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
 					simVal += 1.0;
 				}
 			}
-			simVal /= dNind;
-			similarityMat[nIndividuals_ * jCol + iRow] = simVal;
-			similarityMat[nIndividuals_ * iRow + jCol] = simVal;
+			simVal *= dNind;
+			simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
+			similarityMat[nLoci_ * jCol + iRow] = simVal;
+			similarityMat[nLoci_ * iRow + jCol] = simVal;
 		}
 	}
 }
@@ -337,19 +328,23 @@ void GenoTable::generateBinGeno_(){
 	array<uint8_t, llWordSize_> rand;
 	uint64_t randW = rng_.ranInt();
 	memcpy(rand.data(), &randW, llWordSize_);
-	uint8_t iInRand   = 0;
-	uint8_t iRandByte = 0;
+	uint8_t iInRand    = 0;
+	uint8_t iRandByte  = 0;
+	const double dNind = 2.0 * static_cast<double>(nIndividuals_); // double for diploids
+	double aaCount     = 0.0;
 	for (const auto &g : genotypes_){
 		for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 			if ( g & (oneBit_ << iInByteG) ){
-				if ( g & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous minor allele
+				if ( g & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous alternative allele
 					binGenotypes_[iBinGeno] |= oneBit_ << iInByteB;
 					iInByteB++;
+					aaCount += 2.0;
 				} else {                                            // heterozygous
 					uint8_t testBit = (oneBit_ << iInRand) & rand[iRandByte];
 					if (testBit){
 						binGenotypes_[iBinGeno] |= oneBit_ << iInByteB;
 					}
+					aaCount += 1.0;
 					iInRand++;
 					if (iInRand == byteSize_){
 						iInRand = 0;
@@ -364,17 +359,22 @@ void GenoTable::generateBinGeno_(){
 				}
 			} else {
 				iInByteB++;
-				// do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the binary bit is zero
+				// do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the corresponding binary bit is zero
 			}
 			if (iInByteB == byteSize_){
 				iInByteB = 0;
 				iBinGeno++;
+				if ( (iBinGeno % locusSize_) == 0){ // finished a locus
+					aaf_.push_back(aaCount / dNind);
+					aaCount = 0.0;
+				}
 			}
 		}
 	}
 }
 
-void GenoTable::permuteIndv_(const size_t &locusIdx, const vector<size_t> &ranInts){
+void GenoTable::makeSketches_(const size_t &locusIdx, const vector<size_t> &ranInts, vector<uint32_t> &seeds){
+	// Start with a permutation
 	size_t colInd = locusIdx * locusSize_;
 	size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
 	for (const auto &ri : ranInts){
@@ -398,9 +398,7 @@ void GenoTable::permuteIndv_(const size_t &locusIdx, const vector<size_t> &ranIn
 		memcpy(binGenotypes_.data() + secondByte, &twoBytes, sizeof(uint8_t));
 		iIndiv--;
 	}
-}
-
-void GenoTable::makeSketches_(const size_t &locusIdx, vector<uint32_t> &seeds){
+	// Now make the sketches
 	vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
 	size_t iByte     = locusIdx * locusSize_;
 	size_t colEnd    = iByte + locusSize_;
