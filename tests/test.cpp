@@ -18,7 +18,6 @@
  */
 
 #include <cstddef>
-#include <vector>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -26,7 +25,6 @@
 
 #include "../src/gvarHash.hpp"
 
-//using std::vector;
 using std::string;
 using std::to_string;
 using std::fstream;

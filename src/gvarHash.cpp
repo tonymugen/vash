@@ -35,8 +35,6 @@
 #include <limits>
 #include <fstream>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 
 using std::vector;
