@@ -119,14 +119,14 @@ namespace BayesicSpace {
 		 * \return index of the first non-zero bit in the bin
 		 */
 		size_t getSketchIdx(const size_t &i) const { return static_cast<size_t>(sketches_[i]);};
-		/** \brief All by all similarity
+		/** \brief All by all linkage disequilibrium
 		 *
-		 * Calculate similarities among all individuals using our modified OPH.
-		 * Result is in a vectorized symmetric \f$N \times N\f$ matrix, where \f$N\f$ is the number of individuals.
+		 * Calculate similarities among all loci using a modified OPH.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 *
-		 * \param[out] similarityMat vectorized similarity matrix
+		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
-		void allSimilarity(vector<double> &similarityMat) const;
+		void allSimilarity(vector<double> &LDmat) const;
 	protected:
 		/** \brief Genotype table
 		 *

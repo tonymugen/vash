@@ -26,7 +26,7 @@
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
  */
-#include <cstddef>
+
 #include <cstring>
 #include <string>
 #include <vector>
@@ -294,8 +294,8 @@ void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) con
 	}
 }
 
-void GenoTable::allSimilarity(vector<double> &similarityMat) const {
-	similarityMat.resize(nLoci_ * nLoci_, 1.0);            // Overflow checked at construction
+void GenoTable::allSimilarity(vector<double> &LDmat) const {
+	LDmat.clear();
 	const double dNind = 1.0 / static_cast<double>(kSketches_);
 	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
 		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
@@ -309,8 +309,7 @@ void GenoTable::allSimilarity(vector<double> &similarityMat) const {
 			}
 			simVal *= dNind;
 			simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
-			similarityMat[nLoci_ * jCol + iRow] = simVal;
-			similarityMat[nLoci_ * iRow + jCol] = simVal;
+			LDmat.push_back(simVal);
 		}
 	}
 }

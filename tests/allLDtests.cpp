@@ -24,11 +24,10 @@
  * \version 0.1
  *
  * Run correctness and timing tests of linkage disequilibrium among all loci using simulated data.
+ * Output the results in a space-delimited file, where the first two values are execution times and the rest are the upper triangle of the among-locus similarity matrix.
  *
  */
 
-#include <bits/types/clock_t.h>
-#include <bits/types/time_t.h>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -59,13 +58,26 @@ int main(int argc, char *argv[]){
 		cerr << "Number of sketches (is " << kSketches << ") must be greater than 1\n";
 		exit(2);
 	}
-	const string outFileName(argv[4]);
-	vector<double> result;
-	time_t loadTime = clock();
-	GenoTable abaTest(inFileName, Nindv, kSketches);
-	loadTime = clock() - loadTime;
-	clock_t runTime = clock();
-	abaTest.allSimilarity(result);
-	runTime = clock() - runTime;
-	//cout << 1000.0*static_cast<double>(vTime)/CLOCKS_PER_SEC << " " << 1000.0*static_cast<double>(sTime)/CLOCKS_PER_SEC << endl;
+	try {
+		const string outFileName(argv[4]);
+		vector<double> result;
+		time_t loadTime = clock();
+		GenoTable abaTest(inFileName, Nindv, kSketches);
+		loadTime = clock() - loadTime;
+		clock_t runTime = clock();
+		abaTest.allSimilarity(result);
+		runTime = clock() - runTime;
+		fstream output;
+		output.open(outFileName.c_str(), ios::out | ios::trunc);
+		// output times in milliseconds
+		output << 1000.0 * static_cast<float>(loadTime) / CLOCKS_PER_SEC << " " << 1000.0 * static_cast<float>(runTime) / CLOCKS_PER_SEC;
+		for (const auto &r : result){
+			output << " " << r;
+		}
+		output << "\n";
+		output.close();
+	} catch(string problem){
+		cerr << problem << "\n";
+		exit(3);
+	}
 }
