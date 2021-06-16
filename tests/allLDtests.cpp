@@ -60,7 +60,7 @@ int main(int argc, char *argv[]){
 	}
 	try {
 		const string outFileName(argv[4]);
-		vector<double> result;
+		vector<float> result;
 		time_t loadTime = clock();
 		GenoTable abaTest(inFileName, Nindv, kSketches);
 		loadTime = clock() - loadTime;

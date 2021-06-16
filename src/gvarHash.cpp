@@ -27,6 +27,7 @@
  *
  */
 
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -60,46 +61,93 @@ const uint32_t GenoTable::c1_               = 0xcc9e2d51;
 const uint32_t GenoTable::c2_               = 0x1b873593;
 
 // Constructors
-GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals} {
+GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{0} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const string &, const size_t &) constructor");
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const string &, const size_t &) constructor");
 	}
-	size_t nBytes;
-	if (nIndividuals_ % 4){
-		nBytes = 1 + nIndividuals_ / 4;
-	} else {
-		nBytes = nIndividuals_ / 4;
-	}
+	size_t nBedBytes = nIndividuals_ / 4 + static_cast<bool>(nIndividuals % 4);
 	fstream inStr;
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
-	inStr.seekg(0, inStr.end);
-	streampos inFileSize = inStr.tellg();
-	inStr.seekg(0, inStr.beg);
-	if ( inFileSize <= magicBytes_.size() ){
-		throw string("ERROR: input .bed file has no genotypes in the GenoTable(const string &, const size_t &) constructor");
-	}
-	inFileSize -= magicBytes_.size();
-	if (static_cast<size_t>(inFileSize) % nBytes){
-		throw string("ERROR: The .bed file size not evenly divisible by the number of individuals provided (") + to_string(nIndividuals_) + string(")");
-	}
 	char magicBuf[magicBytes_.size()]{};
 	inStr.read( magicBuf, magicBytes_.size() );
-	if (magicBuf[0] != magicBytes_[0]){
+	if ( inStr.eof() ){
+		throw string("ERROR: No loci in the input .bed file ") + inputFileName + string("in the GenoTable(const string &, const size_t &) constructor");
+	} else if (magicBuf[0] != magicBytes_[0]){
 		throw string("ERROR: first magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
 	} else if (magicBuf[1] != magicBytes_[1]){
 		throw string("ERROR: second magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
 	} else if (magicBuf[2] != magicBytes_[2]){
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
 	}
-	genotypes_.resize(static_cast<size_t>(inFileSize));
-	inStr.read(reinterpret_cast<char *>( genotypes_.data() ), inFileSize);
-	inStr.close();
-	nLoci_ = static_cast<size_t>(inFileSize) / nBytes;
-	if (nLoci_ > numeric_limits<size_t>::max() / nLoci_ ){ // a square will overflow
-		throw string("ERROR: the number of loci (") + to_string(nLoci_) + string(") is too big to make a square LD matrix in the GenoTable(const string &, const size_t &) constructor");
+	// Generate the binary genotype table while reading the .bed file
+	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	vector<char> bedLocus(nBedBytes, 0);
+	uint8_t iInByteB  = 0; // index within the current binary byte
+	size_t  iBinGeno  = 0; // binGenotypes_ vector index
+	array<uint8_t, llWordSize_> rand;
+	uint64_t randW = rng_.ranInt();
+	memcpy(rand.data(), &randW, llWordSize_);
+	uint8_t iInRand   = 0;
+	uint8_t iRandByte = 0;
+	const float fNind = 2.0 * static_cast<float>(nIndividuals_); // double for diploids
+	while (inStr) {
+		inStr.read(bedLocus.data(), nBedBytes);
+		vector<uint8_t> binLocus(locusSize_, 0);
+		float aaCount = 0.0;
+		for (const auto &b : bedLocus){
+			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
+				if ( b & (oneBit_ << iInByteG) ){
+					if ( b & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous alternative allele
+						binLocus[iBinGeno] |= oneBit_ << iInByteB;
+						iInByteB++;
+						aaCount += 2.0;
+					} else {                                            // heterozygous
+						uint8_t testBit = (oneBit_ << iInRand) & rand[iRandByte];
+						if (testBit){
+							binLocus[iBinGeno] |= oneBit_ << iInByteB;
+						}
+						aaCount += 1.0;
+						iInRand++;
+						if (iInRand == byteSize_){
+							iInRand = 0;
+							iRandByte++;
+							if (iRandByte == llWordSize_){
+								randW = rng_.ranInt();
+								memcpy(rand.data(), &randW, llWordSize_);
+								iRandByte = 0;
+							}
+						}
+						iInByteB++;
+					}
+				} else {
+					iInByteB++;
+					// do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the corresponding binary bit is zero
+				}
+				if (iInByteB == byteSize_){
+					iInByteB = 0;
+					iBinGeno++;
+				}
+			}
+		}
+		aaCount /= fNind;
+		if (aaCount < 0.5){ // always want the alternative to be the minor allele
+			for (auto &bg : binLocus){
+				bg = ~bg;
+				binGenotypes_.push_back(bg);
+			}
+			aaCount = 1.0 - aaCount;
+			//TODO: fix it so that the trailing bits are not all 1 (using >>)
+		} else {
+			for (const auto &bg : binLocus){
+				binGenotypes_.push_back(bg);
+			}
+		}
+		aaf_.push_back(aaCount);
+		nLoci_++;
 	}
+	inStr.close();
 
 	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize >= emptyBinToken_){
@@ -109,10 +157,8 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	}
 	sketchSize_ = static_cast<uint16_t>(sketchSize);
 	kSketches_  = static_cast<uint16_t>( nIndividuals_ / static_cast<size_t>(sketchSize_) ) + static_cast<bool>(nIndividuals % sketchSize_);
-	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
 
-	generateBinGeno_();
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
 	size_t i = nIndividuals_;
@@ -294,12 +340,16 @@ void GenoTable::outputBits(const vector<uint8_t> &binVec, string &bitString) con
 	}
 }
 
-void GenoTable::allSimilarity(vector<double> &LDmat) const {
-	LDmat.clear();
-	const double dNind = 1.0 / static_cast<double>(kSketches_);
+void GenoTable::allSimilarity(vector<float> &LDmat) const {
+	if ( (nLoci_ / 2) > ( numeric_limits<size_t>::max() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
+		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD");
+	}
+	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
+	const float fNind = 1.0 / static_cast<float>(kSketches_);
+	size_t resInd = 0;
 	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
 		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
-			double simVal = 0.0;
+			float simVal = 0.0;
 			size_t sketchRowInd = iRow * kSketches_;
 			size_t sketchColInd = jCol * kSketches_;
 			for (size_t iSk = 0; iSk < kSketches_; iSk++){
@@ -307,9 +357,10 @@ void GenoTable::allSimilarity(vector<double> &LDmat) const {
 					simVal += 1.0;
 				}
 			}
-			simVal *= dNind;
+			simVal *= fNind;
 			simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
-			LDmat.push_back(simVal);
+			LDmat[resInd] = simVal;
+			resInd++;
 		}
 	}
 }
@@ -379,7 +430,7 @@ void GenoTable::makeSketches_(const size_t &locusIdx, const vector<size_t> &ranI
 		size_t firstByte   = (iIndiv / byteSize_) + colInd;
 		uint16_t secondIdx = ri % byteSize_;
 		size_t secondByte  = (ri / byteSize_) + colInd;
-		uint16_t diff      = 8 * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
+		uint16_t diff      = byteSize_ * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
 
 		// swapping bits within a two-byte variable
 		// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR

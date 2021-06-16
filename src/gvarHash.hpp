@@ -126,7 +126,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
-		void allSimilarity(vector<double> &LDmat) const;
+		void allSimilarity(vector<float> &LDmat) const;
 	protected:
 		/** \brief Genotype table
 		 *
@@ -147,7 +147,7 @@ namespace BayesicSpace {
 		 *
 		 * One value per locus.
 		 */
-		vector<double> aaf_;
+		vector<float> aaf_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
