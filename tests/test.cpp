@@ -36,6 +36,7 @@ using namespace BayesicSpace;
 
 int main(){
 	try {
+		/*
 		const string inFile("testBinaryVar.tsv");
 		string inputLine;
 		fstream input;
@@ -76,11 +77,15 @@ int main(){
 				genoVec.push_back(genoCodes[iInd][jGeno]);
 			}
 		}
-		size_t k = 15;
-		const string bedFile("testBinary.bed");
-		GenoTable testTab(bedFile, 200, k);
+		*/
+		const size_t Ngeno = 3;
+		const size_t Nindv = 17;
+		size_t k = 3;
+		const string bedFile("sim1test.bed");
+		GenoTable testTab(bedFile, Nindv, k);
 		//GenoTable testTab(genoVec, genoCodes.size(), k);
-		vector<double> out;
+		/*
+		vector<float> out;
 		testTab.allSimilarity(out);
 		fstream outStr;
 		outStr.open("allSimOut.txt", ios::out | ios::trunc);
@@ -91,6 +96,7 @@ int main(){
 			outStr << out[Ngeno * iRow + Ngeno - 1] << "\n";
 		}
 		outStr.close();
+		*/
 		//const string inFile("testBinary.bed");
 		//GenoTable testTab( inFile, 200 );
 		//testTab.saveGenoBinary("testBinary.bin");

@@ -36,6 +36,8 @@
 #include <limits>
 #include <fstream>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -82,7 +84,8 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in the GenoTable(const string &, const size_t &) constructor");
 	}
 	// Generate the binary genotype table while reading the .bed file
-	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	const uint8_t locusRemainder = nIndividuals_ % byteSize_;
+	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(locusRemainder);
 	vector<char> bedLocus(nBedBytes, 0);
 	uint8_t iInByteB  = 0; // index within the current binary byte
 	size_t  iBinGeno  = 0; // binGenotypes_ vector index
@@ -132,18 +135,19 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 			}
 		}
 		aaCount /= fNind;
-		if (aaCount < 0.5){ // always want the alternative to be the minor allele
+		if (aaCount < -0.5){ // always want the alternative to be the minor allele
 			for (auto &bg : binLocus){
 				bg = ~bg;
 				binGenotypes_.push_back(bg);
 			}
+			binGenotypes_.back() = binGenotypes_.back() << locusRemainder; // unset the remainder bits
 			aaCount = 1.0 - aaCount;
-			//TODO: fix it so that the trailing bits are not all 1 (using >>)
 		} else {
 			for (const auto &bg : binLocus){
 				binGenotypes_.push_back(bg);
 			}
 		}
+		std::cout << aaCount << "\n";
 		aaf_.push_back(aaCount);
 		nLoci_++;
 	}
@@ -166,11 +170,13 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
 		i--;
 	}
+	/*
 	vector<uint32_t> seeds;
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
 		makeSketches_(iLoc, ranInts, seeds);
 	}
+	*/
 }
 
 GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
