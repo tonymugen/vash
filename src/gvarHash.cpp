@@ -69,7 +69,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const string &, const size_t &) constructor");
 	}
-	size_t nBedBytes = nIndividuals_ / 4 + static_cast<bool>(nIndividuals % 4);
+	size_t nBedBytes = nIndividuals_ / 4 + static_cast<bool>(nIndividuals_ % 4);
 	fstream inStr;
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
 	char magicBuf[magicBytes_.size()]{};
@@ -87,46 +87,50 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	const uint8_t locusRemainder = nIndividuals_ % byteSize_;
 	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(locusRemainder);
 	vector<char> bedLocus(nBedBytes, 0);
-	uint8_t iInByteB  = 0; // index within the current binary byte
-	size_t  iBinGeno  = 0; // binGenotypes_ vector index
-	array<uint8_t, llWordSize_> rand;
-	uint64_t randW = rng_.ranInt();
-	memcpy(rand.data(), &randW, llWordSize_);
-	uint8_t iInRand   = 0;
-	uint8_t iRandByte = 0;
-	const float fNind = 2.0 * static_cast<float>(nIndividuals_); // double for diploids
-	while (inStr) {
-		inStr.read(bedLocus.data(), nBedBytes);
+	// Create a vector to store random bytes for stochastic heterozygote resolution
+	vector<uint64_t> rand( nIndividuals / llWordSize_ + static_cast<bool>(nIndividuals % llWordSize_) );
+	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	const float fNind  = 2.0 * static_cast<float>(nIndividuals_); // double for diploids
+	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
+		// Fill the random byte vector
+		for (auto &rv : rand){
+			rv = rng_.ranInt();
+		}
+		uint8_t iInRand = 0;
 		vector<uint8_t> binLocus(locusSize_, 0);
-		float aaCount = 0.0;
+		uint8_t iInByteB = 0;                       // index within the current binary byte
+		size_t iBinGeno  = 0;                       // binGenotypes_ vector index
+		float aaCount    = 0.0;
+		for (size_t iBed = 0; iBed < nBedBytes - 1; iBed++){                  // the last byte has the padding; will deal with it separately
+			bedLocus[iBed] = ~bedLocus[iBed];                                 // flip so that homozygous second allele (usually minor) is set to 11
+			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
+				const uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
+				const uint8_t secondBitMask = bedLocus[iBed] & ( oneBit_ << (iInByteG + 1) );
+				// If 1st is not set and 2nd is set, we have a heterozygote. In this case, set the 1st with a 50/50 chance
+			}
+		}
 		for (const auto &b : bedLocus){
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				if ( b & (oneBit_ << iInByteG) ){
-					if ( b & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous alternative allele
-						binLocus[iBinGeno] |= oneBit_ << iInByteB;
+					if ( b & ( oneBit_ << (iInByteG + 1) ) ){           // homozygous for the second in .bim (usually major) allele; leave unset
 						iInByteB++;
-						aaCount += 2.0;
 					} else {                                            // heterozygous
-						uint8_t testBit = (oneBit_ << iInRand) & rand[iRandByte];
-						if (testBit){
-							binLocus[iBinGeno] |= oneBit_ << iInByteB;
-						}
+						//uint8_t testBit = (oneBit_ << iInRand) & rand[iRandByte];
+						//if (testBit){
+						//	binLocus[iBinGeno] |= oneBit_ << iInByteB;
+						//}
 						aaCount += 1.0;
-						iInRand++;
-						if (iInRand == byteSize_){
-							iInRand = 0;
-							iRandByte++;
-							if (iRandByte == llWordSize_){
-								randW = rng_.ranInt();
-								memcpy(rand.data(), &randW, llWordSize_);
-								iRandByte = 0;
-							}
-						}
 						iInByteB++;
+						iInRand++;
 					}
 				} else {
-					iInByteB++;
-					// do not care what the next bit is: if the odd one is 0 (ie, homozygous or missing), the corresponding binary bit is zero
+					if ( b & ( oneBit_ << (iInByteG + 1) ) ){ // 01 is missing
+						iInByteB++;
+					} else { // 00 is homozygous for the first in .bim (usually minor) allele
+						binLocus[iBinGeno] |= oneBit_ << iInByteB;
+						aaCount += 2.0;
+						iInByteB++;
+					}
 				}
 				if (iInByteB == byteSize_){
 					iInByteB = 0;
@@ -134,6 +138,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 				}
 			}
 		}
+		//aaCount -= bedMod;
 		aaCount /= fNind;
 		if (aaCount < -0.5){ // always want the alternative to be the minor allele
 			for (auto &bg : binLocus){
