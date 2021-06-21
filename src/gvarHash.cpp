@@ -27,6 +27,7 @@
  *
  */
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -37,6 +38,7 @@
 #include <fstream>
 
 #include <iostream>
+#include <bitset>
 
 #include "gvarHash.hpp"
 
@@ -88,7 +90,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(locusRemainder);
 	vector<char> bedLocus(nBedBytes, 0);
 	// Create a vector to store random bytes for stochastic heterozygote resolution
-	vector<uint64_t> rand( nIndividuals / llWordSize_ + static_cast<bool>(nIndividuals % llWordSize_) );
+	vector<uint64_t> rand( nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_) );
 	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
 	const float fNind  = 2.0 * static_cast<float>(nIndividuals_); // double for diploids
 	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
@@ -101,14 +103,43 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals, co
 		uint8_t iInByteB = 0;                       // index within the current binary byte
 		size_t iBinGeno  = 0;                       // binGenotypes_ vector index
 		float aaCount    = 0.0;
-		for (size_t iBed = 0; iBed < nBedBytes - 1; iBed++){                  // the last byte has the padding; will deal with it separately
+		// Two bytes of .bed code go into one byte of my binary representation
+		// Therefore, work on two consecutive bytes of .bed code in the loop
+		const size_t endBed = nBedBytes - 2 + (nBedBytes & 1UL);
+		for (size_t iBed = 0; iBed < endBed ; iBed += 2){                     // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
 			bedLocus[iBed] = ~bedLocus[iBed];                                 // flip so that homozygous second allele (usually minor) is set to 11
+			uint8_t offsetToBin = 0;                                          // move the .bed mask by this much to align with the binarized byte
+			std::cout << std::bitset<8>(bedLocus[iBed]) << ":\n";
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				const uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
-				const uint8_t secondBitMask = bedLocus[iBed] & ( oneBit_ << (iInByteG + 1) );
+				uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
+				uint8_t secondBitMask = bedLocus[iBed] & ( oneBit_ << (iInByteG + 1) );
+				std::cout << std::bitset<8>(firstBitMask) << " " << std::bitset<8>(secondBitMask) << "\n";
 				// If 1st is not set and 2nd is set, we have a heterozygote. In this case, set the 1st with a 50/50 chance
+				firstBitMask |= randBytes[iBed] & (oneBit_ << iInByteG);
+				firstBitMask &= secondBitMask >> 1;
+				binLocus[iBinGeno] |= firstBitMask >> offsetToBin;
+				std::cout << std::bitset<8>(firstBitMask) << " " << std::bitset<8>(binLocus[iBinGeno]) << "\n";
+				offsetToBin++;
+				std::cout << "-----------------\n";
 			}
+			const size_t nextIbed = iBed + 1;
+			std::cout << std::bitset<8>(bedLocus[nextIbed]) << ":\n";
+			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
+				uint8_t firstBitMask  = bedLocus[nextIbed] & (oneBit_ << iInByteG);
+				uint8_t secondBitMask = bedLocus[nextIbed] & ( oneBit_ << (iInByteG + 1) );
+				std::cout << std::bitset<8>(firstBitMask) << " " << std::bitset<8>(secondBitMask) << "\n";
+				// If 1st is not set and 2nd is set, we have a heterozygote. In this case, set the 1st with a 50/50 chance
+				firstBitMask |= randBytes[nextIbed] & (oneBit_ << iInByteG);
+				firstBitMask &= secondBitMask >> 1;
+				binLocus[iBinGeno] |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
+				std::cout << std::bitset<8>(firstBitMask) << " " << std::bitset<8>(binLocus[iBinGeno]) << "\n";
+				offsetToBin--;
+				std::cout << "-----------------\n";
+			}
+			iBinGeno++;
+			std::cout << "\n";
 		}
+		break;
 		for (const auto &b : bedLocus){
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				if ( b & (oneBit_ << iInByteG) ){
