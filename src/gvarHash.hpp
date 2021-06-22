@@ -204,6 +204,14 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
+		/** \brief Count set bits in a vector
+		 *
+		 * Counting the set bits in a vector of bytes using Karnigan's method.
+		 *
+		 * \param[in] inVec input vector
+		 * \return number of bits set
+		 */
+		uint32_t countSetBits_(const vector<uint8_t> &inVec) const;
 	};
 }
 
