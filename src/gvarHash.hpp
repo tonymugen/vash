@@ -59,9 +59,8 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches suggested number of sketches per locus
 		 */
-		GenoTable(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches);
+		GenoTable(const string &inputFileName, const size_t &nIndividuals);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -103,30 +102,33 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const string &outFileName) const;
-		/** \brief Output bits
+		/** \brief Make OPH sketches of individuals
 		 *
-		 * Output bits as groups of eight 1s and 0s for debugging.
+		 * Make one-permutation sketches of individuals (one sketch per locus).
+		 * The permutation of bits is using the Fisher-Yates-Durstenfeld algorithm.
+		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
-		 * \param[in] binVec binary vector
-		 * \param[out] bitString string with bits
-		 *
+		 * \param[in] kSketches the number of sketches per locus
 		 */
-		void outputBits(const vector<uint8_t> &binVec, string &bitString) const;
-		/** \brief Output _i_-th non-zero element ID
+		void makeIndividualOPH(const size_t &kSketches);
+		/** \brief All by all LD from hashes
 		 *
-		 * \param[in] i index
-		 *
-		 * \return index of the first non-zero bit in the bin
-		 */
-		size_t getSketchIdx(const size_t &i) const { return static_cast<size_t>(sketches_[i]);};
-		/** \brief All by all linkage disequilibrium
-		 *
-		 * Calculate similarities among all loci using a modified OPH.
+		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities. 
 		 *
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
-		void allSimilarity(vector<float> &LDmat) const;
+		void allHashLD(vector<float> &LDmat) const;
+		/** \brief All by all Jaccad similarity LD
+		 *
+		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities. 
+		 *
+		 * \param[out] LDmat lower triangle of the LD matrix
+		 */
+		void allJaccardLD(vector<float> &LDmat) const;
 	protected:
 		/** \brief Genotype table
 		 *
@@ -154,10 +156,6 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
 		size_t locusSize_;
-		/** \brief Number of sketches per locus */
-		uint16_t kSketches_;
-		/** \brief Sketch size in bits */
-		uint16_t sketchSize_;
 		/** \brief Radom number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
@@ -183,17 +181,6 @@ namespace BayesicSpace {
 		 * Generate binary genotypes from the genotype table.
 		 */
 		void generateBinGeno_();
-		/** \brief Generate sketches
-		 *
-		 * Generate sketches from binary genotypes using modified one-permutation hash.
-		 * The permutation of bits is using the Fisher-Yates-Durstenfeld algorithm.
-		 * The vector of seeds is updated as new seeds are required and re-used for subsequent loci.
-		 *
-		 * \param[in] locusIdx locus index
-		 * \param[in] ranInts permutation integer vector (must be common among loci)
-		 * \param[in,out] seeds updateable vector of seeds
-		 */
-		void makeSketches_(const size_t &locusIdx, const vector<size_t> &ranInts, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

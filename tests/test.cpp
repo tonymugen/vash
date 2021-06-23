@@ -82,7 +82,7 @@ int main(){
 		const size_t Nindv = 21;
 		size_t k = 3;
 		const string bedFile("sim1test.bed");
-		GenoTable testTab(bedFile, Nindv, k);
+		GenoTable testTab(bedFile, Nindv);
 		//GenoTable testTab(genoVec, genoCodes.size(), k);
 		/*
 		vector<float> out;
