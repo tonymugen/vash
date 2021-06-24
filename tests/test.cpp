@@ -22,6 +22,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <vector>
 
 #include "../src/gvarHash.hpp"
 
@@ -80,11 +81,19 @@ int main(){
 		*/
 		const size_t Ngeno = 4;
 		const size_t Nindv = 21;
-		size_t k = 3;
+		size_t k = 5;
 		const string bedFile("sim1test.bed");
 		GenoTable testTab(bedFile, Nindv);
-		//GenoTable testTab(genoVec, genoCodes.size(), k);
+		testTab.makeIndividualOPH(k);
 		/*
+		vector<float> outLD;
+		testTab.allJaccardLD(outLD);
+		for (const auto &o : outLD){
+			std::cout << o << " ";
+		}
+		std::cout << "\b\n";
+		//GenoTable testTab(genoVec, genoCodes.size(), k);
+
 		vector<float> out;
 		testTab.allSimilarity(out);
 		fstream outStr;

@@ -165,13 +165,9 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	inStr.close();
 }
 
-GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
+GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
-	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
-		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string(") is too big to make a square relationship matrix in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
-	} else if (nLoci_ > numeric_limits<size_t>::max() / nLoci_ ){ // a square will overflow
-		throw string("ERROR: the number of loci (") + to_string(nLoci_) + string(") is too big to make a square LD matrix in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	if (maCounts.size() % nIndividuals){
 		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
@@ -180,58 +176,27 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals,
 	if ( maCounts.empty() ){
 		throw string("ERROR: empty vector of minor allele counts in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
-	if (nIndividuals_ % 4){
-		genotypes_.resize( (1 + nIndividuals_ / 4) * nLoci_, 0 );
-	} else {
-		genotypes_.resize( (nIndividuals_ / 4) * nLoci_, 0 );
-	}
+	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	const uint8_t lastByteMask = static_cast<uint8_t>(0xff) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 
-	uint8_t iInByte = 0; // index within the current byte
+	// Create a vector to store random bytes for stochastic heterozygote resolution
+	vector<uint64_t> rand( locusSize_ / llWordSize_ + static_cast<bool>(locusSize_ % llWordSize_) );
+	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	const float fNind  = static_cast<float>(nIndividuals_);
+
+	for (size_t jLoc = 0; jLoc < nLoci_; jLoc++) {
+		// Fill the random byte vector
+		for (auto &rv : rand){
+			rv = rng_.ranInt();
+		}
+		uint8_t iInByte = 0; // index within the current byte
+		size_t iBinByte = jLoc * locusSize_;
+		for (size_t iIndv = 0; iIndv < nIndividuals_; iIndv++){
+			;
+		}
+	}
 	size_t  iGeno   = 0; // genotype index in the genotype_ vector
 	size_t  iIndv   = 0; // current individual index
-	for (const auto &mac : maCounts){
-		switch (mac){
-			case 0:           // 00 for homozygous major allele
-				{
-					iInByte += 2;
-					break;
-				}
-			case 1:           // 10 for heterozygous
-				{
-					genotypes_[iGeno] |= oneBit_ << iInByte;
-					iInByte += 2;
-					break;
-				}
-			case 2:           // 11 for homozygous minor allele
-				{
-					genotypes_[iGeno] |= oneBit_ << iInByte;
-					iInByte++;
-					genotypes_[iGeno] |= oneBit_ << iInByte;
-					iInByte++;
-					break;
-				}
-			case -9:          // 01 for missing genotype
-				{
-					iInByte++;
-					genotypes_[iGeno] |= oneBit_ << iInByte;
-					iInByte++;
-					break;
-				}
-			default:
-				throw string("ERROR: unknown value ") + to_string(mac) + string(" in GenoTable(const vector<int8_t> &, const size_t &) constructor");
-		}
-		iIndv++;
-		if (iIndv == nIndividuals_){
-			iInByte = 0;
-			iIndv   = 0;
-			iGeno++;
-		} else {
-			if (iInByte == byteSize_){
-				iInByte = 0;
-				iGeno++;
-			}
-		}
-	}
 
 	/*
 	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
@@ -312,8 +277,7 @@ void GenoTable::makeIndividualOPH(const size_t &kSketches){
 			string(", the largest allowed value in GenoTable::makeIndividualOPH(const size_t &kSketches)");
 	}
 	// Calculate the actual sketch number based on the realized sketch size
-	const size_t actualKsketches  = nIndividuals_ / sketchSize + static_cast<bool>(nIndividuals_ % sketchSize);
-	sketches_.resize(actualKsketches * nLoci_, emptyBinToken_);
+	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
 
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
@@ -362,15 +326,11 @@ void GenoTable::makeIndividualOPH(const size_t &kSketches){
 		for (size_t iSketch = 0; iSketch < kSketches; iSketch++){
 			uint16_t firstSetBitPos = 0;
 			while ( ( ( (oneBit_ << iInByte) & binGenotypes_[iByte] ) == 0 ) &&
-					(firstSetBitPos < sketchSize) ){
+					(firstSetBitPos < sketchSize) && (iByte != colEnd) ){
 				iInByte++;
-				if (iInByte == byteSize_){
-					iInByte = 0;
-					iByte++;
-					if (iByte == colEnd){
-						break;
-					}
-				}
+				// these are instead of an if statement
+				iByte  += iInByte == byteSize_;
+				iInByte = iInByte % byteSize_;
 				firstSetBitPos++;
 			}
 			if ( (iByte < colEnd) && (firstSetBitPos < sketchSize) ){
@@ -412,6 +372,9 @@ void GenoTable::makeIndividualOPH(const size_t &kSketches){
 void GenoTable::allHashLD(vector<float> &LDmat) const {
 	if ( (nLoci_ / 2) > ( numeric_limits<size_t>::max() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
 		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allHashLD(vector<float> &)");
+	}
+	if ( sketches_.empty() ){
+		throw string("ERROR: Cannot has-based calculate LD on empty sketches");
 	}
 	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
 	const size_t kSketches = sketches_.size() / nLoci_;

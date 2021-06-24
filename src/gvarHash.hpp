@@ -68,9 +68,8 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches suggested number of sketches per locus
 		 */
-		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals, const size_t &kSketches);
+		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTable(const GenoTable &in) = delete;
@@ -107,6 +106,7 @@ namespace BayesicSpace {
 		 * Make one-permutation sketches of individuals (one sketch per locus).
 		 * The permutation of bits is using the Fisher-Yates-Durstenfeld algorithm.
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
+		 * Running this function modifies the internally stored genotype table in place.
 		 *
 		 * \param[in] kSketches the number of sketches per locus
 		 */
@@ -116,6 +116,7 @@ namespace BayesicSpace {
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities. 
+		 * This function must be run after a sketch-generating function (e.g., `makeIndividualOPH()`). This is checked and an exception thrown if the sketch vector is empty.
 		 *
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
