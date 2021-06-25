@@ -55,7 +55,9 @@ namespace BayesicSpace {
 		GenoTable(){};
 		/** \brief Constructor with input file name
 		 *
-		 * The suggested number of sketches is modified so that the number of individuals per sketch is divisible by 8.
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
@@ -64,12 +66,14 @@ namespace BayesicSpace {
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
-		 * The suggested number of sketches is modified so that the number of individuals per sketch is divisible by 8.
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
+		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
 		 */
-		GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals);
+		GenoTable(const vector<int> &maCounts, const size_t &nIndividuals);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTable(const GenoTable &in) = delete;
@@ -87,13 +91,6 @@ namespace BayesicSpace {
 		 */
 		GenoTable& operator=(GenoTable &&in);
 
-		/** \brief Save .bed genotype file
-		 *
-		 * Saves the raw genotype data in the _plink_ .bed format.
-		 *
-		 * \param[in] outFileName output file name
-		 */
-		void saveGenoBed(const string &outFileName) const;
 		/** \brief Save the binary genotype file
 		 *
 		 * Saves the binary approximate genotype data to a binary file.
@@ -115,7 +112,7 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities. 
+		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities.
 		 * This function must be run after a sketch-generating function (e.g., `makeIndividualOPH()`). This is checked and an exception thrown if the sketch vector is empty.
 		 *
 		 * \param[out] LDmat lower triangle of the LD matrix
@@ -125,17 +122,12 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities. 
+		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
 		 *
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
 		void allJaccardLD(vector<float> &LDmat) const;
 	protected:
-		/** \brief Genotype table
-		 *
-		 * May store all or part of the genotype file, depending on memory availability.
-		 */
-		vector<uint8_t> genotypes_;
 		/** \brief Binarized genotype table
 		 *
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
@@ -200,6 +192,16 @@ namespace BayesicSpace {
 		 * \return number of bits set
 		 */
 		uint32_t countSetBits_(const vector<uint8_t> &inVec) const;
+		/** \brief Count set bits in a range within a vector
+		 *
+		 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
+		 *
+		 * \param[in] inVec input vector
+		 * \param[in] start staring index
+		 * \param[in] length number of bytes to process
+		 * \return number of bits set
+		 */
+		uint32_t countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const;
 	};
 }
 

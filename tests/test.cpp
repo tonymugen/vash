@@ -27,7 +27,6 @@
 #include "../src/gvarHash.hpp"
 
 using std::string;
-using std::to_string;
 using std::fstream;
 using std::stringstream;
 using std::ios;
@@ -82,9 +81,31 @@ int main(){
 		const size_t Ngeno = 4;
 		const size_t Nindv = 21;
 		size_t k = 5;
-		const string bedFile("sim1test.bed");
-		GenoTable testTab(bedFile, Nindv);
-		testTab.makeIndividualOPH(k);
+		//const string bedFile("sim1test.bed");
+		//GenoTable testTab(bedFile, Nindv);
+		//testTab.makeIndividualOPH(k);
+		const string tpedFileName("sim1test.tped");
+		string inputLine;
+		vector<int> genoCodes;
+		fstream input;
+		input.open(tpedFileName.c_str(), ios::in);
+		while ( getline(input, inputLine) ){
+			stringstream lineSS(inputLine);
+			string field;
+			// metadata
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+			// first genotype
+			lineSS >> field;
+			string firstGenotype = field;
+			uint8_t nHap = 2;
+			while (lineSS >> field){
+
+			}
+		}
+		input.close();
 		/*
 		vector<float> outLD;
 		testTab.allJaccardLD(outLD);
@@ -92,28 +113,6 @@ int main(){
 			std::cout << o << " ";
 		}
 		std::cout << "\b\n";
-		//GenoTable testTab(genoVec, genoCodes.size(), k);
-
-		vector<float> out;
-		testTab.allSimilarity(out);
-		fstream outStr;
-		outStr.open("allSimOut.txt", ios::out | ios::trunc);
-		for (size_t iRow = 0; iRow < Ngeno; iRow++) {
-			for (size_t jCol = 0; jCol < Ngeno - 1; jCol++){
-				outStr << out[Ngeno * iRow + jCol] << "\t";
-			}
-			outStr << out[Ngeno * iRow + Ngeno - 1] << "\n";
-		}
-		outStr.close();
-		*/
-		//const string inFile("testBinary.bed");
-		//GenoTable testTab( inFile, 200 );
-		//testTab.saveGenoBinary("testBinary.bin");
-		/*
-		for (size_t i = 0; i < 4; i++){
-			std::cout << testTab.getSketchIdx(i) << " ";
-		}
-		std::cout << "\n";
 		*/
 	} catch(string problem){
 		cerr << problem << "\n";

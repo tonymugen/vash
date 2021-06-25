@@ -55,7 +55,7 @@ using std::streampos;
 using namespace BayesicSpace;
 
 const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
-const uint8_t GenoTable::oneBit_            = 1;
+const uint8_t GenoTable::oneBit_            = 0b00000001;
 const uint8_t GenoTable::byteSize_          = 8;
 const uint8_t GenoTable::llWordSize_        = 8;
 const size_t GenoTable::nblocks_            = sizeof(size_t) / 4;
@@ -87,7 +87,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	}
 	// Generate the binary genotype table while reading the .bed file
 	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const uint8_t lastByteMask = static_cast<uint8_t>(0xff) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	vector<char> bedLocus(nBedBytes, 0);
 	// Create a vector to store random bytes for stochastic heterozygote resolution
 	vector<uint64_t> rand( nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_) );
@@ -165,7 +165,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	inStr.close();
 }
 
-GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
+GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
@@ -177,58 +177,65 @@ GenoTable::GenoTable(const vector<int8_t> &maCounts, const size_t &nIndividuals)
 		throw string("ERROR: empty vector of minor allele counts in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const uint8_t lastByteMask = static_cast<uint8_t>(0xff) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	const uint8_t remainderInd = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 
 	// Create a vector to store random bytes for stochastic heterozygote resolution
 	vector<uint64_t> rand( locusSize_ / llWordSize_ + static_cast<bool>(locusSize_ % llWordSize_) );
 	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
 	const float fNind  = static_cast<float>(nIndividuals_);
 
+	binGenotypes_.resize(nLoci_ * locusSize_, 0);
+
 	for (size_t jLoc = 0; jLoc < nLoci_; jLoc++) {
 		// Fill the random byte vector
 		for (auto &rv : rand){
 			rv = rng_.ranInt();
 		}
-		uint8_t iInByte = 0; // index within the current byte
-		size_t iBinByte = jLoc * locusSize_;
-		for (size_t iIndv = 0; iIndv < nIndividuals_; iIndv++){
-			;
+		size_t iIndiv         = 0;
+		const size_t begByte  = jLoc * locusSize_;
+		const size_t begIndiv = jLoc * nIndividuals_;
+		for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; iByte++){                   // treat the last byte separately
+			for (uint8_t iInByte = 0; iInByte < byteSize_; iInByte++){
+				uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);     // cramming down to one byte because I do not care what the actual value is
+				curIndiv                 &= 0b10000011;                                            // mask everything in the middle
+				const uint8_t missingMask = (~curIndiv) >> 7;                                      // 0b00000000 iff is missing (negative value)
+				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
+				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+				curBitMask               &= missingMask;                                           // zero it out if missing value is set
+				binGenotypes_[iByte]     |= curBitMask << iInByte;
+				iIndiv++;
+			}
 		}
+		// now deal with the last byte in the individual
+		for (uint8_t iRem = 0; iRem < remainderInd; iRem++){
+			uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);     // cramming down to one byte because I do not care what the actual value is
+			curIndiv                 &= 0b10000011;                                            // mask everything in the middle
+			const uint8_t missingMask = (~curIndiv) >> 7;                                      // 0b00000000 iff is missing (negative value)
+			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;         // 0b00000000 or 0b00000001 with equal chance
+			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+			curBitMask               &= missingMask;                                           // zero it out if missing value is set
+			binGenotypes_.back()     |= curBitMask << iRem;
+			iIndiv++;
+		}
+		float aaCount = static_cast<float>( countSetBits_(binGenotypes_, begByte, locusSize_) ) / fNind;
+		if (aaCount > 0.5){ // always want the alternative to be the minor allele
+			for (size_t i = begByte; i < begByte + locusSize_; i++){
+				binGenotypes_[i] = ~binGenotypes_[i];
+			}
+			binGenotypes_[begByte + locusSize_ - 1] &= lastByteMask; // unset the remainder bits
+			aaCount = 1.0 - aaCount;
+		} else {
+			for (size_t i = begByte; i < begByte + locusSize_; i++){
+				binGenotypes_[i] = ~binGenotypes_[i];
+			}
+		}
+		aaf_.push_back(aaCount);
 	}
-	size_t  iGeno   = 0; // genotype index in the genotype_ vector
-	size_t  iIndv   = 0; // current individual index
-
-	/*
-	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
-	if (sketchSize >= emptyBinToken_){
-		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") +
-			to_string(sketchSize) + string(") that is larger than ") + to_string(emptyBinToken_) +
-			string(", the largest allowed value in GenoTable(const vector<int8_t> &, const size_t &) constructor");
-	}
-	sketchSize_ = static_cast<uint16_t>(sketchSize);
-	kSketches_  = static_cast<uint16_t>( nIndividuals_ / static_cast<size_t>(sketchSize_) ) + static_cast<bool>(nIndividuals % sketchSize_);
-	locusSize_  = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
-
-	generateBinGeno_();
-	// generate the sequence of random integers; each column must be permuted the same
-	vector<size_t> ranInts;
-	size_t i = nIndividuals_;
-	while (i >= 2UL){
-		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
-		i--;
-	}
-	vector<uint32_t> seeds;
-	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
-	for (size_t iLoc = 0; iLoc < nLoci_; iLoc++){
-		makeSketches_(iLoc, ranInts, seeds);
-	}
-	*/
 }
 
 GenoTable::GenoTable(GenoTable &&in){
 	if (this != &in){
-		genotypes_    = move(in.genotypes_);
 		binGenotypes_ = move(in.binGenotypes_);
 		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
@@ -241,7 +248,6 @@ GenoTable::GenoTable(GenoTable &&in){
 
 GenoTable& GenoTable::operator=(GenoTable &&in){
 	if (this != &in){
-		genotypes_    = move(in.genotypes_);
 		binGenotypes_ = move(in.binGenotypes_);
 		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
@@ -252,14 +258,6 @@ GenoTable& GenoTable::operator=(GenoTable &&in){
 
 	}
 	return *this;
-}
-
-void GenoTable::saveGenoBed(const string &outFileName) const {
-	fstream out;
-	out.open(outFileName.c_str(), ios::out | ios::binary | ios::trunc);
-	out.write( magicBytes_.data(), magicBytes_.size() );
-	out.write( reinterpret_cast<const char*>( genotypes_.data() ), genotypes_.size() );
-	out.close();
 }
 
 void GenoTable::saveGenoBinary(const string &outFileName) const {
@@ -453,10 +451,21 @@ uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
 	return hash;
 }
 
-uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec) const{
+uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec) const {
 	uint32_t totSet = 0;
 	for (const auto &in : inVec){
 		uint8_t v = in;
+		for (; v; totSet++) {
+			v &= v - 1;
+		}
+	}
+	return totSet;
+}
+
+uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const {
+	uint32_t totSet = 0;
+	for (size_t i = start; i < start + length; i++){
+		uint8_t v = inVec[i];
 		for (; v; totSet++) {
 			v &= v - 1;
 		}
