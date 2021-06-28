@@ -232,6 +232,12 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 		}
 		aaf_.push_back(aaCount);
 	}
+	for (size_t jL = 0; jL < nLoci_; jL++) {
+		for (size_t iInd = 0; iInd < locusSize_; iInd++){
+			std::cout << std::bitset<8>(binGenotypes_[locusSize_ * jL + iInd]) << " ";
+		}
+		std::cout << "\b\n";
+	}
 }
 
 GenoTable::GenoTable(GenoTable &&in){

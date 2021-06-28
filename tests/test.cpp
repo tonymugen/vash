@@ -84,6 +84,8 @@ int main(){
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);
 		//testTab.makeIndividualOPH(k);
+		//
+		// This is a basic and incomplete tped parser just for testing binarization
 		const string tpedFileName("sim1test.tped");
 		string inputLine;
 		vector<int> genoCodes;
@@ -97,15 +99,35 @@ int main(){
 			lineSS >> field;
 			lineSS >> field;
 			lineSS >> field;
-			// first genotype
-			lineSS >> field;
-			string firstGenotype = field;
-			uint8_t nHap = 2;
-			while (lineSS >> field){
 
+			string firstGenotype;
+			while (lineSS >> field){
+				string secondField;
+				lineSS >> secondField;
+				if ( firstGenotype.empty() ){ // first non-missing genotype has not been seen yet
+					if ( (field == "0") || (secondField == "0") ){
+						genoCodes.push_back(-9);
+					} else {
+						firstGenotype = field;
+						genoCodes.push_back( static_cast<int>(secondField != field));
+					}
+				} else {
+					if ( (field == "0") || (secondField == "0") ){
+						genoCodes.push_back(-9);
+					} else {
+						genoCodes.push_back( static_cast<int>(field != firstGenotype) + static_cast<int>(secondField != firstGenotype) );
+					}
+				}
 			}
 		}
 		input.close();
+		for (size_t jG = 0; jG < Ngeno; jG++) {
+			for (size_t iInd = 0; iInd < Nindv; iInd++){
+				std::cout << genoCodes[jG * Nindv + iInd] << " ";
+			}
+			std::cout << "\b\n";
+		}
+		GenoTable testTab(genoCodes, Nindv);
 		/*
 		vector<float> outLD;
 		testTab.allJaccardLD(outLD);
