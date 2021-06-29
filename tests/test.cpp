@@ -122,8 +122,16 @@ int main(){
 		}
 		input.close();
 		for (size_t jG = 0; jG < Ngeno; jG++) {
+			uint16_t inByte = 0;
 			for (size_t iInd = 0; iInd < Nindv; iInd++){
-				std::cout << genoCodes[jG * Nindv + iInd] << " ";
+				std::cout << genoCodes[jG * Nindv + iInd];
+				if (inByte == 7){
+					inByte = 0;
+					std::cout << " | ";
+				} else {
+					inByte++;
+					std::cout << " ";
+				}
 			}
 			std::cout << "\b\n";
 		}
