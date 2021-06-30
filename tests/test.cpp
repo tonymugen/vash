@@ -136,6 +136,8 @@ int main(){
 			std::cout << "\b\n";
 		}
 		GenoTable testTab(genoCodes, Nindv);
+		const string bedFile("sim1test.bed");
+		GenoTable testBed(bedFile, Nindv);
 		/*
 		vector<float> outLD;
 		testTab.allJaccardLD(outLD);

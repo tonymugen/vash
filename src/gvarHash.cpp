@@ -96,11 +96,16 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	const size_t endBed  = nBedBytes - 2UL + (nBedBytes & 1UL);
 	const size_t addIndv = nIndividuals_ - endBed * 4;
 	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
+		for (const auto &bl : bedLocus){
+			std::cout << std::bitset<8>(~bl) << " ";
+		}
+		std::cout << "\b\n";
 		// Fill the random byte vector
 		for (auto &rv : rand){
 			rv = rng_.ranInt();
 		}
 		vector<uint8_t> binLocus(locusSize_, 0);
+		vector<uint8_t> missMasks(locusSize_, 0);
 		size_t iBinGeno = 0;                       // binGenotypes_ vector index
 		// Two bytes of .bed code go into one byte of my binary representation
 		// Therefore, work on two consecutive bytes of .bed code in the loop
@@ -110,9 +115,12 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
 				uint8_t secondBitMask = bedLocus[iBed] & ( oneBit_ << (iInByteG + 1) );
+				// Keep track of missing genotypes to revert them if I have to flip bits later on
+				const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
+				missMasks[iBinGeno]      |= curMissMask >> offsetToBin;
 				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask |= randBytes[iBed] & (firstBitMask << 1);
-				firstBitMask  &= secondBitMask >> 1;
+				secondBitMask      |= randBytes[iBed] & (firstBitMask << 1);
+				firstBitMask       &= secondBitMask >> 1;
 				binLocus[iBinGeno] |= firstBitMask >> offsetToBin;
 				offsetToBin++;
 			}
@@ -121,9 +129,12 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				uint8_t firstBitMask  = bedLocus[nextIbed] & (oneBit_ << iInByteG);
 				uint8_t secondBitMask = bedLocus[nextIbed] & ( oneBit_ << (iInByteG + 1) );
+				// Keep track of missing genotypes to revert them if I have to flip bits later on
+				const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
+				missMasks[iBinGeno]      |= curMissMask << offsetToBin;
 				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask |= randBytes[nextIbed] & (firstBitMask << 1);
-				firstBitMask  &= secondBitMask >> 1;
+				secondBitMask      |= randBytes[nextIbed] & (firstBitMask << 1);
+				firstBitMask       &= secondBitMask >> 1;
 				binLocus[iBinGeno] |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
 				offsetToBin--;
 			}
@@ -137,7 +148,8 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 			const size_t curBedByte = endBed + iInd / 4;
 			uint8_t firstBitMask    = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
 			inBedByteOffset++;
-			uint8_t secondBitMask = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
+			uint8_t secondBitMask   = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
+			//TODO: add the missing genotype tracking
 			// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
 			secondBitMask   |= randBytes[curBedByte] & (firstBitMask << 1);
 			firstBitMask    &= secondBitMask >> 1;
@@ -145,12 +157,12 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 			firstBitMask     = firstBitMask << iInd;
 			binLocus.back() |= firstBitMask;
 			inBedByteOffset++;
-			inBedByteOffset = inBedByteOffset % 8;
+			inBedByteOffset  = inBedByteOffset % 8;
 		}
 		float aaCount = static_cast<float>( countSetBits_(binLocus) ) / fNind;
 		if (aaCount > 0.5){ // always want the alternative to be the minor allele
-			for (auto &bg : binLocus){
-				binGenotypes_.push_back(~bg);
+			for (size_t iBL = 0; iBL < locusSize_; iBL++){
+				binGenotypes_.push_back( (~binLocus[iBL]) & (~missMasks[iBL]) );
 			}
 			binGenotypes_.back() &= lastByteMask; // unset the remainder bits
 			aaCount = 1.0 - aaCount;
@@ -163,6 +175,12 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 		nLoci_++;
 	}
 	inStr.close();
+	for (size_t jL = 0; jL < nLoci_; jL++) {
+		for (size_t iInd = 0; iInd < locusSize_; iInd++){
+			std::cout << std::bitset<8>(binGenotypes_[locusSize_ * jL + iInd]) << " ";
+		}
+		std::cout << "\b\n";
+	}
 }
 
 GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -177,8 +195,9 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 		throw string("ERROR: empty vector of minor allele counts in the GenoTable(const vector<int8_t> &, const size_t &) constructor");
 	}
 	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const uint8_t remainderInd = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
+	remainderInd = byteSize_ - remainderInd;
 
 	binGenotypes_.resize(nLoci_ * locusSize_, 0);
 
@@ -195,38 +214,43 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 		size_t iIndiv         = 0;
 		const size_t begByte  = jLoc * locusSize_;
 		const size_t begIndiv = jLoc * nIndividuals_;
+		vector<uint8_t> missMasks(locusSize_, 0);
+		size_t i0Byte = 0;                       // to index the missMasks vector
 		for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; iByte++){                   // treat the last byte separately
 			for (uint8_t iInByte = 0; iInByte < byteSize_; iInByte++){
 				uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);     // cramming down to one byte because I do not care what the actual value is
 				curIndiv                 &= 0b10000011;                                            // mask everything in the middle
-				const uint8_t missingMask = ~(curIndiv >> 7);                                      // 0b00000000 iff is missing (negative value)
+				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
+				missMasks[i0Byte]        |= (missingMask << iInByte);
 				curIndiv                 &= 0b00000011;
 				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
 				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-				curBitMask               &= missingMask;                                           // zero it out if missing value is set
+				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
 				binGenotypes_[iByte]     |= curBitMask << iInByte;
-				std::cout << std::bitset<8>(curBitMask << iInByte) << " ";
 				iIndiv++;
 			}
+			i0Byte++;
 		}
-		std::cout << "\b\n";
 		// now deal with the last byte in the individual
 		for (uint8_t iRem = 0; iRem < remainderInd; iRem++){
-			uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);     // cramming down to one byte because I do not care what the actual value is
-			curIndiv                 &= 0b10000011;                                            // mask everything in the middle
-			const uint8_t missingMask = ~(curIndiv >> 7);                                      // 0b00000000 iff is missing (negative value)
+			uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);        // cramming down to one byte because I do not care what the actual value is
+			curIndiv                 &= 0b10000011;                                               // mask everything in the middle
+			const uint8_t missingMask = curIndiv >> 7;                                            // 0b00000001 iff is missing (negative value)
+			missMasks.back()         |= (missingMask << iRem);
 			curIndiv                 &= 0b00000011;
-			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;         // 0b00000000 or 0b00000001 with equal chance
-			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-			curBitMask               &= missingMask;                                           // zero it out if missing value is set
-			binGenotypes_.back()     |= curBitMask << iRem;
+			const uint8_t randMask    = (randBytes[begByte + locusSize_ - 1] >> iRem) & oneBit_;  // 0b00000000 or 0b00000001 with equal chance
+			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                  // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+			curBitMask               &= ~missingMask;                                             // zero it out if missing value is set
+
+			binGenotypes_[begByte + locusSize_ - 1] |= curBitMask << iRem;
 			iIndiv++;
 		}
 		float maf = static_cast<float>( countSetBits_(binGenotypes_, begByte, locusSize_) ) / fNind;
 		if (maf > 0.5){ // always want the alternative to be the minor allele
+			i0Byte = 0;
 			for (size_t i = begByte; i < begByte + locusSize_; i++){
-				//TODO: correct the missing data by reverting them to 0 using a separate missingness mask
-				binGenotypes_[i] = ~binGenotypes_[i];
+				binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
+				i0Byte++;
 			}
 			binGenotypes_[begByte + locusSize_ - 1] &= lastByteMask; // unset the remainder bits
 			maf = 1.0 - maf;
@@ -239,6 +263,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 		}
 		std::cout << "\b\n";
 	}
+	std::cout << "\n";
 }
 
 GenoTable::GenoTable(GenoTable &&in){
