@@ -79,7 +79,7 @@ int main(){
 		}
 		*/
 		const size_t Ngeno = 4;
-		const size_t Nindv = 21;
+		const size_t Nindv = 19;
 		size_t k = 5;
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);

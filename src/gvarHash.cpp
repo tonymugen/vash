@@ -147,16 +147,18 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 		for (size_t iInd = 0; iInd < addIndv; iInd++){
 			const size_t curBedByte = endBed + iInd / 4;
 			uint8_t firstBitMask    = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
-			inBedByteOffset++;
-			uint8_t secondBitMask   = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
-			//TODO: add the missing genotype tracking
+			const uint8_t secondBBO = inBedByteOffset + 1;
+			uint8_t secondBitMask   = bedLocus[curBedByte] & (oneBit_ << secondBBO);
+			// Keep track of missing genotypes to revert them if I have to flip bits later on
+			const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
+			missMasks.back()         |= (curMissMask >> inBedByteOffset) << iInd;
 			// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
 			secondBitMask   |= randBytes[curBedByte] & (firstBitMask << 1);
 			firstBitMask    &= secondBitMask >> 1;
-			firstBitMask     = firstBitMask >> (inBedByteOffset - 1);
+			firstBitMask     = firstBitMask >> inBedByteOffset;
 			firstBitMask     = firstBitMask << iInd;
 			binLocus.back() |= firstBitMask;
-			inBedByteOffset++;
+			inBedByteOffset += 2;
 			inBedByteOffset  = inBedByteOffset % 8;
 		}
 		float aaCount = static_cast<float>( countSetBits_(binLocus) ) / fNind;
