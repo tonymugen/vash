@@ -140,7 +140,7 @@ namespace BayesicSpace {
 		vector<uint16_t> sketches_;
 		/** \brief Alternative allele frequencies
 		 *
-		 * One value per locus.
+		 * One value per locus. This is typically the minor allele frequency.
 		 */
 		vector<float> aaf_;
 		/** \brief Number of individuals */

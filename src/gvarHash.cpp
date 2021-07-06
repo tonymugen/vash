@@ -37,9 +37,6 @@
 #include <limits>
 #include <fstream>
 
-#include <iostream>
-#include <bitset>
-
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -96,10 +93,6 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 	const size_t endBed  = nBedBytes - 2UL + (nBedBytes & 1UL);
 	const size_t addIndv = nIndividuals_ - endBed * 4;
 	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
-		for (const auto &bl : bedLocus){
-			std::cout << std::bitset<8>(~bl) << " ";
-		}
-		std::cout << "\b\n";
 		// Fill the random byte vector
 		for (auto &rv : rand){
 			rv = rng_.ranInt();
@@ -177,12 +170,6 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 		nLoci_++;
 	}
 	inStr.close();
-	for (size_t jL = 0; jL < nLoci_; jL++) {
-		for (size_t iInd = 0; iInd < locusSize_; iInd++){
-			std::cout << std::bitset<8>(binGenotypes_[locusSize_ * jL + iInd]) << " ";
-		}
-		std::cout << "\b\n";
-	}
 }
 
 GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -259,13 +246,6 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 		}
 		aaf_.push_back(maf);
 	}
-	for (size_t jL = 0; jL < nLoci_; jL++) {
-		for (size_t iInd = 0; iInd < locusSize_; iInd++){
-			std::cout << std::bitset<8>(binGenotypes_[locusSize_ * jL + iInd]) << " ";
-		}
-		std::cout << "\b\n";
-	}
-	std::cout << "\n";
 }
 
 GenoTable::GenoTable(GenoTable &&in){
@@ -406,7 +386,7 @@ void GenoTable::allHashLD(vector<float> &LDmat) const {
 		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allHashLD(vector<float> &)");
 	}
 	if ( sketches_.empty() ){
-		throw string("ERROR: Cannot has-based calculate LD on empty sketches");
+		throw string("ERROR: Cannot calculate hash-based LD on empty sketchesin GenoTable::allHashLD(vector<float> &)");
 	}
 	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
 	const size_t kSketches = sketches_.size() / nLoci_;
@@ -423,7 +403,7 @@ void GenoTable::allHashLD(vector<float> &LDmat) const {
 				}
 			}
 			simVal *= fNind;
-			//simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
+			simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
 			LDmat[resInd] = simVal;
 			resInd++;
 		}
@@ -449,7 +429,7 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 				locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
 			}
 			const uint32_t isect = countSetBits_(locus);
-			LDmat[resInd] = static_cast<float>(uni) / static_cast<float>(isect);
+			LDmat[resInd] = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iRow] * aaf_[jCol];
 			resInd++;
 		}
 	}

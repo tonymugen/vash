@@ -28,6 +28,7 @@
  *
  */
 
+#include <bits/types/clock_t.h>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -54,23 +55,34 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	const int kSketches = atoi(argv[3]);
-	if (kSketches <= 1){
-		cerr << "Number of sketches (is " << kSketches << ") must be greater than 1\n";
-		exit(2);
-	}
 	try {
 		const string outFileName(argv[4]);
 		vector<float> result;
 		time_t loadTime = clock();
-		GenoTable abaTest(inFileName, Nindv, kSketches);
+		GenoTable abaTest(inFileName, Nindv);
 		loadTime = clock() - loadTime;
-		clock_t runTime = clock();
-		abaTest.allSimilarity(result);
-		runTime = clock() - runTime;
+		clock_t hashTime;
+		clock_t runTime;
+		if (kSketches <= 1){
+			runTime = clock();
+			abaTest.allJaccardLD(result);
+			runTime = clock() - runTime;
+		} else {
+			hashTime = clock();
+			abaTest.makeIndividualOPH(kSketches);
+			hashTime = clock() - hashTime;
+			runTime = clock();
+			abaTest.allHashLD(result);
+			runTime = clock() - runTime;
+		}
 		fstream output;
 		output.open(outFileName.c_str(), ios::out | ios::trunc);
 		// output times in milliseconds
-		output << 1000.0 * static_cast<float>(loadTime) / CLOCKS_PER_SEC << " " << 1000.0 * static_cast<float>(runTime) / CLOCKS_PER_SEC;
+		output << 1000.0 * static_cast<float>(loadTime) / CLOCKS_PER_SEC << " ";
+		if (kSketches > 1){
+			output << 1000.0 * static_cast<float>(hashTime) / CLOCKS_PER_SEC << " ";
+		}
+		output << 1000.0 * static_cast<float>(runTime) / CLOCKS_PER_SEC;
 		for (const auto &r : result){
 			output << " " << r;
 		}
