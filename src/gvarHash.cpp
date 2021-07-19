@@ -411,7 +411,7 @@ void GenoTable::allHashLD(vector<float> &LDmat) const {
 }
 
 void GenoTable::allJaccardLD(vector<float> &LDmat) const {
-	if ( (nLoci_ / 2) > ( numeric_limits<size_t>::max() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
+	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
 		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLD(vector<float> &)");
 	}
 	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
@@ -433,6 +433,24 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 			resInd++;
 		}
 	}
+}
+
+void GenoTable::allJaccardLDasyncPairs(vector<float> &LDmat) const {
+	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
+		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLDasyncPairs(vector<float> &)");
+	}
+	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
+	vector<uint8_t> locus(locusSize_);
+	size_t resInd = 0;
+	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
+		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
+			LDmat[resInd] = jaccardPair_(iRow, jCol);
+			resInd++;
+		}
+	}
+
+}
+void GenoTable::allJaccardLDasyncBlocks(vector<float> &LDmat) const {
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
@@ -485,4 +503,20 @@ uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec, const size_t &st
 		}
 	}
 	return totSet;
+}
+
+float GenoTable::jaccardPair_(const size_t &iLocus, const size_t &jLocus) const {
+	vector<uint8_t> locus(locusSize_);
+	size_t rowInd = iLocus * locusSize_;
+	size_t colInd = jLocus * locusSize_;
+	for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
+		locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
+	}
+	const uint32_t uni = countSetBits_(locus);
+	for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
+		locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
+	}
+	const uint32_t isect = countSetBits_(locus);
+
+	return static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jLocus];
 }

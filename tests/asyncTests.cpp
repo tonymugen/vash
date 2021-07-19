@@ -17,71 +17,34 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/// Run tests of performance for LD among all loci
-/** \file
- * \author Anthony J. Greenberg
- * \copyright Copyright (c) 2021 Anthony J. Greenberg
- * \version 0.1
- *
- * Run correctness and timing tests of linkage disequilibrium among all loci using simulated data.
- * Output the results in a space-delimited file, where the first two values are execution times and the rest are the upper triangle of the among-locus similarity matrix.
- *
- */
-
-#include <cstdlib>
+#include <cstddef>
 #include <string>
-#include <vector>
 #include <fstream>
+#include <sstream>
 #include <iostream>
-#include <ctime>
-#include <cmath>
+#include <vector>
 
 #include "../src/gvarHash.hpp"
 
 using std::string;
-using std::vector;
 using std::fstream;
+using std::stringstream;
 using std::ios;
 using std::cerr;
 
+
 using namespace BayesicSpace;
 
-int main(int argc, char *argv[]){
-	const string inFileName(argv[1]);
-	const int Nindv = atoi(argv[2]);
-	if (Nindv <= 1){
-		cerr << "Number of individuals (is " << Nindv << ") must be greater than 1\n";
-		exit(1);
-	}
-	const int kSketches = atoi(argv[3]);
+int main(){
 	try {
-		const string outFileName(argv[4]);
+		const string inFileName("sim1_2000_7500_03.bed");
+		const size_t nIndividuals = 2000;
+		const string outFileName("testJaccOld.txt");
 		vector<float> result;
-		time_t loadTime = clock();
-		GenoTable abaTest(inFileName, Nindv);
-		loadTime = clock() - loadTime;
-		clock_t hashTime;
-		clock_t runTime;
-		if (kSketches <= 1){
-			runTime = clock();
-			abaTest.allJaccardLD(result);
-			runTime = clock() - runTime;
-		} else {
-			hashTime = clock();
-			abaTest.makeIndividualOPH(kSketches);
-			hashTime = clock() - hashTime;
-			runTime = clock();
-			abaTest.allHashLD(result);
-			runTime = clock() - runTime;
-		}
+		GenoTable asTest(inFileName, nIndividuals);
+		asTest.allJaccardLD(result);
 		fstream output;
 		output.open(outFileName.c_str(), ios::out | ios::trunc);
-		// output times in milliseconds
-		output << 1000.0 * static_cast<float>(loadTime) / CLOCKS_PER_SEC << " ";
-		if (kSketches > 1){
-			output << 1000.0 * static_cast<float>(hashTime) / CLOCKS_PER_SEC << " ";
-		}
-		output << 1000.0 * static_cast<float>(runTime) / CLOCKS_PER_SEC;
 		for (const auto &r : result){
 			output << " " << r;
 		}
@@ -89,6 +52,6 @@ int main(int argc, char *argv[]){
 		output.close();
 	} catch(string problem){
 		cerr << problem << "\n";
-		exit(3);
+		exit(1);
 	}
 }
