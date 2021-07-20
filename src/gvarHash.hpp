@@ -211,6 +211,12 @@ namespace BayesicSpace {
 		 * \return Jaccard similarity
 		 */
 		float jaccardPair_(const size_t &iLocus, const size_t &jLocus) const;
+		/** \brief Jaccard similarity in a block of loci
+		 *
+		 * \param[in] iLocus first locus index
+		 * \param[out] jaccardVec vector of Jaccard similarities
+		 */
+		void jaccardBlock_(const size_t &iLocus, vector<float> &jaccardVec) const;
 	};
 }
 

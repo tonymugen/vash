@@ -27,8 +27,6 @@
  *
  */
 
-#include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -36,6 +34,7 @@
 #include <algorithm>
 #include <limits>
 #include <fstream>
+#include <future>
 
 #include "gvarHash.hpp"
 
@@ -48,6 +47,8 @@ using std::numeric_limits;
 using std::fstream;
 using std::ios;
 using std::streampos;
+using std::future;
+using std::async;
 
 using namespace BayesicSpace;
 
@@ -443,14 +444,28 @@ void GenoTable::allJaccardLDasyncPairs(vector<float> &LDmat) const {
 	vector<uint8_t> locus(locusSize_);
 	size_t resInd = 0;
 	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
+		vector< future<float> > tasks;
+		tasks.reserve(nLoci_ - iRow - 1);
 		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
-			LDmat[resInd] = jaccardPair_(iRow, jCol);
+			tasks.emplace_back( async([this, iRow, jCol]{return jaccardPair_(iRow, jCol);}) );
+		}
+		for (auto &f : tasks){
+			LDmat[resInd] = f.get();
 			resInd++;
 		}
 	}
-
 }
+
 void GenoTable::allJaccardLDasyncBlocks(vector<float> &LDmat) const {
+	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
+		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLDasyncPairs(vector<float> &)");
+	}
+	LDmat.reserve(nLoci_ * (nLoci_ - 1) / 2);
+	vector< future<void> > tasks;
+	tasks.reserve(nLoci_);
+	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
+		jaccardBlock_(iRow, LDmat);
+	}
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
@@ -519,4 +534,21 @@ float GenoTable::jaccardPair_(const size_t &iLocus, const size_t &jLocus) const 
 	const uint32_t isect = countSetBits_(locus);
 
 	return static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jLocus];
+}
+
+void GenoTable::jaccardBlock_(const size_t &iLocus, vector<float> &jaccardVec) const {
+	vector<uint8_t> locus(locusSize_);
+	for (size_t jCol = iLocus + 1; jCol < nLoci_; jCol++){
+		size_t rowInd = iLocus * locusSize_;
+		size_t colInd = jCol * locusSize_;
+		for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
+			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
+		}
+		const uint32_t uni = countSetBits_(locus);
+		for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
+			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
+		}
+		const uint32_t isect = countSetBits_(locus);
+		jaccardVec.push_back(static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jCol]);
+	}
 }

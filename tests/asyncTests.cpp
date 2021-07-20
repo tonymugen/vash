@@ -39,17 +39,37 @@ int main(){
 	try {
 		const string inFileName("sim1_2000_7500_03.bed");
 		const size_t nIndividuals = 2000;
-		const string outFileName("testJaccOld.txt");
+		const string outFileNameJacc("testJaccOld.txt");
 		vector<float> result;
 		GenoTable asTest(inFileName, nIndividuals);
 		asTest.allJaccardLD(result);
-		fstream output;
-		output.open(outFileName.c_str(), ios::out | ios::trunc);
+		fstream outJacc;
+		outJacc.open(outFileNameJacc.c_str(), ios::out | ios::trunc);
 		for (const auto &r : result){
-			output << " " << r;
+			outJacc << " " << r;
 		}
-		output << "\n";
-		output.close();
+		outJacc << "\n";
+		outJacc.close();
+		const string outFileNamePairs("testJaccPairs.txt");
+		result.clear();
+		asTest.allJaccardLDasyncPairs(result);
+		fstream outPairs;
+		outPairs.open(outFileNamePairs.c_str(), ios::out | ios::trunc);
+		for (const auto &r : result){
+			outPairs << " " << r;
+		}
+		outPairs << "\n";
+		outPairs.close();
+		const string outFileNameBlocks("testJaccBlocks.txt");
+		result.clear();
+		asTest.allJaccardLDasyncPairs(result);
+		fstream outBlocks;
+		outBlocks.open(outFileNameBlocks.c_str(), ios::out | ios::trunc);
+		for (const auto &r : result){
+			outBlocks << " " << r;
+		}
+		outBlocks << "\n";
+		outBlocks.close();
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);
