@@ -23,6 +23,7 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <chrono>
 
 #include "../src/gvarHash.hpp"
 
@@ -31,7 +32,11 @@ using std::fstream;
 using std::stringstream;
 using std::ios;
 using std::cerr;
-
+using std::cout;
+using std::chrono::high_resolution_clock;
+using std::chrono::duration;
+using std::chrono::milliseconds;
+using std::milli;
 
 using namespace BayesicSpace;
 
@@ -39,37 +44,23 @@ int main(){
 	try {
 		const string inFileName("sim1_2000_7500_03.bed");
 		const size_t nIndividuals = 2000;
-		const string outFileNameJacc("testJaccOld.txt");
 		vector<float> result;
 		GenoTable asTest(inFileName, nIndividuals);
+		auto time1 = high_resolution_clock::now();
 		asTest.allJaccardLD(result);
-		fstream outJacc;
-		outJacc.open(outFileNameJacc.c_str(), ios::out | ios::trunc);
-		for (const auto &r : result){
-			outJacc << " " << r;
-		}
-		outJacc << "\n";
-		outJacc.close();
-		const string outFileNamePairs("testJaccPairs.txt");
+		auto time2 = high_resolution_clock::now();
+		duration<float, milli> noAsync = time2 - time1;
 		result.clear();
+		time1 = high_resolution_clock::now();
 		asTest.allJaccardLDasyncPairs(result);
-		fstream outPairs;
-		outPairs.open(outFileNamePairs.c_str(), ios::out | ios::trunc);
-		for (const auto &r : result){
-			outPairs << " " << r;
-		}
-		outPairs << "\n";
-		outPairs.close();
-		const string outFileNameBlocks("testJaccBlocks.txt");
+		time2 = high_resolution_clock::now();
+		duration<float, milli> pairAsync = time2 - time1;
 		result.clear();
-		asTest.allJaccardLDasyncPairs(result);
-		fstream outBlocks;
-		outBlocks.open(outFileNameBlocks.c_str(), ios::out | ios::trunc);
-		for (const auto &r : result){
-			outBlocks << " " << r;
-		}
-		outBlocks << "\n";
-		outBlocks.close();
+		time1 = high_resolution_clock::now();
+		asTest.allJaccardLDasyncBlocks(result);
+		time2 = high_resolution_clock::now();
+		duration<float, milli> blockAsync = time2 - time1;
+		cout << noAsync.count() << " " << pairAsync.count() << " " << blockAsync.count() << "\n";
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);

@@ -127,8 +127,6 @@ namespace BayesicSpace {
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
 		void allJaccardLD(vector<float> &LDmat) const;
-		void allJaccardLDasyncPairs(vector<float> &LDmat) const;
-		void allJaccardLDasyncBlocks(vector<float> &LDmat) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
@@ -204,19 +202,22 @@ namespace BayesicSpace {
 		 * \return number of bits set
 		 */
 		uint32_t countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const;
-		/** \brief Jaccard similarity between a pair of loci
-		 *
-		 * \param[in] iLocus first locus index
-		 * \param[in] jLocus second locus index
-		 * \return Jaccard similarity
-		 */
-		float jaccardPair_(const size_t &iLocus, const size_t &jLocus) const;
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] iLocus first locus index
+		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
 		 * \param[out] jaccardVec vector of Jaccard similarities
 		 */
-		void jaccardBlock_(const size_t &iLocus, vector<float> &jaccardVec) const;
+		void jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const;
+		/** \brief Hash-based similarity in a block of loci
+		 *
+		 * \param[in] iLocus first locus index
+		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
+		 * \param[in] kSketches number of sketches
+		 * \param[in] invK 1/K (where K is the number of sketches)
+		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
+		 */
+		void hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
 	};
 }
 

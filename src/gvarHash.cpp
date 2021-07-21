@@ -387,84 +387,31 @@ void GenoTable::allHashLD(vector<float> &LDmat) const {
 		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allHashLD(vector<float> &)");
 	}
 	if ( sketches_.empty() ){
-		throw string("ERROR: Cannot calculate hash-based LD on empty sketchesin GenoTable::allHashLD(vector<float> &)");
+		throw string("ERROR: Cannot calculate hash-based LD on empty sketches in GenoTable::allHashLD(vector<float> &)");
 	}
 	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
 	const size_t kSketches = sketches_.size() / nLoci_;
 	const float fNind = 1.0 / static_cast<float>(kSketches);
-	size_t resInd = 0;
-	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
-		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
-			float simVal = 0.0;
-			size_t sketchRowInd = iRow * kSketches;
-			size_t sketchColInd = jCol * kSketches;
-			for (size_t iSk = 0; iSk < kSketches; iSk++){
-				if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
-					simVal += 1.0;
-				}
-			}
-			simVal *= fNind;
-			simVal -= aaf_[iRow] * aaf_[jCol]; // subtracting expected similarity
-			LDmat[resInd] = simVal;
-			resInd++;
-		}
+	vector< future<void> > tasks;
+	tasks.reserve(nLoci_);
+	size_t blockBeg = 0; // index in LDmat of the first element of the block of similarities
+	for (size_t iRow = 0; iRow < nLoci_; iRow++){
+		tasks.emplace_back( async([this, iRow, blockBeg, kSketches, fNind, &LDmat]{hashJacBlock_(iRow, blockBeg, kSketches, fNind, LDmat);}) );
+		blockBeg += nLoci_ - iRow - 1;
 	}
 }
 
 void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
-		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLD(vector<float> &)");
-	}
-	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
-	vector<uint8_t> locus(locusSize_);
-	size_t resInd = 0;
-	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
-		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
-			size_t rowInd = iRow * locusSize_;
-			size_t colInd = jCol * locusSize_;
-			for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
-				locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
-			}
-			const uint32_t uni = countSetBits_(locus);
-			for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
-				locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
-			}
-			const uint32_t isect = countSetBits_(locus);
-			LDmat[resInd] = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iRow] * aaf_[jCol];
-			resInd++;
-		}
-	}
-}
-
-void GenoTable::allJaccardLDasyncPairs(vector<float> &LDmat) const {
-	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
 		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLDasyncPairs(vector<float> &)");
 	}
 	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
-	vector<uint8_t> locus(locusSize_);
-	size_t resInd = 0;
-	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
-		vector< future<float> > tasks;
-		tasks.reserve(nLoci_ - iRow - 1);
-		for (size_t jCol = iRow + 1; jCol < nLoci_; jCol++){
-			tasks.emplace_back( async([this, iRow, jCol]{return jaccardPair_(iRow, jCol);}) );
-		}
-		for (auto &f : tasks){
-			LDmat[resInd] = f.get();
-			resInd++;
-		}
-	}
-}
-
-void GenoTable::allJaccardLDasyncBlocks(vector<float> &LDmat) const {
-	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
-		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLDasyncPairs(vector<float> &)");
-	}
-	LDmat.reserve(nLoci_ * (nLoci_ - 1) / 2);
 	vector< future<void> > tasks;
 	tasks.reserve(nLoci_);
+	size_t blockBeg = 0; // index in LDmat of the first element of the block of similarities
 	for (size_t iRow = 0; iRow < nLoci_; iRow++) {
-		jaccardBlock_(iRow, LDmat);
+		tasks.emplace_back( async([this, iRow, blockBeg, &LDmat]{jaccardBlock_(iRow, blockBeg, LDmat);}) );
+		blockBeg += nLoci_ - iRow - 1;
 	}
 }
 
@@ -520,24 +467,9 @@ uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec, const size_t &st
 	return totSet;
 }
 
-float GenoTable::jaccardPair_(const size_t &iLocus, const size_t &jLocus) const {
+void GenoTable::jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const {
 	vector<uint8_t> locus(locusSize_);
-	size_t rowInd = iLocus * locusSize_;
-	size_t colInd = jLocus * locusSize_;
-	for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
-		locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
-	}
-	const uint32_t uni = countSetBits_(locus);
-	for (size_t iBinLoc = 0; iBinLoc < locusSize_; iBinLoc++){
-		locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
-	}
-	const uint32_t isect = countSetBits_(locus);
-
-	return static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jLocus];
-}
-
-void GenoTable::jaccardBlock_(const size_t &iLocus, vector<float> &jaccardVec) const {
-	vector<uint8_t> locus(locusSize_);
+	size_t ind = blockInd;
 	for (size_t jCol = iLocus + 1; jCol < nLoci_; jCol++){
 		size_t rowInd = iLocus * locusSize_;
 		size_t colInd = jCol * locusSize_;
@@ -549,6 +481,26 @@ void GenoTable::jaccardBlock_(const size_t &iLocus, vector<float> &jaccardVec) c
 			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
 		}
 		const uint32_t isect = countSetBits_(locus);
-		jaccardVec.push_back(static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jCol]);
+		jaccardVec[ind] = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jCol];
+		ind++;
+	}
+}
+
+void GenoTable::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
+	vector<uint8_t> locus(locusSize_);
+	size_t ind = blockInd;
+	for (size_t jCol = iLocus + 1; jCol < nLoci_; jCol++){
+		float simVal = 0.0;
+		size_t sketchRowInd = iLocus * kSketches;
+		size_t sketchColInd = jCol * kSketches;
+		for (size_t iSk = 0; iSk < kSketches; iSk++){
+			if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
+				simVal += 1.0;
+			}
+		}
+		simVal *= invK;
+		simVal -= aaf_[iLocus] * aaf_[jCol]; // subtracting expected similarity
+		hashJacVec[ind] = simVal;
+		ind++;
 	}
 }

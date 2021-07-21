@@ -33,7 +33,7 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
-#include <ctime>
+#include <chrono>
 #include <cmath>
 
 #include "../src/gvarHash.hpp"
@@ -43,6 +43,10 @@ using std::vector;
 using std::fstream;
 using std::ios;
 using std::cerr;
+using std::chrono::high_resolution_clock;
+using std::chrono::duration;
+using std::chrono::milliseconds;
+using std::milli;
 
 using namespace BayesicSpace;
 
@@ -57,31 +61,35 @@ int main(int argc, char *argv[]){
 	try {
 		const string outFileName(argv[4]);
 		vector<float> result;
-		time_t loadTime = clock();
+		auto time1 = high_resolution_clock::now();
 		GenoTable abaTest(inFileName, Nindv);
-		loadTime = clock() - loadTime;
-		clock_t hashTime;
-		clock_t runTime;
+		auto time2 = high_resolution_clock::now();
+		duration<float, milli> loadTime = time2 - time1;
+		duration<float, milli> hashTime;
+		duration<float, milli> runTime;
 		if (kSketches <= 1){
-			runTime = clock();
+			time1 = high_resolution_clock::now();
 			abaTest.allJaccardLD(result);
-			runTime = clock() - runTime;
+			time2 = high_resolution_clock::now();
+			runTime = time2 - time1;
 		} else {
-			hashTime = clock();
+			time1 = high_resolution_clock::now();
 			abaTest.makeIndividualOPH(kSketches);
-			hashTime = clock() - hashTime;
-			runTime = clock();
+			time2 = high_resolution_clock::now();
+			hashTime = time2 - time1;
+			time1 = high_resolution_clock::now();
 			abaTest.allHashLD(result);
-			runTime = clock() - runTime;
+			time2 = high_resolution_clock::now();
+			runTime = time2 - time1;
 		}
 		fstream output;
 		output.open(outFileName.c_str(), ios::out | ios::trunc);
 		// output times in milliseconds
-		output << 1000.0 * static_cast<float>(loadTime) / CLOCKS_PER_SEC << " ";
+		output << loadTime.count() << " ";
 		if (kSketches > 1){
-			output << 1000.0 * static_cast<float>(hashTime) / CLOCKS_PER_SEC << " ";
+			output << hashTime.count() << " ";
 		}
-		output << 1000.0 * static_cast<float>(runTime) / CLOCKS_PER_SEC;
+		output << runTime.count();
 		for (const auto &r : result){
 			output << " " << r;
 		}
