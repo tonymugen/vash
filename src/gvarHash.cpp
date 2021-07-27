@@ -415,6 +415,19 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 	}
 }
 
+void GenoTable::assignGroups(const size_t &nElements, vector<uint32_t> &grpID) const {
+	const size_t kSketches = sketches_.size() / nLoci_;
+	if (nElements > kSketches){
+		throw string("ERROR: number of elements to hash exceeds the number of sketches (") + to_string(kSketches) + string(") in GenoTable::assignGroups(const size_t &, vector<uint32_t> &)");
+	}
+	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
+	grpID.clear();
+	grpID.reserve(nLoci_);
+	for (size_t locusBeg = 0; locusBeg < nLoci_; locusBeg += locusSize_){
+		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
+	}
+}
+
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
 	uint32_t hash = seed;
 
@@ -422,6 +435,37 @@ uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
 	auto blocks = reinterpret_cast<const uint32_t *>(&key);
 
 	for(size_t i = 0; i < nblocks_; i++){
+		uint32_t k1 = blocks[i];
+
+		k1 *= c1_;
+		k1 = (k1 << 15) | (k1 >> 17);
+		k1 *= c2_;
+
+		hash ^= k1;
+		hash  = (hash << 13) | (hash >> 19);
+		hash  = hash * 5 + 0xe6546b64;
+	}
+
+	// there is no tail since the input is fixed (at eight bytes typically)
+	// finalize
+	hash ^= mmhKeyLen_;
+	hash ^= hash >> 16;
+	hash *= 0x85ebca6b;
+	hash ^= hash >> 13;
+	hash *= 0xc2b2ae35;
+	hash ^= hash >> 16;
+
+	return hash;
+}
+
+uint32_t GenoTable::murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const {
+	uint32_t hash = seed;
+
+	// body
+	auto blocks    = reinterpret_cast<const uint32_t *>(sketches_.data() + startInd);
+	size_t nBlocks = nElements / 2; // each sketch is 16 bits; this implies that only even number of sketches is considered
+
+	for(size_t i = 0; i < nBlocks; i++){
 		uint32_t k1 = blocks[i];
 
 		k1 *= c1_;

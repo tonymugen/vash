@@ -127,6 +127,16 @@ namespace BayesicSpace {
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
 		void allJaccardLD(vector<float> &LDmat) const;
+		/** \brief Assign groups from OPH
+		 *
+		 * Use sketch portions to assign loci to groups.
+		 * The number of elements to use must be less than the number of sketches (or an exception is thrown).
+		 * If element number is odd, the next smallest even number is used.
+		 *
+		 * \param[in] nElements number of sketch elements to use
+		 * \param[out] grpID group ID
+		 */
+		void assignGroups(const size_t &nElements, vector<uint32_t> &grpID) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
@@ -184,6 +194,18 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
+		/** \brief MurMurHash of a sketch portion
+		 *
+		 * Generates a 32-bit hash of a portion of an OPH sketch using the MurMurHash3 algorithm.
+		 * If the number of elements provided is odd, it is rounded down to the next even number.
+		 *
+		 * \param[in] startInd index of the first sketch element (to the `sketches_` vector)
+		 * \param[in] nElements number of elements to hash
+		 * \param[in] seed the seed
+		 *
+		 * \return the hash value
+		 */
+		uint32_t murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const;
 		/** \brief Count set bits in a vector
 		 *
 		 * Counting the set bits in a vector of bytes using Karnigan's method.

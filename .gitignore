@@ -11,6 +11,7 @@ tests/compile_commands.json
 tests/tstRun
 tests/allLDtests
 tests/asyncTests
+tests/grpTests
 tests/.RData
 tests/.Rhistory
 tests/*.txt
