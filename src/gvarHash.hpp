@@ -83,13 +83,13 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] in object to move
 		 */
-		GenoTable(GenoTable &&in);
+		GenoTable(GenoTable &&in) noexcept;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] in object to be moved
 		 * \return `GenoTable` object
 		 */
-		GenoTable& operator=(GenoTable &&in);
+		GenoTable& operator=(GenoTable &&in) noexcept;
 
 		/** \brief Save the binary genotype file
 		 *
@@ -206,6 +206,15 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const;
+		/** \brief SimHash of OPH sketches
+		 *
+		 * Takes the collection of OPH sketches for each locus and returns a simHash.
+		 *
+		 * \param[in] startInd index of the first sketch in the `sketches_` vector
+		 * \param[in] kSketches number of sketches to hash
+		 * \return hash value
+		 */
+		uint16_t simHash_(const size_t &startInd, const size_t &kSketches) const;
 		/** \brief Count set bits in a vector
 		 *
 		 * Counting the set bits in a vector of bytes using Karnigan's method.

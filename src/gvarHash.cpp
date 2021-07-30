@@ -249,7 +249,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 	}
 }
 
-GenoTable::GenoTable(GenoTable &&in){
+GenoTable::GenoTable(GenoTable &&in) noexcept {
 	if (this != &in){
 		binGenotypes_ = move(in.binGenotypes_);
 		sketches_     = move(in.sketches_);
@@ -261,16 +261,9 @@ GenoTable::GenoTable(GenoTable &&in){
 	}
 }
 
-GenoTable& GenoTable::operator=(GenoTable &&in){
+GenoTable& GenoTable::operator=(GenoTable &&in) noexcept {
 	if (this != &in){
-		binGenotypes_ = move(in.binGenotypes_);
-		sketches_     = move(in.sketches_);
-		nIndividuals_ = in.nIndividuals_;
-		nLoci_        = in.nLoci_;
-
-		in.nIndividuals_ = 0;
-		in.nLoci_        = 0;
-
+		*this = move(in);
 	}
 	return *this;
 }
@@ -423,7 +416,7 @@ void GenoTable::assignGroups(const size_t &nElements, vector<uint32_t> &grpID) c
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	grpID.clear();
 	grpID.reserve(nLoci_);
-	for (size_t locusBeg = 0; locusBeg < nLoci_; locusBeg += locusSize_){
+	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
 		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
 	}
 }
@@ -486,6 +479,16 @@ uint32_t GenoTable::murMurHash_(const size_t &startInd, const size_t &nElements,
 	hash *= 0xc2b2ae35;
 	hash ^= hash >> 16;
 
+	return hash;
+}
+
+uint16_t GenoTable::simHash_(const size_t &startInd, const size_t &kSketches) const {
+	uint16_t hash       = 0;
+	const uint16_t one  = 1;
+	vector<int32_t> shValues(byteSize_ * 2, 0); // will store the net 0 counts here
+	for (size_t iSketch = startInd; iSketch < startInd + kSketches; iSketch++){
+		;
+	}
 	return hash;
 }
 
