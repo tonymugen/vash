@@ -1,3 +1,6 @@
+*
+!*/
+!*.*
 Doxyfile
 *.swp
 *.o
@@ -8,10 +11,6 @@ src/compile_commands.json
 tests/.clangd/*
 tests/.cache/*
 tests/compile_commands.json
-tests/tstRun
-tests/allLDtests
-tests/asyncTests
-tests/grpTests
 tests/.RData
 tests/.Rhistory
 tests/*.txt
