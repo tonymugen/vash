@@ -53,13 +53,12 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	const int kSketches = atoi(argv[3]);
-	const int nElements = atoi(argv[4]);
 	try {
-		const string outFileName(argv[5]);
+		const string outFileName(argv[4]);
 		GenoTable grpTst(inFileName, Nindv);
 		grpTst.makeIndividualOPH(kSketches);
-		vector<uint32_t> groups;
-		grpTst.assignGroups(nElements, groups);
+		vector<uint16_t> groups;
+		grpTst.assignGroups(groups);
 		fstream output;
 		output.open(outFileName.c_str(), ios::out | ios::trunc);
 		for (const auto &r : groups){

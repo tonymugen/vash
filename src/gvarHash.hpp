@@ -133,10 +133,9 @@ namespace BayesicSpace {
 		 * The number of elements to use must be less than the number of sketches (or an exception is thrown).
 		 * If element number is odd, the next smallest even number is used.
 		 *
-		 * \param[in] nElements number of sketch elements to use
 		 * \param[out] grpID group ID
 		 */
-		void assignGroups(const size_t &nElements, vector<uint32_t> &grpID) const;
+		void assignGroups(vector<uint16_t> &grpID) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
@@ -194,6 +193,16 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
+		/** \brief 16 bit MurMurHash
+		 *
+		 * Generates a 16-bit hash of a 16 bit value using the MurMurHash3 algorithm.
+		 *
+		 * \param[in] key the key to be hashed
+		 * \param[in] seed the seed
+		 *
+		 * \return the hash value
+		 */
+		uint16_t murMurHash_(const uint16_t &key, const uint32_t &seed) const;
 		/** \brief MurMurHash of a sketch portion
 		 *
 		 * Generates a 32-bit hash of a portion of an OPH sketch using the MurMurHash3 algorithm.
@@ -212,9 +221,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] startInd index of the first sketch in the `sketches_` vector
 		 * \param[in] kSketches number of sketches to hash
+		 * \param[in] seed seed value to use with murMurHash on each sketch element
 		 * \return hash value
 		 */
-		uint16_t simHash_(const size_t &startInd, const size_t &kSketches) const;
+		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
 		/** \brief Count set bits in a vector
 		 *
 		 * Counting the set bits in a vector of bytes using Karnigan's method.

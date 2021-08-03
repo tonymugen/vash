@@ -408,16 +408,16 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 	}
 }
 
-void GenoTable::assignGroups(const size_t &nElements, vector<uint32_t> &grpID) const {
+void GenoTable::assignGroups(vector<uint16_t> &grpID) const {
 	const size_t kSketches = sketches_.size() / nLoci_;
-	if (nElements > kSketches){
-		throw string("ERROR: number of elements to hash exceeds the number of sketches (") + to_string(kSketches) + string(") in GenoTable::assignGroups(const size_t &, vector<uint32_t> &)");
+	if (kSketches == 0){
+		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
 	}
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	grpID.clear();
 	grpID.reserve(nLoci_);
+	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
-		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
+		grpID.push_back( simHash_(locusBeg, kSketches, seed) );
 	}
 }
 
@@ -451,6 +451,36 @@ uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
 	return hash;
 }
 
+uint16_t GenoTable::murMurHash_(const uint16_t &key, const uint32_t &seed) const {
+	uint32_t hash = seed;
+
+	// body
+	uint32_t block = static_cast<uint32_t>(key);
+
+	uint32_t k1 = block;
+
+	k1 *= c1_;
+	k1 = (k1 << 15) | (k1 >> 17);
+	k1 *= c2_;
+
+	hash ^= k1;
+	hash  = (hash << 13) | (hash >> 19);
+	hash  = hash * 5 + 0xe6546b64;
+
+	// there is no tail since the input is fixed (at eight bytes typically)
+	// finalize
+	hash ^= mmhKeyLen_;
+	hash ^= hash >> 16;
+	hash *= 0x85ebca6b;
+	hash ^= hash >> 13;
+	hash *= 0xc2b2ae35;
+	hash ^= hash >> 16;
+	
+	auto hashV = reinterpret_cast<const uint16_t *>(&hash);
+
+	return hashV[0] ^ hashV[1];
+}
+
 uint32_t GenoTable::murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const {
 	uint32_t hash = seed;
 
@@ -482,12 +512,19 @@ uint32_t GenoTable::murMurHash_(const size_t &startInd, const size_t &nElements,
 	return hash;
 }
 
-uint16_t GenoTable::simHash_(const size_t &startInd, const size_t &kSketches) const {
-	uint16_t hash       = 0;
-	const uint16_t one  = 1;
-	vector<int32_t> shValues(byteSize_ * 2, 0); // will store the net 0 counts here
+uint16_t GenoTable::simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const {
+	uint16_t hash        = 0;
+	const uint16_t one   = 1;
+	const size_t twoByte = 2 * byteSize_;
+	array<int16_t, twoByte> v{};
 	for (size_t iSketch = startInd; iSketch < startInd + kSketches; iSketch++){
-		;
+		const uint16_t skHash = murMurHash_(sketches_[iSketch], seed);
+		for (uint16_t j = 0; j < twoByte; j++){
+			v[j] += -1 + 2 * static_cast<int16_t>( one & (skHash >> j) );
+		}
+	}
+	for (uint16_t i = 0; i < twoByte; i++){
+		hash |= (static_cast<uint16_t>(v[i] > 0) << i);
 	}
 	return hash;
 }
