@@ -127,13 +127,20 @@ namespace BayesicSpace {
 		 * \param[out] LDmat lower triangle of the LD matrix
 		 */
 		void allJaccardLD(vector<float> &LDmat) const;
-		/** \brief Assign groups from OPH
+		/** \brief Assign groups from OPH portions
 		 *
 		 * Use sketch portions to assign loci to groups.
 		 * The number of elements to use must be less than the number of sketches (or an exception is thrown).
 		 * If element number is odd, the next smallest even number is used.
 		 *
-		 * \param[out] grpID group ID
+		 * \param[out] grpID group ID of loci
+		 */
+		void assignGroups(const size_t &nElements, vector<uint16_t> &grpID) const;
+		/** \brief Assign groups from simHashing OPH
+		 *
+		 * Use a 16 bit simHash of the whole OPH to assign loci to groups.
+		 *
+		 * \param[out] grpID group IDs of loci
 		 */
 		void assignGroups(vector<uint16_t> &grpID) const;
 	protected:

@@ -408,6 +408,23 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 	}
 }
 
+void GenoTable::assignGroups(const size_t &nElements, vector<uint16_t> &grpID) const {
+	const size_t kSketches = sketches_.size() / nLoci_;
+	if (kSketches == 0){
+		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
+	}
+	if (nElements > kSketches){
+		throw string("ERROR: Number of elements to consider (") + to_string(nElements) + string(") is greater than the number of sketches (") 
+						+ to_string(kSketches) + string(") in GenoTable::assignGroups(const size_t &, vector<uint16_t> &)");
+	}
+	grpID.clear();
+	grpID.reserve(nLoci_);
+	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
+	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
+		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
+	}
+}
+
 void GenoTable::assignGroups(vector<uint16_t> &grpID) const {
 	const size_t kSketches = sketches_.size() / nLoci_;
 	if (kSketches == 0){
