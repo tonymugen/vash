@@ -60,41 +60,48 @@ int main(int argc, char *argv[]){
 	const int kSketches = atoi(argv[3]);
 	try {
 		const string outFileName(argv[4]);
-		vector<float> result;
 		auto time1 = high_resolution_clock::now();
 		GenoTable abaTest(inFileName, Nindv);
 		auto time2 = high_resolution_clock::now();
 		duration<float, milli> loadTime = time2 - time1;
-		duration<float, milli> hashTime;
-		duration<float, milli> runTime;
 		if (kSketches <= 1){
+			duration<float, milli> hashTime;
+			duration<float, milli> runTime;
 			time1 = high_resolution_clock::now();
-			abaTest.allJaccardLD(result);
+			vector<float> result = abaTest.allJaccardLD();
 			time2 = high_resolution_clock::now();
 			runTime = time2 - time1;
+
+			fstream output;
+			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			// output times in milliseconds
+			output << loadTime.count() << " " << runTime.count();
+			for (const auto &r : result){
+				output << " " << r;
+			}
+			output << "\n";
+			output.close();
 		} else {
+			duration<float, milli> hashTime;
+			duration<float, milli> runTime;
 			time1 = high_resolution_clock::now();
 			abaTest.makeIndividualOPH(kSketches);
 			time2 = high_resolution_clock::now();
 			hashTime = time2 - time1;
 			time1 = high_resolution_clock::now();
-			abaTest.allHashLD(result);
+			vector<float> result = abaTest.allHashLD();
 			time2 = high_resolution_clock::now();
 			runTime = time2 - time1;
+			fstream output;
+			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			// output times in milliseconds
+			output << loadTime.count() << " " << hashTime.count() << " " << runTime.count();
+			for (const auto &r : result){
+				output << " " << r;
+			}
+			output << "\n";
+			output.close();
 		}
-		fstream output;
-		output.open(outFileName.c_str(), ios::out | ios::trunc);
-		// output times in milliseconds
-		output << loadTime.count() << " ";
-		if (kSketches > 1){
-			output << hashTime.count() << " ";
-		}
-		output << runTime.count();
-		for (const auto &r : result){
-			output << " " << r;
-		}
-		output << "\n";
-		output.close();
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(3);

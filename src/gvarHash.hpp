@@ -115,34 +115,35 @@ namespace BayesicSpace {
 		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities.
 		 * This function must be run after a sketch-generating function (e.g., `makeIndividualOPH()`). This is checked and an exception thrown if the sketch vector is empty.
 		 *
-		 * \param[out] LDmat lower triangle of the LD matrix
+		 * \return lower triangle of the LD matrix
 		 */
-		void allHashLD(vector<float> &LDmat) const;
+		vector<float> allHashLD() const;
 		/** \brief All by all Jaccad similarity LD
 		 *
 		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
 		 *
-		 * \param[out] LDmat lower triangle of the LD matrix
+		 * \return lower triangle of the LD matrix
 		 */
-		void allJaccardLD(vector<float> &LDmat) const;
+		vector<float> allJaccardLD() const;
 		/** \brief Assign groups from OPH portions
 		 *
 		 * Use sketch portions to assign loci to groups.
-		 * The number of elements to use must be less than the number of sketches (or an exception is thrown).
+		 * The number of elements to use must be smaller than the number of sketches (or an exception is thrown).
 		 * If element number is odd, the next smallest even number is used.
 		 *
-		 * \param[out] grpID group ID of loci
+		 * \param[in] nElements number of OPH elements to use
+		 * \return vector of group IDs for each locus
 		 */
-		void assignGroups(const size_t &nElements, vector<uint16_t> &grpID) const;
+		vector<uint16_t> assignGroups(const size_t &nElements) const;
 		/** \brief Assign groups from simHashing OPH
 		 *
 		 * Use a 16 bit simHash of the whole OPH to assign loci to groups.
 		 *
-		 * \param[out] grpID group IDs of loci
+		 * \return group IDs for each locus
 		 */
-		void assignGroups(vector<uint16_t> &grpID) const;
+		vector<uint16_t> assignGroups() const;
 	protected:
 		/** \brief Binarized genotype table
 		 *

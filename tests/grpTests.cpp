@@ -58,19 +58,25 @@ int main(int argc, char *argv[]){
 		const string outFileName(argv[5]);
 		GenoTable grpTst(inFileName, Nindv);
 		grpTst.makeIndividualOPH(kSketches);
-		vector<uint16_t> groups;
 		if (nElements){
-			grpTst.assignGroups(nElements, groups); // murMurHash of an OPH portion
+			vector<uint16_t> groups = grpTst.assignGroups(nElements); // murMurHash of an OPH portion
+			fstream output;
+			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			for (const auto &r : groups){
+				output << " " << r;
+			}
+			output << "\n";
+			output.close();
 		} else {
-			grpTst.assignGroups(groups);            // simHash of the whole OPH
+			vector<uint16_t> groups	= grpTst.assignGroups();          // simHash of the whole OPH
+			fstream output;
+			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			for (const auto &r : groups){
+				output << " " << r;
+			}
+			output << "\n";
+			output.close();
 		}
-		fstream output;
-		output.open(outFileName.c_str(), ios::out | ios::trunc);
-		for (const auto &r : groups){
-			output << " " << r;
-		}
-		output << "\n";
-		output.close();
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(3);

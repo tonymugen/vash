@@ -52,15 +52,15 @@ using std::async;
 
 using namespace BayesicSpace;
 
-const array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
-const uint8_t GenoTable::oneBit_            = 0b00000001;
-const uint8_t GenoTable::byteSize_          = 8;
-const uint8_t GenoTable::llWordSize_        = 8;
-const size_t GenoTable::nblocks_            = sizeof(size_t) / 4;
-const uint32_t GenoTable::mmhKeyLen_        = sizeof(size_t);
-const uint16_t GenoTable::emptyBinToken_    = numeric_limits<uint16_t>::max();
-const uint32_t GenoTable::c1_               = 0xcc9e2d51;
-const uint32_t GenoTable::c2_               = 0x1b873593;
+constexpr array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
+constexpr uint8_t GenoTable::oneBit_            = 0b00000001;
+constexpr uint8_t GenoTable::byteSize_          = 8;
+constexpr uint8_t GenoTable::llWordSize_        = 8;
+constexpr size_t GenoTable::nblocks_            = sizeof(size_t) / 4;
+constexpr uint32_t GenoTable::mmhKeyLen_        = sizeof(size_t);
+constexpr uint16_t GenoTable::emptyBinToken_    = numeric_limits<uint16_t>::max();
+constexpr uint32_t GenoTable::c1_               = 0xcc9e2d51;
+constexpr uint32_t GenoTable::c2_               = 0x1b873593;
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{0} {
@@ -375,14 +375,11 @@ void GenoTable::makeIndividualOPH(const size_t &kSketches){
 	}
 }
 
-void GenoTable::allHashLD(vector<float> &LDmat) const {
-	if ( (nLoci_ / 2) > ( numeric_limits<size_t>::max() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
-		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allHashLD(vector<float> &)");
-	}
+vector<float> GenoTable::allHashLD() const {
 	if ( sketches_.empty() ){
 		throw string("ERROR: Cannot calculate hash-based LD on empty sketches in GenoTable::allHashLD(vector<float> &)");
 	}
-	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
+	vector<float> LDmat(nLoci_ * (nLoci_ - 1) / 2, 0.0);
 	const size_t kSketches = sketches_.size() / nLoci_;
 	const float fNind = 1.0 / static_cast<float>(kSketches);
 	vector< future<void> > tasks;
@@ -392,13 +389,12 @@ void GenoTable::allHashLD(vector<float> &LDmat) const {
 		tasks.emplace_back( async([this, iRow, blockBeg, kSketches, fNind, &LDmat]{hashJacBlock_(iRow, blockBeg, kSketches, fNind, LDmat);}) );
 		blockBeg += nLoci_ - iRow - 1;
 	}
+	return LDmat;
 }
 
-void GenoTable::allJaccardLD(vector<float> &LDmat) const {
-	if ( (nLoci_ / 2) > ( LDmat.max_size() / (nLoci_ - 1) ) ){ // too many loci to fit in the upper triangle
-		throw string("ERROR: Number of loci (") + to_string(nLoci_) + string(") too large to calculate all by all LD in GenoTable::allJaccardLDasyncPairs(vector<float> &)");
-	}
-	LDmat.resize(nLoci_ * (nLoci_ - 1) / 2, 0.0);
+vector<float> GenoTable::allJaccardLD() const {
+	// TODO: a try/catch block that writes to file directly if allocation fails
+	vector<float> LDmat(nLoci_ * (nLoci_ - 1) / 2, 0.0);
 	vector< future<void> > tasks;
 	tasks.reserve(nLoci_);
 	size_t blockBeg = 0; // index in LDmat of the first element of the block of similarities
@@ -406,9 +402,10 @@ void GenoTable::allJaccardLD(vector<float> &LDmat) const {
 		tasks.emplace_back( async([this, iRow, blockBeg, &LDmat]{jaccardBlock_(iRow, blockBeg, LDmat);}) );
 		blockBeg += nLoci_ - iRow - 1;
 	}
+	return LDmat;
 }
 
-void GenoTable::assignGroups(const size_t &nElements, vector<uint16_t> &grpID) const {
+vector<uint16_t> GenoTable::assignGroups(const size_t &nElements) const {
 	const size_t kSketches = sketches_.size() / nLoci_;
 	if (kSketches == 0){
 		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
@@ -417,25 +414,27 @@ void GenoTable::assignGroups(const size_t &nElements, vector<uint16_t> &grpID) c
 		throw string("ERROR: Number of elements to consider (") + to_string(nElements) + string(") is greater than the number of sketches (") 
 						+ to_string(kSketches) + string(") in GenoTable::assignGroups(const size_t &, vector<uint16_t> &)");
 	}
-	grpID.clear();
+	vector<uint16_t> grpID;
 	grpID.reserve(nLoci_);
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
 		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
 	}
+	return grpID;
 }
 
-void GenoTable::assignGroups(vector<uint16_t> &grpID) const {
+vector<uint16_t> GenoTable::assignGroups() const {
 	const size_t kSketches = sketches_.size() / nLoci_;
 	if (kSketches == 0){
 		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
 	}
-	grpID.clear();
+	vector<uint16_t> grpID;
 	grpID.reserve(nLoci_);
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
 		grpID.push_back( simHash_(locusBeg, kSketches, seed) );
 	}
+	return grpID;
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
