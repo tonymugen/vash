@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <deque>
 #include <algorithm>
 #include <limits>
 #include <fstream>
@@ -40,6 +41,7 @@
 
 using std::vector;
 using std::array;
+using std::deque;
 using std::string;
 using std::to_string;
 using std::move;
@@ -104,7 +106,7 @@ GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : 
 		// Two bytes of .bed code go into one byte of my binary representation
 		// Therefore, work on two consecutive bytes of .bed code in the loop
 		for (size_t iBed = 0; iBed < endBed ; iBed += 2){                     // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
-			bedLocus[iBed] = ~bedLocus[iBed];                                 // flip so that homozygous second allele (usually minor) is set to 11
+			bedLocus[iBed]      = ~bedLocus[iBed];                            // flip so that homozygous second allele (usually minor) is set to 11
 			uint8_t offsetToBin = 0;                                          // move the .bed mask by this much to align with the binarized byte
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
@@ -310,14 +312,14 @@ void GenoTable::makeIndividualOPH(const size_t &kSketches){
 			// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
 			// if the same byte is being accessed, secondIdx is not shifted to the second byte
 			// This may be affected by endianness (did not test)
-			uint16_t twoBytes  = (static_cast<uint16_t>(binGenotypes_[secondByte]) << 8) | (static_cast<uint16_t>(binGenotypes_[firstByte]));
+			uint16_t twoBytes  = (static_cast<uint16_t>(binGenotypes_[secondByte]) << 8) | ( static_cast<uint16_t>(binGenotypes_[firstByte]) );
 			secondIdx         += diff;
-			uint16_t x         = ((twoBytes >> firstIdx) ^ (twoBytes >> secondIdx)) & 1;
-			twoBytes          ^= ((x << firstIdx) | (x << secondIdx));
+			uint16_t x         = ( (twoBytes >> firstIdx) ^ (twoBytes >> secondIdx) ) & 1;
+			twoBytes          ^= ( (x << firstIdx) | (x << secondIdx) );
 
-			memcpy(binGenotypes_.data() + firstByte, &twoBytes, sizeof(uint8_t));
+			memcpy( binGenotypes_.data() + firstByte, &twoBytes, sizeof(uint8_t) );
 			twoBytes = twoBytes >> diff;
-			memcpy(binGenotypes_.data() + secondByte, &twoBytes, sizeof(uint8_t));
+			memcpy( binGenotypes_.data() + secondByte, &twoBytes, sizeof(uint8_t) );
 			iIndiv--;
 		}
 		// Now make the sketches
@@ -408,7 +410,7 @@ vector<float> GenoTable::allJaccardLD() const {
 vector<uint16_t> GenoTable::assignGroups(const size_t &nElements) const {
 	const size_t kSketches = sketches_.size() / nLoci_;
 	if (kSketches == 0){
-		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
+		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &)");
 	}
 	if (nElements > kSketches){
 		throw string("ERROR: Number of elements to consider (") + to_string(nElements) + string(") is greater than the number of sketches (") 
@@ -426,7 +428,7 @@ vector<uint16_t> GenoTable::assignGroups(const size_t &nElements) const {
 vector<uint16_t> GenoTable::assignGroups() const {
 	const size_t kSketches = sketches_.size() / nLoci_;
 	if (kSketches == 0){
-		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &))");
+		throw string("ERROR: Number of sketches must be non-zero in GenoTable::assignGroups(vector<uint32_t> &)");
 	}
 	vector<uint16_t> grpID;
 	grpID.reserve(nLoci_);
@@ -435,6 +437,27 @@ vector<uint16_t> GenoTable::assignGroups() const {
 		grpID.push_back( simHash_(locusBeg, kSketches, seed) );
 	}
 	return grpID;
+}
+
+void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSetches, const size_t &lookBackNumber, const string &outFileName) const {
+	if ( sketches_.empty() ){
+		throw string("ERROR: no OPH sketches generated before calling GenoTable::groupByLD(const uint16_t&, const size_t&, const size_t &, const string&)");
+	}
+	const size_t totSketches = sketches_.size() / nLoci_;
+	if (kSetches == 0){
+		throw string("ERROR: number of OPH sketches to simHash cannot be 0 in GenoTable::groupByLD(const uint16_t&, const size_t&, const size_t &, const string&)");
+	} else if (kSetches > totSketches){
+		throw string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches in GenoTable::groupByLD(const uint16_t&, const size_t&, const size_t &, const string&)");
+	}
+	vector< vector<size_t> > ldGroup;     // each element is a vector of indexes into sketches_
+	deque<uint16_t> activeHashes;         // hashes that are under consideration; size is <= lookBackNumber
+	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
+	// initialize with the first locus
+	activeHashes.push_back( simHash_(0, kSetches, seed) );
+	ldGroup.emplace_back(vector<size_t>{0});
+	for (size_t locusInd = totSketches; locusInd < sketches_.size(); locusInd += totSketches){
+		;
+	}
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {
@@ -545,6 +568,15 @@ uint16_t GenoTable::simHash_(const size_t &startInd, const size_t &kSketches, co
 	return hash;
 }
 
+uint16_t GenoTable::countSetBits_(const uint16_t &inVal) const {
+	uint16_t tmpVal = inVal; // could pass by value, but prefer interface consistency
+	uint16_t totSet = 0;
+		for (; tmpVal; totSet++) {
+			tmpVal &= tmpVal - 1;
+		}
+	return totSet;
+}
+
 uint32_t GenoTable::countSetBits_(const vector<uint8_t> &inVec) const {
 	uint32_t totSet = 0;
 	for (const auto &in : inVec){
@@ -587,7 +619,6 @@ void GenoTable::jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vect
 }
 
 void GenoTable::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
-	vector<uint8_t> locus(locusSize_);
 	size_t ind = blockInd;
 	for (size_t jCol = iLocus + 1; jCol < nLoci_; jCol++){
 		float simVal = 0.0;

@@ -47,7 +47,9 @@ namespace BayesicSpace {
 
 	/** \brief Class to store compressed genotype tables
 	 *
-	 * Provides facilities to store and manipulate compressed genotype tables. Genotypes are stored in a two-bit format as in plink .bed files.
+	 * Provides facilities to store and manipulate compressed genotype tables.
+	 * Genotypes are stored in a one-bit format: bit set for the minor allele, unset for the major.
+	 * Bits corresponding to missing data are unset (this is the same as mean imputation), heterozygotes are set with a 50% probability.
 	 */
 	class GenoTable {
 	public:
@@ -144,6 +146,22 @@ namespace BayesicSpace {
 		 * \return group IDs for each locus
 		 */
 		vector<uint16_t> assignGroups() const;
+		/** \brief Group loci by linkage disequilibrium (LD)
+		 *
+		 * Group loci by LD along the genome. The algorithm is
+		 * Start by using simHash on the first `kSketches` of the first locus OPH. Proceed along the genome, for each locus
+		 *  - simHash `kSketches` of the OPH
+		 *  - compare to the previous locus simHash
+		 *  - if the Hamming distance from the previous locus is less than `hammingCutoff`, add the locus index to the group
+		 *  - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
+		 *  - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
+		 *
+		 *  \param[in] hammingCutoff the maximum Hamming distance for group inclusion
+		 *  \param[in] kSketches number of OPH sketches to use for simHash
+		 *  \param[in] lookBackNumber number of previous groups to consider
+		 *  \param[in] outFileName name of the output file
+		 */
+		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSetches, const size_t &lookBackNumber, const string &outFileName) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
@@ -233,6 +251,14 @@ namespace BayesicSpace {
 		 * \return hash value
 		 */
 		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
+		/** \brief Count set bits in a 16-bit word
+		 *
+		 * Counting the set bits using Karnigan's method.
+		 *
+		 * \param[in] inVal input value
+		 * \return number of bits set
+		 */
+		uint16_t countSetBits_(const uint16_t &inVal) const;
 		/** \brief Count set bits in a vector
 		 *
 		 * Counting the set bits in a vector of bytes using Karnigan's method.

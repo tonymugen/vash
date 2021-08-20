@@ -63,18 +63,18 @@ int main(int argc, char *argv[]){
 			fstream output;
 			output.open(outFileName.c_str(), ios::out | ios::trunc);
 			for (const auto &r : groups){
-				output << " " << r;
+				output << r << " ";
 			}
-			output << "\n";
+			output << "\b\n";
 			output.close();
 		} else {
 			vector<uint16_t> groups	= grpTst.assignGroups();          // simHash of the whole OPH
 			fstream output;
 			output.open(outFileName.c_str(), ios::out | ios::trunc);
 			for (const auto &r : groups){
-				output << " " << r;
+				output << r << " ";
 			}
-			output << "\n";
+			output << "\b\n";
 			output.close();
 		}
 	} catch(string problem){
