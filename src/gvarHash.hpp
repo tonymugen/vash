@@ -253,12 +253,12 @@ namespace BayesicSpace {
 		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
 		/** \brief Count set bits in a 16-bit word
 		 *
-		 * Counting the set bits using Karnigan's method.
+		 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
 		 *
 		 * \param[in] inVal input value
 		 * \return number of bits set
 		 */
-		uint16_t countSetBits_(const uint16_t &inVal) const;
+		uint16_t countSetBits_(uint16_t inVal) const;
 		/** \brief Count set bits in a vector
 		 *
 		 * Counting the set bits in a vector of bytes using Karnigan's method.
@@ -293,6 +293,16 @@ namespace BayesicSpace {
 		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
 		 */
 		void hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
+		/** \brief Hamming distance
+		 *
+		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.
+		 *
+		 * \param[in] first first value
+		 * \param[in] second second value
+		 * \return Hamming distance
+		 *
+		 */
+		uint16_t inline hammingDistance_(uint16_t first, uint16_t second) const {return countSetBits_(first ^ second); }
 	};
 }
 
