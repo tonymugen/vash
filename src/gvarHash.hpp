@@ -184,7 +184,7 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
 		size_t locusSize_;
-		/** \brief Radom number generator */
+		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;

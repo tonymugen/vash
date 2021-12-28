@@ -1,6 +1,7 @@
 *
 !*/
 !*.*
+!Makefile
 Doxyfile
 *.swp
 *.o

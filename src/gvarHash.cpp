@@ -52,15 +52,15 @@ using std::async;
 
 using namespace BayesicSpace;
 
-constexpr array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};
-constexpr uint8_t GenoTable::oneBit_            = 0b00000001;
-constexpr uint8_t GenoTable::byteSize_          = 8;
-constexpr uint8_t GenoTable::llWordSize_        = 8;
-constexpr size_t GenoTable::nblocks_            = sizeof(size_t) / 4;
-constexpr uint32_t GenoTable::mmhKeyLen_        = sizeof(size_t);
-constexpr uint16_t GenoTable::emptyBinToken_    = numeric_limits<uint16_t>::max();
-constexpr uint32_t GenoTable::c1_               = 0xcc9e2d51;
-constexpr uint32_t GenoTable::c2_               = 0x1b873593;
+constexpr array<char, 3> GenoTable::magicBytes_ = {0x6c, 0x1b, 0x01};              // Leading bytes for .bed files 
+constexpr uint8_t  GenoTable::oneBit_           = 0b00000001;                      // One set bit for masking 
+constexpr uint8_t  GenoTable::byteSize_         = 8;                               // Size of one byte in bits 
+constexpr uint8_t  GenoTable::llWordSize_       = 8;                               // 64 bit word size in bytes 
+constexpr size_t   GenoTable::nblocks_          = sizeof(size_t) / 4;              // MurMurHash number of blocks 
+constexpr uint32_t GenoTable::mmhKeyLen_        = sizeof(size_t);                  // MurMurHash key length 
+constexpr uint16_t GenoTable::emptyBinToken_    = numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
+constexpr uint32_t GenoTable::c1_               = 0xcc9e2d51;                      // MurMurHash c1 constant 
+constexpr uint32_t GenoTable::c2_               = 0x1b873593;                      // MurMurHash c2 constant 
 
 // Constructors
 GenoTable::GenoTable(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{0} {
@@ -187,7 +187,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
-	remainderInd = byteSize_ - remainderInd;
+	remainderInd               = byteSize_ - remainderInd;
 
 	binGenotypes_.resize(nLoci_ * locusSize_, 0);
 
@@ -198,7 +198,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 	for (auto &rv : rand){
 		rv = rng_.ranInt();
 	}
-	const float fNind  = static_cast<float>(nIndividuals_);
+	const float fNind = static_cast<float>(nIndividuals_);
 
 	for (size_t jLoc = 0; jLoc < nLoci_; ++jLoc) {
 		size_t iIndiv         = 0;
@@ -214,7 +214,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 				missMasks[i0Byte]        |= (missingMask << iInByte);
 				curIndiv                 &= 0b00000011;
 				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
-				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
 				binGenotypes_[iByte]     |= curBitMask << iInByte;
 				++iIndiv;
@@ -229,7 +229,7 @@ GenoTable::GenoTable(const vector<int> &maCounts, const size_t &nIndividuals) : 
 			missMasks.back()         |= (missingMask << iRem);
 			curIndiv                 &= 0b00000011;
 			const uint8_t randMask    = (randBytes[begByte + locusSize_ - 1] >> iRem) & oneBit_;  // 0b00000000 or 0b00000001 with equal chance
-			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                  // curIndiv == 0b00000010 curBitMask = 0b00000001; if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                  // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 			curBitMask               &= ~missingMask;                                             // zero it out if missing value is set
 
 			binGenotypes_[begByte + locusSize_ - 1] |= curBitMask << iRem;
