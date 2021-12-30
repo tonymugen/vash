@@ -449,12 +449,26 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSetches,
 	}
 	vector< vector<size_t> > ldGroup;                              // each element is a vector of indexes into sketches_
 	vector<uint16_t> activeHashes(lookBackNumber, 0);              // hashes that are under consideration in a simplified ring buffer
+	size_t latestHashIndex = 0;                                    // index of the latest added hash
+	size_t curNumHashes = 0;                                       // number of hashes currently being considered
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	// initialize with the first locus
-	activeHashes.push_back( simHash_(0, kSetches, seed) );
+	activeHashes[0] = simHash_(0, kSetches, seed);
+	++curNumHashes;
 	ldGroup.emplace_back(vector<size_t>{0});
 	for (size_t locusInd = totSketches; locusInd < sketches_.size(); locusInd += totSketches){
-		;
+		const uint16_t curHash = simHash_(locusInd, kSetches, seed);
+		size_t iHash     = 0;
+		bool noCollision = true;
+		while ( (iHash <= curNumHashes) && noCollision ){
+			if (hammingDistance_(activeHashes[(latestHashIndex - iHash) % lookBackNumber], curHash) <= hammingCutoff){
+				noCollision = false;
+			}
+			++iHash;
+			if (noCollision){ //TODO: add the current hash for consideration
+			} else {          //TODO: add the current sketch index to the correct ldGroup
+			}
+		}
 	}
 }
 
