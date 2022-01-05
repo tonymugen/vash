@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <iterator>
 #include <algorithm>
 #include <limits>
 #include <fstream>
@@ -40,6 +41,7 @@
 
 using std::vector;
 using std::array;
+using std::distance;
 using std::string;
 using std::to_string;
 using std::move;
@@ -437,39 +439,76 @@ vector<uint16_t> GenoTable::assignGroups() const {
 	return grpID;
 }
 
-void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSetches, const size_t &lookBackNumber, const string &outFileName) const {
+void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches, const size_t &lookBackNumber, const string &outFileName) const {
 	if ( sketches_.empty() ){
 		throw string("ERROR: no OPH sketches generated before calling in ") + string(__FUNCTION__);
 	}
 	const size_t totSketches = sketches_.size() / nLoci_;
-	if (kSetches == 0){
+	if (kSketches == 0){
 		throw string("ERROR: number of OPH sketches to simHash cannot be 0 in ") + string(__FUNCTION__);
-	} else if (kSetches > totSketches){
+	} else if (kSketches > totSketches){
 		throw string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches in ") + string(__FUNCTION__);
 	}
+	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	vector< vector<size_t> > ldGroup;                              // each element is a vector of indexes into sketches_
 	vector<uint16_t> activeHashes(lookBackNumber, 0);              // hashes that are under consideration in a simplified ring buffer
-	size_t latestHashIndex = 0;                                    // index of the latest added hash
-	size_t curNumHashes = 0;                                       // number of hashes currently being considered
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
+
+	// Start by filling the active hash buffer
+	//
 	// initialize with the first locus
-	activeHashes[0] = simHash_(0, kSetches, seed);
-	++curNumHashes;
+	activeHashes.back() = simHash_(0, kSketches, seed);
+	auto latestHashIt   = activeHashes.rbegin();                   // points to the latest hash under consideration
+	size_t locusInd     = totSketches;                             // current locus index (starts from the second locus)
+	uint16_t curHash    = 0;
 	ldGroup.emplace_back(vector<size_t>{0});
-	for (size_t locusInd = totSketches; locusInd < sketches_.size(); locusInd += totSketches){
-		const uint16_t curHash = simHash_(locusInd, kSetches, seed);
-		size_t iHash     = 0;
+	// loop through loci until buffer is full or no more loci left
+	while ( ( latestHashIt != activeHashes.rend() ) && ( locusInd < sketches_.size() ) ){
+		curHash          = simHash_(locusInd, kSketches, seed);
+		auto fwdHashIt   = activeHashes.cbegin() + distance( latestHashIt, activeHashes.rend() ) - 1;
+		auto ldgIt       = ldGroup.rbegin();   // latest group is at the end
 		bool noCollision = true;
-		while ( (iHash <= curNumHashes) && noCollision ){
-			if (hammingDistance_(activeHashes[(latestHashIndex - iHash) % lookBackNumber], curHash) <= hammingCutoff){
+		while ( fwdHashIt != activeHashes.cend() ){
+			if ( ldgIt == ldGroup.rend() ){
+				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) +
+					string("\n This should never happen. Please report this as a bug to github.com/tonymugen");
+			}
+			if (hammingDistance_(*fwdHashIt, curHash) <= hammingCutoff){
 				noCollision = false;
+				break;
 			}
-			++iHash;
-			if (noCollision){ //TODO: add the current hash for consideration
-			} else {          //TODO: add the current sketch index to the correct ldGroup
+			++fwdHashIt;
+			++ldgIt;
+		}
+		if (noCollision){
+			++latestHashIt;
+			// This is still not quite right
+			if ( latestHashIt == activeHashes.rend() ){
+				ldGroup.emplace_back(vector<size_t>{locusInd});
+				break;
+			} else {
+				*latestHashIt = curHash;
+				ldGroup.emplace_back(vector<size_t>{locusInd});
+				continue;
 			}
+		} else {
+			ldgIt->push_back(locusInd);
+		}
+		locusInd += totSketches;
+	}
+	// If there are loci left after filling the buffer, continue.
+	//if ( locusInd < sketches_.size() ) {
+	//	
+	//}
+	
+	// Save the results
+	fstream out;
+	out.open(outFileName.c_str(), ios::out | ios::trunc);
+	for (size_t iGrp = 0; iGrp < ldGroup.size(); ++iGrp){
+		for (const auto &l : ldGroup[iGrp]){
+			out << iGrp + 1 << "\t" << l / totSketches + 1 << "\n";
 		}
 	}
+	out.close();
 }
 
 uint32_t GenoTable::murMurHash_(const size_t &key, const uint32_t &seed) const {

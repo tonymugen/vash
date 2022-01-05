@@ -151,8 +151,8 @@ namespace BayesicSpace {
 		 * Group loci by LD along the genome. The algorithm is
 		 * Start by using simHash on the first `kSketches` of the first locus OPH. Proceed along the genome, for each locus
 		 *  - simHash `kSketches` of the OPH
-		 *  - compare to the previous locus simHash
-		 *  - if the Hamming distance from the previous locus is less than `hammingCutoff`, add the locus index to the group
+		 *  - compare to the latest group simHash
+		 *  - if the Hamming distance from the latest group is less than `hammingCutoff`, add the locus index to the group
 		 *  - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
 		 *  - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
 		 *
@@ -161,7 +161,7 @@ namespace BayesicSpace {
 		 *  \param[in] lookBackNumber number of previous groups to consider
 		 *  \param[in] outFileName name of the output file
 		 */
-		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSetches, const size_t &lookBackNumber, const string &outFileName) const;
+		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches, const size_t &lookBackNumber, const string &outFileName) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
