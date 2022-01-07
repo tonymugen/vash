@@ -459,17 +459,16 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 	activeHashes.back() = simHash_(0, kSketches, seed);
 	auto latestHashIt   = activeHashes.rbegin();                   // points to the latest hash under consideration
 	size_t locusInd     = totSketches;                             // current locus index (starts from the second locus)
-	uint16_t curHash    = 0;
 	ldGroup.emplace_back(vector<size_t>{0});
 	// loop through loci until buffer is full or no more loci left
 	while ( ( latestHashIt != activeHashes.rend() ) && ( locusInd < sketches_.size() ) ){
-		curHash          = simHash_(locusInd, kSketches, seed);
-		auto fwdHashIt   = activeHashes.cbegin() + distance( latestHashIt, activeHashes.rend() ) - 1;
-		auto ldgIt       = ldGroup.rbegin();   // latest group is at the end
-		bool noCollision = true;
+		const uint16_t curHash = simHash_(locusInd, kSketches, seed);
+		auto fwdHashIt         = activeHashes.cbegin() + distance( latestHashIt, activeHashes.rend() ) - 1;
+		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
+		bool noCollision       = true;
 		while ( fwdHashIt != activeHashes.cend() ){
 			if ( ldgIt == ldGroup.rend() ){
-				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) +
+				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) + string(" while filling in the buffer") +
 					string("\n This should never happen. Please report this as a bug to github.com/tonymugen");
 			}
 			if (hammingDistance_(*fwdHashIt, curHash) <= hammingCutoff){
@@ -481,24 +480,49 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 		}
 		if (noCollision){
 			++latestHashIt;
-			// This is still not quite right
 			if ( latestHashIt == activeHashes.rend() ){
 				ldGroup.emplace_back(vector<size_t>{locusInd});
+				locusInd       += totSketches;
+				activeHashes[0] = curHash;
 				break;
 			} else {
 				*latestHashIt = curHash;
 				ldGroup.emplace_back(vector<size_t>{locusInd});
-				continue;
+				locusInd += totSketches;
 			}
 		} else {
 			ldgIt->push_back(locusInd);
+			locusInd += totSketches;
 		}
-		locusInd += totSketches;
 	}
 	// If there are loci left after filling the buffer, continue.
-	//if ( locusInd < sketches_.size() ) {
-	//	
-	//}
+	while ( locusInd < sketches_.size() ){
+		const uint16_t curHash = simHash_(locusInd, kSketches, seed);
+		size_t latestHashInd   = 0;
+		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
+		bool noCollision       = true;
+		for (size_t iTestHash = 0; iTestHash < lookBackNumber; ++iTestHash){
+			if ( ldgIt == ldGroup.rend() ){
+				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) +
+					string("\n This should never happen. Please report this as a bug to github.com/tonymugen");
+			}
+			if (hammingDistance_(activeHashes[(latestHashInd + iTestHash) % lookBackNumber], curHash) <= hammingCutoff){
+				noCollision = false;
+				break;
+			}
+			++ldgIt;
+		}
+		if (noCollision){
+			++latestHashInd;
+			latestHashInd %= lookBackNumber;
+			ldGroup.emplace_back(vector<size_t>{locusInd});
+			locusInd += totSketches;
+		} else {
+			ldgIt->push_back(locusInd);
+			locusInd += totSketches;
+		}
+	}
+	// estimate Jaccard similarities within groups
 	
 	// Save the results
 	fstream out;
@@ -669,6 +693,24 @@ void GenoTable::jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vect
 }
 
 void GenoTable::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
+	size_t ind = blockInd;
+	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
+		float simVal = 0.0;
+		size_t sketchRowInd = iLocus * kSketches;
+		size_t sketchColInd = jCol * kSketches;
+		for (size_t iSk = 0; iSk < kSketches; ++iSk){
+			if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
+				simVal += 1.0;
+			}
+		}
+		simVal *= invK;
+		simVal -= aaf_[iLocus] * aaf_[jCol]; // subtracting expected similarity
+		hashJacVec[ind] = simVal;
+		++ind;
+	}
+}
+
+void GenoTable::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
 	size_t ind = blockInd;
 	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
 		float simVal = 0.0;
