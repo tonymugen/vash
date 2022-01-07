@@ -523,13 +523,29 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 		}
 	}
 	// estimate Jaccard similarities within groups
-	
+	vector< future<void> > tasks;
+	tasks.reserve( ldGroup.size() );
+	vector< vector<float> > hashJacGroups;
+	const float fNind = 1.0 / static_cast<float>(totSketches);
+	for (const auto &ldg : ldGroup){
+		if (ldg.size() >= 2){
+			hashJacGroups.emplace_back( hashJacBlock_(ldg, totSketches, fNind) );
+		}
+	}
 	// Save the results
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::trunc);
-	for (size_t iGrp = 0; iGrp < ldGroup.size(); ++iGrp){
-		for (const auto &l : ldGroup[iGrp]){
-			out << iGrp + 1 << "\t" << l / totSketches + 1 << "\n";
+	size_t iValidLDG = 0;
+	for (const auto &ldg : ldGroup){
+		if (ldg.size() >= 2){
+			size_t ldValInd = 0;
+			for (size_t iRow = 0; iRow < ldg.size() - 1; ++iRow) {
+				for (size_t jCol = iRow + 1; jCol < ldg.size(); ++jCol){
+					out << ldg[iRow] / totSketches + 1 << "\t" << ldg[jCol] / totSketches + 1 << "\t" << hashJacGroups[iValidLDG][ldValInd] << "\n";
+					++ldValInd;
+				}
+			}
+			++iValidLDG;
 		}
 	}
 	out.close();
@@ -711,19 +727,28 @@ void GenoTable::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, cons
 }
 
 void GenoTable::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
-	size_t ind = blockInd;
-	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
+	for (size_t jCol = iLocus + 1; jCol < jLocus.size(); ++jCol){
 		float simVal = 0.0;
-		size_t sketchRowInd = iLocus * kSketches;
-		size_t sketchColInd = jCol * kSketches;
 		for (size_t iSk = 0; iSk < kSketches; ++iSk){
-			if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
+			if (sketches_[jLocus[iLocus] + iSk] == sketches_[jLocus[jCol] + iSk]){
 				simVal += 1.0;
 			}
 		}
 		simVal *= invK;
-		simVal -= aaf_[iLocus] * aaf_[jCol]; // subtracting expected similarity
-		hashJacVec[ind] = simVal;
-		++ind;
+		simVal -= aaf_[ jLocus[iLocus / kSketches ] ] * aaf_[ jLocus[jCol] / kSketches ]; // subtracting expected similarity
+		hashJacVec.push_back(simVal);
 	}
+}
+
+vector<float> GenoTable::hashJacBlock_(const vector<size_t> &locusIndexes, const size_t &kSketches, const float &invK) const {
+	vector< future<void> > tasks;
+	vector<float> hashJacVec;
+	hashJacVec.reserve(locusIndexes.size() * (locusIndexes.size() - 1) / 2);
+	tasks.reserve(locusIndexes.size() - 1);
+	for (size_t iLocus = 0; iLocus < locusIndexes.size() - 1; ++iLocus) {
+		hashJacBlock_(iLocus, locusIndexes, kSketches, invK, hashJacVec);
+		// it would be cool to multi-thread it, but must take care not to scramble the indexes
+		//tasks.emplace_back( async([this, iLocus, &locusIndexes, kSketches, invK, &hashJacVec]{hashJacBlock_(iLocus, locusIndexes, kSketches, invK, hashJacVec);}) );
+	}
+	return hashJacVec;
 }

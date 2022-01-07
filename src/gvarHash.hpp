@@ -293,15 +293,27 @@ namespace BayesicSpace {
 		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
 		 */
 		void hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
-		/** \brief Hash-based similarity in a (possibly discontinuous) block of loci
+		/** \brief Hash-based similarity between a locus and a (possibly discontinuous) block of loci
 		 *
-		 * \param[in] iLocus first locus index
+		 * Pairwise Jaccard similarity estimates between a locus and loci that come after it in the provided index vector.
+		 *
+		 * \param[in] iLocus index of the `jLocus` element to use as the first locus
 		 * \param[in] jLocus vector of second locus indexes
 		 * \param[in] kSketches number of sketches
 		 * \param[in] invK 1/K (where K is the number of sketches)
 		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
 		 */
 		void hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
+		/** \brief Hash-based similarity in a (possibly discontinuous) block of loci
+		 *
+		 * Pairwise Jaccard similarity estimates among loci marked by indexes in the provided vector.
+		 *
+		 * \param[in] locusIndexes vector of locus indexes
+		 * \param[in] kSketches number of sketches
+		 * \param[in] invK 1/K (where K is the number of sketches)
+		 * \return vector of hash-estimated Jaccard similarities
+		 */
+		vector<float> hashJacBlock_(const vector<size_t> &locusIndexes, const size_t &kSketches, const float &invK) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.
