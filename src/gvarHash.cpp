@@ -37,6 +37,9 @@
 #include <fstream>
 #include <future>
 
+#include <chrono>
+#include <cmath>
+
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -51,6 +54,11 @@ using std::ios;
 using std::streampos;
 using std::future;
 using std::async;
+
+using std::chrono::high_resolution_clock;
+using std::chrono::duration;
+using std::chrono::milliseconds;
+using std::milli;
 
 using namespace BayesicSpace;
 
@@ -453,6 +461,7 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 	vector< vector<size_t> > ldGroup;                              // each element is a vector of indexes into sketches_
 	vector<uint16_t> activeHashes(lookBackNumber, 0);              // hashes that are under consideration in a simplified ring buffer
 
+	auto time1 = high_resolution_clock::now();
 	// Start by filling the active hash buffer
 	//
 	// initialize with the first locus
@@ -523,8 +532,8 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 		}
 	}
 	// estimate Jaccard similarities within groups
-	vector< future<void> > tasks;
-	tasks.reserve( ldGroup.size() );
+	//vector< future<void> > tasks;
+	//tasks.reserve( ldGroup.size() );
 	vector< vector<float> > hashJacGroups;
 	const float fNind = 1.0 / static_cast<float>(totSketches);
 	for (const auto &ldg : ldGroup){
@@ -532,9 +541,12 @@ void GenoTable::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches
 			hashJacGroups.emplace_back( hashJacBlock_(ldg, totSketches, fNind) );
 		}
 	}
+	auto time2 = high_resolution_clock::now();
+	duration<float, milli> execTime = time2 - time1;
 	// Save the results
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::trunc);
+	out << "# " << execTime.count() << "\n";
 	size_t iValidLDG = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= 2){
@@ -735,7 +747,7 @@ void GenoTable::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus
 			}
 		}
 		simVal *= invK;
-		simVal -= aaf_[ jLocus[iLocus / kSketches ] ] * aaf_[ jLocus[jCol] / kSketches ]; // subtracting expected similarity
+		simVal -= aaf_[jLocus[iLocus] / kSketches] * aaf_[jLocus[jCol] / kSketches]; // subtracting expected similarity
 		hashJacVec.push_back(simVal);
 	}
 }
@@ -744,7 +756,7 @@ vector<float> GenoTable::hashJacBlock_(const vector<size_t> &locusIndexes, const
 	vector< future<void> > tasks;
 	vector<float> hashJacVec;
 	hashJacVec.reserve(locusIndexes.size() * (locusIndexes.size() - 1) / 2);
-	tasks.reserve(locusIndexes.size() - 1);
+	tasks.reserve(locusIndexes.size() - 1); // size checked outside of the function, safe to subtract
 	for (size_t iLocus = 0; iLocus < locusIndexes.size() - 1; ++iLocus) {
 		hashJacBlock_(iLocus, locusIndexes, kSketches, invK, hashJacVec);
 		// it would be cool to multi-thread it, but must take care not to scramble the indexes
