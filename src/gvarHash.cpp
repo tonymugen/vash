@@ -753,10 +753,10 @@ void GenoTable::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus
 }
 
 vector<float> GenoTable::hashJacBlock_(const vector<size_t> &locusIndexes, const size_t &kSketches, const float &invK) const {
-	vector< future<void> > tasks;
+	//vector< future<void> > tasks;
 	vector<float> hashJacVec;
 	hashJacVec.reserve(locusIndexes.size() * (locusIndexes.size() - 1) / 2);
-	tasks.reserve(locusIndexes.size() - 1); // size checked outside of the function, safe to subtract
+	//tasks.reserve(locusIndexes.size() - 1); // size checked outside of the function, safe to subtract
 	for (size_t iLocus = 0; iLocus < locusIndexes.size() - 1; ++iLocus) {
 		hashJacBlock_(iLocus, locusIndexes, kSketches, invK, hashJacVec);
 		// it would be cool to multi-thread it, but must take care not to scramble the indexes

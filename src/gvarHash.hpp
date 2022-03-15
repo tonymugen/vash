@@ -43,8 +43,132 @@ using std::array;
 using std::string;
 
 namespace BayesicSpace {
+	class GenoTableBin;
 	class GenoTable;
 
+	/** \brief Class to store binary compressed genotype tables
+	 *
+	 * Converts genotype data to a lossy compressed binary code.
+	 * Genotypes are stored in memory in a one-bit format: bit set for the minor allele, unset for the major.
+	 * Bits corresponding to missing data are unset (this is the same as mean imputation), heterozygotes are set with a 50% probability.
+	 */
+	class GenoTableBin {
+	public:
+		/** \brief Default constructor */
+		GenoTableBin(){};
+		/** \brief Constructor with input file name
+		 *
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 *
+		 * \param[in] inputFileName input file name
+		 * \param[in] nIndividuals number of genotyped individuals
+		 */
+		GenoTableBin(const string &inputFileName, const size_t &nIndividuals);
+		/** \brief Constructor with count vector
+		 *
+		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
+		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 *
+		 * \param[in] maCounts vector of minor allele numbers
+		 * \param[in] nIndividuals number of genotyped individuals
+		 */
+		GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals);
+
+		/** \brief Copy constructor (deleted) */
+		GenoTableBin(const GenoTable &in) = delete;
+		/** \brief Copy assignment operator (deleted) */
+		GenoTable operator=(const GenoTable &in) = delete;
+		/** \brief Move constructor
+		 *
+		 * \param[in] in object to move
+		 */
+		GenoTableBin(GenoTableBin &&in) noexcept;
+		/** \brief Move assignment operator
+		 *
+		 * \param[in] in object to be moved
+		 * \return `GenoTable` object
+		 */
+		GenoTableBin& operator=(GenoTableBin &&in) noexcept;
+
+		/** \brief Save the binary genotype file
+		 *
+		 * Saves the binary approximate genotype data to a binary file.
+		 *
+		 * \param[in] outFileName output file name
+		 */
+		void saveGenoBinary(const string &outFileName) const;
+		/** \brief All by all Jaccad similarity LD
+		 *
+		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
+		 *
+		 * \return lower triangle of the LD matrix
+		 */
+		vector<float> allJaccardLD() const;
+	protected:
+		/** \brief Binarized genotype table
+		 *
+		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
+		 */
+		vector<uint8_t> binGenotypes_;
+		/** \brief Alternative allele frequencies
+		 *
+		 * One value per locus. This is typically the minor allele frequency.
+		 */
+		vector<float> aaf_;
+		/** \brief Number of individuals */
+		size_t nIndividuals_;
+		/** \brief Number of loci */
+		size_t nLoci_;
+		/** \brief Locus size in bytes */
+		size_t locusSize_;
+		/** \brief Random number generator */
+		RanDraw rng_;
+		/** \brief Leading bytes for .bed files */
+		static const array<char, 3> magicBytes_;
+		/** \brief One set bit for masking */
+		static const uint8_t oneBit_;
+		/** \brief Size of one byte in bits */
+		static const uint8_t byteSize_;
+		/** \brief Count set bits in a 16-bit word
+		 *
+		 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
+		 *
+		 * \param[in] inVal input value
+		 * \return number of bits set
+		 */
+		uint16_t countSetBits_(uint16_t inVal) const;
+		/** \brief Count set bits in a vector
+		 *
+		 * Counting the set bits in a vector of bytes using Karnigan's method.
+		 *
+		 * \param[in] inVec input vector
+		 * \return number of bits set
+		 */
+		uint32_t countSetBits_(const vector<uint8_t> &inVec) const;
+		/** \brief Count set bits in a range within a vector
+		 *
+		 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
+		 *
+		 * \param[in] inVec input vector
+		 * \param[in] start staring index
+		 * \param[in] length number of bytes to process
+		 * \return number of bits set
+		 */
+		uint32_t countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const;
+		/** \brief Jaccard similarity in a block of loci
+		 *
+		 * \param[in] iLocus first locus index
+		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
+		 * \param[out] jaccardVec vector of Jaccard similarities
+		 */
+		void jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const;
+	};
 	/** \brief Class to store compressed genotype tables
 	 *
 	 * Provides facilities to store and manipulate compressed genotype tables.
