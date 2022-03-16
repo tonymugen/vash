@@ -44,7 +44,34 @@ using std::string;
 
 namespace BayesicSpace {
 	class GenoTableBin;
-	class GenoTable;
+	class GenoTableHAsh;
+
+	/** \brief Count set bits in a 16-bit word
+	 *
+	 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
+	 *
+	 * \param[in] inVal input value
+	 * \return number of bits set
+	 */
+	uint16_t countSetBits(uint16_t inVal);
+	/** \brief Count set bits in a vector
+	 *
+	 * Counting the set bits in a vector of bytes using Karnigan's method.
+	 *
+	 * \param[in] inVec input vector
+	 * \return number of bits set
+	 */
+	uint32_t countSetBits(const vector<uint8_t> &inVec);
+	/** \brief Count set bits in a range within a vector
+	 *
+	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
+	 *
+	 * \param[in] inVec input vector
+	 * \param[in] start staring index
+	 * \param[in] length number of bytes to process
+	 * \return number of bits set
+	 */
+	uint32_t countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length);
 
 	/** \brief Class to store binary compressed genotype tables
 	 *
@@ -79,9 +106,9 @@ namespace BayesicSpace {
 		GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals);
 
 		/** \brief Copy constructor (deleted) */
-		GenoTableBin(const GenoTable &in) = delete;
+		GenoTableBin(const GenoTableBin &in) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTable operator=(const GenoTable &in) = delete;
+		GenoTableBin operator=(const GenoTableBin &in) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] in object to move
@@ -135,32 +162,8 @@ namespace BayesicSpace {
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
 		static const uint8_t byteSize_;
-		/** \brief Count set bits in a 16-bit word
-		 *
-		 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
-		 *
-		 * \param[in] inVal input value
-		 * \return number of bits set
-		 */
-		uint16_t countSetBits_(uint16_t inVal) const;
-		/** \brief Count set bits in a vector
-		 *
-		 * Counting the set bits in a vector of bytes using Karnigan's method.
-		 *
-		 * \param[in] inVec input vector
-		 * \return number of bits set
-		 */
-		uint32_t countSetBits_(const vector<uint8_t> &inVec) const;
-		/** \brief Count set bits in a range within a vector
-		 *
-		 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
-		 *
-		 * \param[in] inVec input vector
-		 * \param[in] start staring index
-		 * \param[in] length number of bytes to process
-		 * \return number of bits set
-		 */
-		uint32_t countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const;
+		/** \brief 64 bit word size in bytes */
+		static const uint8_t llWordSize_;
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] iLocus first locus index
@@ -175,65 +178,56 @@ namespace BayesicSpace {
 	 * Genotypes are stored in a one-bit format: bit set for the minor allele, unset for the major.
 	 * Bits corresponding to missing data are unset (this is the same as mean imputation), heterozygotes are set with a 50% probability.
 	 */
-	class GenoTable {
+	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTable(){};
+		GenoTableHash(){};
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
+		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
+		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches the number of sketches per locus
 		 */
-		GenoTable(const string &inputFileName, const size_t &nIndividuals);
+		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
 		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
+		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
+		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches the number of sketches per locus
 		 */
-		GenoTable(const vector<int> &maCounts, const size_t &nIndividuals);
+		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches);
 
 		/** \brief Copy constructor (deleted) */
-		GenoTable(const GenoTable &in) = delete;
+		GenoTableHash(const GenoTableHash &in) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTable operator=(const GenoTable &in) = delete;
+		GenoTableHash operator=(const GenoTableHash &in) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] in object to move
 		 */
-		GenoTable(GenoTable &&in) noexcept;
+		GenoTableHash(GenoTableHash &&in) noexcept;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] in object to be moved
 		 * \return `GenoTable` object
 		 */
-		GenoTable& operator=(GenoTable &&in) noexcept;
+		GenoTableHash& operator=(GenoTableHash &&in) noexcept;
 
-		/** \brief Save the binary genotype file
-		 *
-		 * Saves the binary approximate genotype data to a binary file.
-		 *
-		 * \param[in] outFileName output file name
-		 */
-		void saveGenoBinary(const string &outFileName) const;
-		/** \brief Make OPH sketches of individuals
-		 *
-		 * Make one-permutation sketches of individuals (one sketch per locus).
-		 * The permutation of bits is using the Fisher-Yates-Durstenfeld algorithm.
-		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
-		 * Running this function modifies the internally stored genotype table in place.
-		 *
-		 * \param[in] kSketches the number of sketches per locus
-		 */
-		void makeIndividualOPH(const size_t &kSketches);
 		/** \brief All by all LD from hashes
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
@@ -244,15 +238,6 @@ namespace BayesicSpace {
 		 * \return lower triangle of the LD matrix
 		 */
 		vector<float> allHashLD() const;
-		/** \brief All by all Jaccad similarity LD
-		 *
-		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
-		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
-		 *
-		 * \return lower triangle of the LD matrix
-		 */
-		vector<float> allJaccardLD() const;
 		/** \brief Assign groups from OPH portions
 		 *
 		 * Use sketch portions to assign loci to groups.
@@ -287,11 +272,6 @@ namespace BayesicSpace {
 		 */
 		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches, const size_t &lookBackNumber, const string &outFileName) const;
 	protected:
-		/** \brief Binarized genotype table
-		 *
-		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
-		 */
-		vector<uint8_t> binGenotypes_;
 		/** \brief Vector of sketches
 		 *
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
@@ -375,39 +355,6 @@ namespace BayesicSpace {
 		 * \return hash value
 		 */
 		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
-		/** \brief Count set bits in a 16-bit word
-		 *
-		 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
-		 *
-		 * \param[in] inVal input value
-		 * \return number of bits set
-		 */
-		uint16_t countSetBits_(uint16_t inVal) const;
-		/** \brief Count set bits in a vector
-		 *
-		 * Counting the set bits in a vector of bytes using Karnigan's method.
-		 *
-		 * \param[in] inVec input vector
-		 * \return number of bits set
-		 */
-		uint32_t countSetBits_(const vector<uint8_t> &inVec) const;
-		/** \brief Count set bits in a range within a vector
-		 *
-		 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
-		 *
-		 * \param[in] inVec input vector
-		 * \param[in] start staring index
-		 * \param[in] length number of bytes to process
-		 * \return number of bits set
-		 */
-		uint32_t countSetBits_(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) const;
-		/** \brief Jaccard similarity in a block of loci
-		 *
-		 * \param[in] iLocus first locus index
-		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
-		 * \param[out] jaccardVec vector of Jaccard similarities
-		 */
-		void jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const;
 		/** \brief Hash-based similarity in a continuous block of loci
 		 *
 		 * \param[in] iLocus first locus index
@@ -447,7 +394,7 @@ namespace BayesicSpace {
 		 * \return Hamming distance
 		 *
 		 */
-		uint16_t inline hammingDistance_(uint16_t first, uint16_t second) const {return countSetBits_(first ^ second); }
+		uint16_t inline hammingDistance_(uint16_t first, uint16_t second) const {return countSetBits(first ^ second); }
 	};
 }
 
