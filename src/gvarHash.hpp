@@ -181,7 +181,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash(){};
+		GenoTableHash() : kSketches_{0} {};
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -284,6 +284,10 @@ namespace BayesicSpace {
 		vector<float> aaf_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
+		/** \brief Number of sketches */
+		const size_t kSketches_;
+		/** \brief Sketch size */
+		size_t sketchSize_;
 		/** \brief Number of loci */
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
@@ -308,11 +312,16 @@ namespace BayesicSpace {
 		static const uint32_t c1_;
 		/** \brief MurMurHash c2 constant */
 		static const uint32_t c2_;
-		/** \brief Generate binary genotypes
+		/** \brief 
 		 *
-		 * Generate binary genotypes from the genotype table.
+		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
+		 * The `seeds` vector may be appended by the function if additional seeds are required.
+		 *
+		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in,out] seeds random number seeds for empty bin filling
+		 * \param[in] binLocus vector of genotypes for a locus
 		 */
-		void generateBinGeno_();
+		void locusOPH_(const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

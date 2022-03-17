@@ -355,20 +355,20 @@ constexpr uint32_t GenoTableHash::c1_               = 0xcc9e2d51;               
 constexpr uint32_t GenoTableHash::c2_               = 0x1b873593;                      // MurMurHash c2 constant 
 
 // Constructors
-GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{0} {
+GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{0} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string( ") is too big to make a square relationship matrix in ") + string(__FUNCTION__);
 	}
-	const size_t sketchSize = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
-	if (sketchSize >= emptyBinToken_){
-		throw string("ERROR: Number of sketches (") + to_string(kSketches) + string(") implies sketch size (") +
-			to_string(sketchSize) + string(") that is larger than ") + to_string(emptyBinToken_) +
+	sketchSize_ = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
+	if (sketchSize_ >= emptyBinToken_){
+		throw string("ERROR: Number of sketches (") + to_string(kSketches_) + string(") implies sketch size (") +
+			to_string(sketchSize_) + string(") that is larger than ") + to_string(emptyBinToken_) +
 			string( ", the largest allowed value in ") + string(__FUNCTION__);
 	}
 	// Calculate the actual sketch number based on the realized sketch size
-	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
+	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	size_t nBedBytes = nIndividuals_ / 4 + static_cast<bool>(nIndividuals_ % 4);
 	fstream inStr;
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
@@ -395,7 +395,7 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	const size_t addIndv = nIndividuals_ - endBed * 4;
 
 	// Calculate the actual sketch number based on the realized sketch size
-	sketches_.resize(kSketches * nLoci_, emptyBinToken_);
+	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts;
 	size_t i = nIndividuals_;
@@ -476,89 +476,13 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 			aaCount = 1.0 - aaCount;
 		}
 		aaf_.push_back(aaCount);
-
-		// Start with a permutation to make OPH
-		size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at function start
-		for (const auto &ri : ranInts){
-			uint16_t firstIdx  = iIndiv % byteSize_;
-			size_t firstByte   = (iIndiv / byteSize_);
-			uint16_t secondIdx = ri % byteSize_;
-			size_t secondByte  = (ri / byteSize_);
-			uint16_t diff      = byteSize_ * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
-
-			// swapping bits within a two-byte variable
-			// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
-			// if the same byte is being accessed, secondIdx is not shifted to the second byte
-			// This may be affected by endianness (did not test)
-			uint16_t twoBytes  = (static_cast<uint16_t>(binLocus[secondByte]) << 8) | ( static_cast<uint16_t>(binLocus[firstByte]) );
-			secondIdx         += diff;
-			uint16_t x         = ( (twoBytes >> firstIdx) ^ (twoBytes >> secondIdx) ) & 1;
-			twoBytes          ^= ( (x << firstIdx) | (x << secondIdx) );
-
-			memcpy( binLocus.data() + firstByte, &twoBytes, sizeof(uint8_t) );
-			twoBytes = twoBytes >> diff;
-			memcpy( binLocus.data() + secondByte, &twoBytes, sizeof(uint8_t) );
-			--iIndiv;
-		}
-		// Now make the sketches
-		vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
-		size_t iByte     = 0;
-		size_t colEnd    = iByte + locusSize_;
-		size_t sketchBeg = nLoci_ * kSketches;            // nLoci_ is incremented at the end of this loop
-		size_t iSeed     = 0;                             // index into the seed vector
-		uint8_t iInByte  = 0;
-		// A possible optimization is to test a whole byte for 0
-		// Will test later
-		for (size_t iSketch = 0; iSketch < kSketches; ++iSketch){
-			uint16_t firstSetBitPos = 0;
-			while ( ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
-					(firstSetBitPos < sketchSize) && (iByte != colEnd) ){
-				++iInByte;
-				// these are instead of an if statement
-				iByte  += iInByte == byteSize_;
-				iInByte = iInByte % byteSize_;
-				++firstSetBitPos;
-			}
-			if ( (iByte < colEnd) && (firstSetBitPos < sketchSize) ){
-				filledIndexes.push_back(iSketch);
-				sketches_[sketchBeg + iSketch] = firstSetBitPos;
-
-				uint16_t remainder = sketchSize - firstSetBitPos;
-				uint16_t inByteMod = remainder % byteSize_;
-				uint16_t inByteSum = iInByte + inByteMod;
-
-				iByte  += remainder / byteSize_ + inByteSum / byteSize_;
-				iInByte = inByteSum % byteSize_;
-			}
-		}
-		if (filledIndexes.size() == 1){
-			for (size_t iSk = 0; iSk < kSketches; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
-				sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
-			}
-		} else if (filledIndexes.size() != kSketches){
-			size_t emptyCount = kSketches - filledIndexes.size();
-			while (emptyCount){
-				for (const auto &f : filledIndexes){
-					uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches + sketchBeg;
-					if ( sketches_[newIdx] == emptyBinToken_ ){
-						sketches_[newIdx] = sketches_[f + sketchBeg];
-						--emptyCount;
-						break;
-					}
-				}
-				++iSeed;
-				if ( iSeed == seeds.size() ){
-					seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
-				}
-			}
-		}
-
+		locusOPH_(ranInts, seeds, binLocus);
 		++nLoci_;
 	}
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
+GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	}
@@ -569,29 +493,43 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	if ( maCounts.empty() ){
 		throw string("ERROR: empty vector of minor allele counts in ") + string(__FUNCTION__);
 	}
+	sketchSize_ = nIndividuals_ / kSketches_ + static_cast<bool>(nIndividuals_ % kSketches_);
+	if (sketchSize_ >= emptyBinToken_){
+		throw string("ERROR: Number of sketches (") + to_string(kSketches_) + string(") implies sketch size (") +
+			to_string(sketchSize_) + string(") that is larger than ") + to_string(emptyBinToken_) +
+			string( ", the largest allowed value in ") + string(__FUNCTION__);
+	}
 	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 	remainderInd               = byteSize_ - remainderInd;
+	const float fNind          = static_cast<float>(nIndividuals_);
 
-	binGenotypes_.resize(nLoci_ * locusSize_, 0);
-
-	// Create a vector to store random bytes for stochastic heterozygote resolution
-	vector<uint64_t> rand( binGenotypes_.size() / llWordSize_ + static_cast<bool>(binGenotypes_.size() % llWordSize_) );
-	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
-	// Fill the random byte vector
-	for (auto &rv : rand){
-		rv = rng_.ranInt();
+	// Calculate the actual sketch number based on the realized sketch size
+	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
+	// generate the sequence of random integers; each column must be permuted the same
+	vector<size_t> ranInts;
+	size_t i = nIndividuals_;
+	while (i >= 2UL){
+		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
+		--i;
 	}
-	const float fNind = static_cast<float>(nIndividuals_);
-
+	vector<uint32_t> seeds;
+	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 	for (size_t jLoc = 0; jLoc < nLoci_; ++jLoc) {
+		// Create a vector to store random bytes for stochastic heterozygote resolution
+		vector<uint64_t> rand( locusSize_ / llWordSize_ + static_cast<bool>(locusSize_ % llWordSize_) );
+		uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+		// Fill the random byte vector
+		for (auto &rv : rand){
+			rv = rng_.ranInt();
+		}
 		size_t iIndiv         = 0;
-		const size_t begByte  = jLoc * locusSize_;
 		const size_t begIndiv = jLoc * nIndividuals_;
 		vector<uint8_t> missMasks(locusSize_, 0);
+		vector<uint8_t> binLocus(locusSize_, 0);
 		size_t i0Byte = 0;                       // to index the missMasks vector
-		for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; ++iByte){                   // treat the last byte separately
+		for (size_t iByte = 0; iByte < locusSize_ - 1; ++iByte){                   // treat the last byte separately
 			for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte){
 				uint8_t curIndiv          = static_cast<uint8_t>(maCounts[begIndiv + iIndiv]);     // cramming down to one byte because I do not care what the actual value is
 				curIndiv                 &= 0b10000011;                                            // mask everything in the middle
@@ -601,7 +539,7 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
 				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
-				binGenotypes_[iByte]     |= curBitMask << iInByte;
+				binLocus[iByte]          |= curBitMask << iInByte;
 				++iIndiv;
 			}
 			++i0Byte;
@@ -613,28 +551,29 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 			const uint8_t missingMask = curIndiv >> 7;                                            // 0b00000001 iff is missing (negative value)
 			missMasks.back()         |= (missingMask << iRem);
 			curIndiv                 &= 0b00000011;
-			const uint8_t randMask    = (randBytes[begByte + locusSize_ - 1] >> iRem) & oneBit_;  // 0b00000000 or 0b00000001 with equal chance
+			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;            // 0b00000000 or 0b00000001 with equal chance
 			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                  // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 			curBitMask               &= ~missingMask;                                             // zero it out if missing value is set
 
-			binGenotypes_[begByte + locusSize_ - 1] |= curBitMask << iRem;
+			binLocus[locusSize_ - 1] |= curBitMask << iRem;
 			++iIndiv;
 		}
-		float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, locusSize_) ) / fNind;
+		float maf = static_cast<float>( countSetBits(binLocus) ) / fNind;
 		if (maf > 0.5){ // always want the alternative to be the minor allele
 			i0Byte = 0;
-			for (size_t i = begByte; i < begByte + locusSize_; ++i){
-				binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
+			for (size_t i = 0; i < locusSize_; ++i){
+				binLocus[i] = (~binLocus[i]) & (~missMasks[i0Byte]);
 				++i0Byte;
 			}
-			binGenotypes_[begByte + locusSize_ - 1] &= lastByteMask; // unset the remainder bits
+			binLocus[locusSize_ - 1] &= lastByteMask; // unset the remainder bits
 			maf = 1.0 - maf;
 		}
 		aaf_.push_back(maf);
+		locusOPH_(ranInts, seeds, binLocus);
 	}
 }
 
-GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept {
+GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept : kSketches_{in.kSketches_} {
 	if (this != &in){
 		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
@@ -815,6 +754,84 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 		}
 	}
 	out.close();
+}
+
+void GenoTableHash::locusOPH_(const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
+		// Start with a permutation to make OPH
+		size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at function start
+		for (const auto &ri : permutation){
+			uint16_t firstIdx  = iIndiv % byteSize_;
+			size_t firstByte   = (iIndiv / byteSize_);
+			uint16_t secondIdx = ri % byteSize_;
+			size_t secondByte  = (ri / byteSize_);
+			uint16_t diff      = byteSize_ * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
+
+			// swapping bits within a two-byte variable
+			// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
+			// if the same byte is being accessed, secondIdx is not shifted to the second byte
+			// This may be affected by endianness (did not test)
+			uint16_t twoBytes  = (static_cast<uint16_t>(binLocus[secondByte]) << 8) | ( static_cast<uint16_t>(binLocus[firstByte]) );
+			secondIdx         += diff;
+			uint16_t x         = ( (twoBytes >> firstIdx) ^ (twoBytes >> secondIdx) ) & 1;
+			twoBytes          ^= ( (x << firstIdx) | (x << secondIdx) );
+
+			memcpy( binLocus.data() + firstByte, &twoBytes, sizeof(uint8_t) );
+			twoBytes = twoBytes >> diff;
+			memcpy( binLocus.data() + secondByte, &twoBytes, sizeof(uint8_t) );
+			--iIndiv;
+		}
+		// Now make the sketches
+		vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
+		size_t iByte     = 0;
+		size_t colEnd    = iByte + locusSize_;
+		size_t sketchBeg = nLoci_ * kSketches_;            // nLoci_ is incremented at the end of this loop
+		size_t iSeed     = 0;                             // index into the seed vector
+		uint8_t iInByte  = 0;
+		// A possible optimization is to test a whole byte for 0
+		// Will test later
+		for (size_t iSketch = 0; iSketch < kSketches_; ++iSketch){
+			uint16_t firstSetBitPos = 0;
+			while ( ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
+					(firstSetBitPos < sketchSize_) && (iByte != colEnd) ){
+				++iInByte;
+				// these are instead of an if statement
+				iByte  += iInByte == byteSize_;
+				iInByte = iInByte % byteSize_;
+				++firstSetBitPos;
+			}
+			if ( (iByte < colEnd) && (firstSetBitPos < sketchSize_) ){
+				filledIndexes.push_back(iSketch);
+				sketches_[sketchBeg + iSketch] = firstSetBitPos;
+
+				uint16_t remainder = sketchSize_ - firstSetBitPos;
+				uint16_t inByteMod = remainder % byteSize_;
+				uint16_t inByteSum = iInByte + inByteMod;
+
+				iByte  += remainder / byteSize_ + inByteSum / byteSize_;
+				iInByte = inByteSum % byteSize_;
+			}
+		}
+		if (filledIndexes.size() == 1){
+			for (size_t iSk = 0; iSk < kSketches_; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
+				sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
+			}
+		} else if (filledIndexes.size() != kSketches_){
+			size_t emptyCount = kSketches_ - filledIndexes.size();
+			while (emptyCount){
+				for (const auto &f : filledIndexes){
+					uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
+					if ( sketches_[newIdx] == emptyBinToken_ ){
+						sketches_[newIdx] = sketches_[f + sketchBeg];
+						--emptyCount;
+						break;
+					}
+				}
+				++iSeed;
+				if ( iSeed == seeds.size() ){
+					seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+				}
+			}
+		}
 }
 
 uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) const {
