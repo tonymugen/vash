@@ -384,15 +384,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	}
 	// Generate the binary genotype table while reading the .bed file
-	locusSize_                 = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	locusSize_              = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	const size_t ranVecSize =  nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_);
 	vector<char> bedLocus(nBedBytes, 0);
-	// Create a vector to store random bytes for stochastic heterozygote resolution
-	vector<uint64_t> rand( nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_) );
-	uint8_t *randBytes   = reinterpret_cast<uint8_t*>( rand.data() );
-	const float fNind    = static_cast<float>(nIndividuals_);
-	const size_t endBed  = nBedBytes - 2UL + (nBedBytes & 1UL);
-	const size_t addIndv = nIndividuals_ - endBed * 4;
 
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
@@ -405,79 +399,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	}
 	vector<uint32_t> seeds;
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+	size_t locusBegin = 0;
 	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
-		// Fill the random byte vector
-		for (auto &rv : rand){
-			rv = rng_.ranInt();
-		}
-		vector<uint8_t> binLocus(locusSize_, 0);
-		vector<uint8_t> missMasks(locusSize_, 0);
-		size_t iBinGeno = 0;                       // binGenotypes_ vector index
-		// Two bytes of .bed code go into one byte of my binary representation
-		// Therefore, work on two consecutive bytes of .bed code in the loop
-		for (size_t iBed = 0; iBed < endBed ; iBed += 2){                     // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
-			bedLocus[iBed]      = ~bedLocus[iBed];                            // flip so that homozygous second allele (usually minor) is set to 11
-			uint8_t offsetToBin = 0;                                          // move the .bed mask by this much to align with the binarized byte
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedLocus[iBed] & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedLocus[iBed] & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iBinGeno]      |= curMissMask >> offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask      |= randBytes[iBed] & (firstBitMask << 1);
-				firstBitMask       &= secondBitMask >> 1;
-				binLocus[iBinGeno] |= firstBitMask >> offsetToBin;
-				++offsetToBin;
-			}
-			const size_t nextIbed = iBed + 1;
-			bedLocus[nextIbed]    = ~bedLocus[nextIbed];
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedLocus[nextIbed] & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedLocus[nextIbed] & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iBinGeno]      |= curMissMask << offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask      |= randBytes[nextIbed] & (firstBitMask << 1);
-				firstBitMask       &= secondBitMask >> 1;
-				binLocus[iBinGeno] |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
-				--offsetToBin;
-			}
-			++iBinGeno;
-		}
-		for (size_t iBed = endBed; iBed < nBedBytes; ++iBed){
-			bedLocus[iBed] = ~bedLocus[iBed];
-		}
-		uint8_t inBedByteOffset = 0;
-		for (size_t iInd = 0; iInd < addIndv; ++iInd){
-			const size_t curBedByte = endBed + iInd / 4;
-			uint8_t firstBitMask    = bedLocus[curBedByte] & (oneBit_ << inBedByteOffset);
-			const uint8_t secondBBO = inBedByteOffset + 1;
-			uint8_t secondBitMask   = bedLocus[curBedByte] & (oneBit_ << secondBBO);
-			// Keep track of missing genotypes to revert them if I have to flip bits later on
-			const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
-			missMasks.back()         |= (curMissMask >> inBedByteOffset) << iInd;
-			// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-			secondBitMask   |= randBytes[curBedByte] & (firstBitMask << 1);
-			firstBitMask    &= secondBitMask >> 1;
-			firstBitMask     = firstBitMask >> inBedByteOffset;
-			firstBitMask     = firstBitMask << iInd;
-			binLocus.back() |= firstBitMask;
-			inBedByteOffset += 2;
-			inBedByteOffset  = inBedByteOffset % 8;
-		}
-		float aaCount = static_cast<float>( countSetBits(binLocus) ) / fNind;
-		if (aaCount > 0.5){ // always want the alternative to be the minor allele
-			for (size_t iBL = 0; iBL < locusSize_; ++iBL){
-				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
-			}
-			binLocus.back() &= lastByteMask; // unset the remainder bits
-			aaCount = 1.0 - aaCount;
-		}
-		aaf_.push_back(aaCount);
-		locusOPH_(ranInts, seeds, binLocus);
-		++nLoci_;
+		bed2oph_(bedLocus, locusBegin, nBedBytes, ranVecSize, ranInts, seeds);
 	}
 	inStr.close();
 }
@@ -759,85 +683,90 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 }
 
 void GenoTableHash::locusOPH_(const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
-		// Start with a permutation to make OPH
-		size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at function start
-		for (const auto &ri : permutation){
-			uint16_t firstIdx  = iIndiv % byteSize_;
-			size_t firstByte   = (iIndiv / byteSize_);
-			uint16_t secondIdx = ri % byteSize_;
-			size_t secondByte  = (ri / byteSize_);
-			uint16_t diff      = byteSize_ * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
+	// Start with a permutation to make OPH
+	size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
+	for (const auto &ri : permutation){
+		uint16_t firstIdx  = iIndiv % byteSize_;
+		size_t firstByte   = (iIndiv / byteSize_);
+		uint16_t secondIdx = ri % byteSize_;
+		size_t secondByte  = (ri / byteSize_);
+		uint16_t diff      = byteSize_ * (firstByte != secondByte); // will be 0 if the same byte is being accessed; then need to swap bits within byte
 
-			// swapping bits within a two-byte variable
-			// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
-			// if the same byte is being accessed, secondIdx is not shifted to the second byte
-			// This may be affected by endianness (did not test)
-			uint16_t twoBytes  = (static_cast<uint16_t>(binLocus[secondByte]) << 8) | ( static_cast<uint16_t>(binLocus[firstByte]) );
-			secondIdx         += diff;
-			uint16_t x         = ( (twoBytes >> firstIdx) ^ (twoBytes >> secondIdx) ) & 1;
-			twoBytes          ^= ( (x << firstIdx) | (x << secondIdx) );
+		// swapping bits within a two-byte variable
+		// using the method in https://graphics.stanford.edu/~seander/bithacks.html#SwappingBitsXOR
+		// if the same byte is being accessed, secondIdx is not shifted to the second byte
+		// This may be affected by endianness (did not test)
+		uint16_t twoBytes  = (static_cast<uint16_t>(binLocus[secondByte]) << 8) | ( static_cast<uint16_t>(binLocus[firstByte]) );
+		secondIdx         += diff;
+		uint16_t x         = ( (twoBytes >> firstIdx) ^ (twoBytes >> secondIdx) ) & 1;
+		twoBytes          ^= ( (x << firstIdx) | (x << secondIdx) );
 
-			memcpy( binLocus.data() + firstByte, &twoBytes, sizeof(uint8_t) );
-			twoBytes = twoBytes >> diff;
-			memcpy( binLocus.data() + secondByte, &twoBytes, sizeof(uint8_t) );
-			--iIndiv;
+		memcpy( binLocus.data() + firstByte, &twoBytes, sizeof(uint8_t) );
+		twoBytes = twoBytes >> diff;
+		memcpy( binLocus.data() + secondByte, &twoBytes, sizeof(uint8_t) );
+		--iIndiv;
+	}
+	// Now make the sketches
+	vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
+	size_t iByte     = 0;
+	size_t colEnd    = iByte + locusSize_;
+	size_t sketchBeg = nLoci_ * kSketches_;            // nLoci_ is incremented at the end of this loop
+	size_t iSeed     = 0;                             // index into the seed vector
+	uint8_t iInByte  = 0;
+	// A possible optimization is to test a whole byte for 0
+	// Will test later
+	for (size_t iSketch = 0; iSketch < kSketches_; ++iSketch){
+		uint16_t firstSetBitPos = 0;
+		while ( ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
+				(firstSetBitPos < sketchSize_) && (iByte != colEnd) ){
+			++iInByte;
+			// these are instead of an if statement
+			iByte  += iInByte == byteSize_;
+			iInByte = iInByte % byteSize_;
+			++firstSetBitPos;
 		}
-		// Now make the sketches
-		vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
-		size_t iByte     = 0;
-		size_t colEnd    = iByte + locusSize_;
-		size_t sketchBeg = nLoci_ * kSketches_;            // nLoci_ is incremented at the end of this loop
-		size_t iSeed     = 0;                             // index into the seed vector
-		uint8_t iInByte  = 0;
-		// A possible optimization is to test a whole byte for 0
-		// Will test later
-		for (size_t iSketch = 0; iSketch < kSketches_; ++iSketch){
-			uint16_t firstSetBitPos = 0;
-			while ( ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
-					(firstSetBitPos < sketchSize_) && (iByte != colEnd) ){
-				++iInByte;
-				// these are instead of an if statement
-				iByte  += iInByte == byteSize_;
-				iInByte = iInByte % byteSize_;
-				++firstSetBitPos;
-			}
-			if ( (iByte < colEnd) && (firstSetBitPos < sketchSize_) ){
-				filledIndexes.push_back(iSketch);
-				sketches_[sketchBeg + iSketch] = firstSetBitPos;
+		if ( (iByte < colEnd) && (firstSetBitPos < sketchSize_) ){
+			filledIndexes.push_back(iSketch);
+			sketches_[sketchBeg + iSketch] = firstSetBitPos;
 
-				uint16_t remainder = sketchSize_ - firstSetBitPos;
-				uint16_t inByteMod = remainder % byteSize_;
-				uint16_t inByteSum = iInByte + inByteMod;
+			uint16_t remainder = sketchSize_ - firstSetBitPos;
+			uint16_t inByteMod = remainder % byteSize_;
+			uint16_t inByteSum = iInByte + inByteMod;
 
-				iByte  += remainder / byteSize_ + inByteSum / byteSize_;
-				iInByte = inByteSum % byteSize_;
-			}
+			iByte  += remainder / byteSize_ + inByteSum / byteSize_;
+			iInByte = inByteSum % byteSize_;
 		}
-		if (filledIndexes.size() == 1){
-			for (size_t iSk = 0; iSk < kSketches_; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
-				sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
-			}
-		} else if (filledIndexes.size() != kSketches_){
-			size_t emptyCount = kSketches_ - filledIndexes.size();
-			while (emptyCount){
-				for (const auto &f : filledIndexes){
-					uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
-					if ( sketches_[newIdx] == emptyBinToken_ ){
-						sketches_[newIdx] = sketches_[f + sketchBeg];
-						--emptyCount;
-						break;
-					}
-				}
-				++iSeed;
-				//TODD: make thread-safe
-				if ( iSeed == seeds.size() ){
-					seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+	}
+	if (filledIndexes.size() == 1){
+		for (size_t iSk = 0; iSk < kSketches_; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
+			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
+		}
+	} else if (filledIndexes.size() != kSketches_){
+		size_t emptyCount = kSketches_ - filledIndexes.size();
+		while (emptyCount){
+			for (const auto &f : filledIndexes){
+				uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
+				if ( sketches_[newIdx] == emptyBinToken_ ){
+					sketches_[newIdx] = sketches_[f + sketchBeg];
+					--emptyCount;
+					break;
 				}
 			}
+			++iSeed;
+			//TODD: make thread-safe
+			if ( iSeed == seeds.size() ){
+				seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+			}
 		}
+	}
 }
 
 void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds){
+	// Define constants. Some can be taken outside of the function as an optimization
+	// Opting for more encapsulation for now unless I find significant performance penalties
+	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	const size_t endWholeBed   = begInd + locusLength - 2UL + (locusLength & 1UL);
+	const size_t addIndv       = nIndividuals_ - endWholeBed * 4UL;
 	// Fill the random byte vector
 	vector<uint64_t> rand(randVecLen);
 	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
@@ -850,9 +779,9 @@ void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, 
 	uint8_t bedByte = 0;
 	// Two bytes of .bed code go into one byte of my binary representation
 	// Therefore, work on two consecutive bytes of .bed code in the loop
-	for (size_t iBed = begInd; iBed < endBed ; iBed += 2){                     // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
-		bedByte             = ~bedData[iBed];                            // flip so that homozygous second allele (usually minor) is set to 11
-		uint8_t offsetToBin = 0;                                          // move the .bed mask by this much to align with the binarized byte
+	for (size_t iBed = begInd; iBed < endWholeBed ; iBed += 2){                     // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
+		bedByte             = ~bedData[iBed];                                  // flip so that homozygous second allele (usually minor) is set to 11
+		uint8_t offsetToBin = 0;                                               // move the .bed mask by this much to align with the binarized byte
 		for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 			uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
 			uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
@@ -881,15 +810,12 @@ void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, 
 		}
 		++iBinGeno;
 	}
-	for (size_t iBed = endBed; iBed < nBedBytes; ++iBed){
-		bedLocus[iBed] = ~bedLocus[iBed];
-	}
 	uint8_t inBedByteOffset = 0;
 	for (size_t iInd = 0; iInd < addIndv; ++iInd){
-		const size_t curBedByte = endBed + iInd / 4;
-		uint8_t firstBitMask    = bedData[curBedByte] & (oneBit_ << inBedByteOffset);
+		const size_t curBedByte = endWholeBed + iInd / 4;
+		uint8_t firstBitMask    = (~bedData[curBedByte]) & (oneBit_ << inBedByteOffset);
 		const uint8_t secondBBO = inBedByteOffset + 1;
-		uint8_t secondBitMask   = bedData[curBedByte] & (oneBit_ << secondBBO);
+		uint8_t secondBitMask   = (~bedData[curBedByte]) & (oneBit_ << secondBBO);
 		// Keep track of missing genotypes to revert them if I have to flip bits later on
 		const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
 		missMasks.back()         |= (curMissMask >> inBedByteOffset) << iInd;
@@ -912,7 +838,6 @@ void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, 
 	}
 	aaf_.push_back(aaCount);
 	locusOPH_(permutation, seeds, binLocus);
-	++nLoci_;
 }
 
 void GenoTableHash::mac2oph_(vector<int> &macData, const size_t &begInd, const vector<size_t> &permutation, vector<uint32_t> &seeds){
