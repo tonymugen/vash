@@ -164,6 +164,27 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
+		/** \brief Binarize _.bed_ file input
+		 *
+		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
+		 *
+		 * \param[in] bedData _.bed_ file input
+		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
+		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
+		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 */
+		void bed2bin_(const vector<char> &bedData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &locusLength, const size_t &randVecLen);
+		/** \brief Binarize minor allele counts
+		 *
+		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
+		 *
+		 * \param[in] macData vector of minor allele counts
+		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
+		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 */
+		void mac2bin_(const vector<int> &macData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] iLocus first locus index
@@ -338,12 +359,13 @@ namespace BayesicSpace {
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 *
-		 * \param[in,out] macData vector of minor allele counts
+		 * \param[in] macData vector of minor allele counts
 		 * \param[in] begInd index of the locus start
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2oph_(vector<int> &macData, const size_t &begInd, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void mac2oph_(const vector<int> &macData, const size_t &begInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
