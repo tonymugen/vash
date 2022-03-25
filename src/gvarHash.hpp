@@ -44,7 +44,7 @@ using std::string;
 
 namespace BayesicSpace {
 	class GenoTableBin;
-	class GenoTableHAsh;
+	class GenoTableHash;
 
 	/** \brief Count set bits in a 16-bit word
 	 *

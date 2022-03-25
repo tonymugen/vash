@@ -78,15 +78,15 @@ int main(){
 			}
 		}
 		*/
-		const size_t Ngeno = 4;
-		const size_t Nindv = 19;
-		size_t k = 5;
+		const size_t Ngeno = 2000;
+		const size_t Nindv = 2000;
+		const size_t k = 13;
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);
 		//testTab.makeIndividualOPH(k);
 		//
 		// This is a basic and incomplete tped parser just for testing binarization
-		const string tpedFileName("sim1test.tped");
+		const string tpedFileName("sim1.tped");
 		string inputLine;
 		vector<int> genoCodes;
 		fstream input;
@@ -121,6 +121,7 @@ int main(){
 			}
 		}
 		input.close();
+		/*
 		for (size_t jG = 0; jG < Ngeno; jG++) {
 			uint16_t inByte = 0;
 			for (size_t iInd = 0; iInd < Nindv; iInd++){
@@ -135,9 +136,10 @@ int main(){
 			}
 			std::cout << "\b\n";
 		}
-		GenoTable testTab(genoCodes, Nindv);
-		const string bedFile("sim1test.bed");
-		GenoTable testBed(bedFile, Nindv);
+		*/
+		GenoTableHash testTab(genoCodes, Nindv, k);
+		//const string bedFile("sim1.bed");
+		//GenoTableHash testBed(bedFile, Nindv, k);
 		/*
 		vector<float> outLD;
 		testTab.allJaccardLD(outLD);

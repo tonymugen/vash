@@ -64,9 +64,8 @@ using std::chrono::milliseconds;
 using std::milli;
 
 using namespace BayesicSpace;
-
 // External functions
-uint16_t countSetBits(uint16_t inVal) {
+uint16_t BayesicSpace::countSetBits(uint16_t inVal) {
 	uint16_t totSet = 0;
 	for (; inVal; ++totSet) {
 		inVal &= inVal - 1;
@@ -74,7 +73,7 @@ uint16_t countSetBits(uint16_t inVal) {
 	return totSet;
 }
 
-uint32_t countSetBits(const vector<uint8_t> &inVec) {
+uint32_t BayesicSpace::countSetBits(const vector<uint8_t> &inVec) {
 	uint32_t totSet = 0;
 	for (const auto &in : inVec){
 		uint8_t v = in;
@@ -85,7 +84,7 @@ uint32_t countSetBits(const vector<uint8_t> &inVec) {
 	return totSet;
 }
 
-uint32_t countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) {
+uint32_t BayesicSpace::countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length) {
 	uint32_t totSet = 0;
 	for (size_t i = start; i < start + length; ++i){
 		uint8_t v = inVec[i];
@@ -990,6 +989,7 @@ void GenoTableHash::mac2oph_(const vector<int> &macData, const size_t &begInd, c
 		maf = 1.0 - maf;
 	}
 	aaf_.push_back(maf);
+	throw string("got here");
 	locusOPH_(permutation, seeds, binLocus);
 }
 
