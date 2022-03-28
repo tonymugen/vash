@@ -333,39 +333,41 @@ namespace BayesicSpace {
 		static const uint32_t c1_;
 		/** \brief MurMurHash c2 constant */
 		static const uint32_t c2_;
-		/** \brief 
+		/** \brief Single-locus one-permutation hash
 		 *
 		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
 		 * The `seeds` vector may be appended by the function if additional seeds are required.
 		 *
+		 * \param[in] locusInd locus index
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling NB!!! Not thread safe ATM!!!
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
-		void locusOPH_(const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
+		void locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
 		/** \brief OPH from _.bed_ file input
 		 *
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
 		 *
 		 * \param[in] bedData _.bed_ file input
-		 * \param[in] begInd index of the locus start
+		 * \param[in] bedInd bed stream locus index (may be different from locus index if reading by line)
+		 * \param[in] locusInd locus index
 		 * \param[in] locusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2oph_(const vector<char> &bedData, const size_t &begInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void bed2oph_(const vector<char> &bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] begInd index of the locus start
+		 * \param[in] locusInd locus index
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2oph_(const vector<int> &macData, const size_t &begInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void mac2oph_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

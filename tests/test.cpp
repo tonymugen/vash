@@ -137,9 +137,9 @@ int main(){
 			std::cout << "\b\n";
 		}
 		*/
-		GenoTableHash testTab(genoCodes, Nindv, k);
-		//const string bedFile("sim1.bed");
-		//GenoTableHash testBed(bedFile, Nindv, k);
+		//GenoTableHash testTab(genoCodes, Nindv, k);
+		const string bedFile("sim1.bed");
+		GenoTableHash testBed(bedFile, Nindv, k);
 		/*
 		vector<float> outLD;
 		testTab.allJaccardLD(outLD);

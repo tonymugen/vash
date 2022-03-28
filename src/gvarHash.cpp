@@ -546,9 +546,12 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	}
 	vector<uint32_t> seeds;
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
-	size_t locusBegin = 0;
+	size_t bedInd   = 0;
+	size_t locusInd = 0;
 	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
-		bed2oph_(bedLocus, locusBegin, nBedBytes, ranVecSize, ranInts, seeds);
+		bed2oph_(bedLocus, bedInd, locusInd, nBedBytes, ranVecSize, ranInts, seeds);
+		++locusInd;
+		// Keeping bedInd at 0 because the bed vector is the locus; will increment when I try mmap()
 	}
 	inStr.close();
 }
@@ -773,7 +776,7 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 	out.close();
 }
 
-void GenoTableHash::locusOPH_(const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
+void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
 	// Start with a permutation to make OPH
 	size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
 	for (const auto &ri : permutation){
@@ -801,7 +804,7 @@ void GenoTableHash::locusOPH_(const vector<size_t> &permutation, vector<uint32_t
 	vector<size_t> filledIndexes;                     // indexes of the non-empty sketches
 	size_t iByte     = 0;
 	size_t colEnd    = iByte + locusSize_;
-	size_t sketchBeg = nLoci_ * kSketches_;            // nLoci_ is incremented at the end of this loop
+	size_t sketchBeg = locusInd * kSketches_;
 	size_t iSeed     = 0;                             // index into the seed vector
 	uint8_t iInByte  = 0;
 	// A possible optimization is to test a whole byte for 0
@@ -853,9 +856,10 @@ void GenoTableHash::locusOPH_(const vector<size_t> &permutation, vector<uint32_t
 	}
 }
 
-void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds){
+void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
+	const size_t begInd        = bedInd * locusLength;
 	const size_t endWholeBed   = begInd + locusLength - 2UL + (locusLength & 1UL);
 	const size_t addIndv       = nIndividuals_ - endWholeBed * 4UL;
 	// Fill the random byte vector
@@ -929,10 +933,10 @@ void GenoTableHash::bed2oph_(const vector<char> &bedData, const size_t &begInd, 
 		aaCount = 1.0 - aaCount;
 	}
 	aaf_.push_back(aaCount);
-	locusOPH_(permutation, seeds, binLocus);
+	locusOPH_(locusInd, permutation, seeds, binLocus);
 }
 
-void GenoTableHash::mac2oph_(const vector<int> &macData, const size_t &begInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds){
+void GenoTableHash::mac2oph_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	const uint8_t remainderInd = byteSize_ - static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
@@ -944,7 +948,7 @@ void GenoTableHash::mac2oph_(const vector<int> &macData, const size_t &begInd, c
 		rv = rng_.ranInt();
 	}
 	size_t iIndiv         = 0;
-	const size_t begIndiv = begInd * nIndividuals_;
+	const size_t begIndiv = locusInd * nIndividuals_;
 	vector<uint8_t> missMasks(locusSize_, 0);
 	vector<uint8_t> binLocus(locusSize_, 0);
 	size_t i0Byte = 0;                                                                         // to index the missMasks vector
@@ -989,8 +993,7 @@ void GenoTableHash::mac2oph_(const vector<int> &macData, const size_t &begInd, c
 		maf = 1.0 - maf;
 	}
 	aaf_.push_back(maf);
-	throw string("got here");
-	locusOPH_(permutation, seeds, binLocus);
+	locusOPH_(locusInd, permutation, seeds, binLocus);
 }
 
 uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) const {
