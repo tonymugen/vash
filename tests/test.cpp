@@ -138,16 +138,20 @@ int main(){
 		}
 		*/
 		//GenoTableHash testTab(genoCodes, Nindv, k);
+		//GenoTableBin testTab(genoCodes, Nindv);
 		const string bedFile("sim1.bed");
-		GenoTableHash testBed(bedFile, Nindv, k);
-		/*
+		//GenoTableHash testBed(bedFile, Nindv, k);
+		GenoTableBin testBed(bedFile, Nindv);
 		vector<float> outLD;
-		testTab.allJaccardLD(outLD);
+		outLD = testBed.allJaccardLD();
+		//outLD = testTab.allJaccardLD();
+		string outFileName("sim1jac.txt");
+		fstream output;
+		output.open(outFileName.c_str(), ios::trunc | ios::out);
 		for (const auto &o : outLD){
-			std::cout << o << " ";
+			output << o << " ";
 		}
-		std::cout << "\b\n";
-		*/
+		output.close();
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);

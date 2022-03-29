@@ -180,11 +180,10 @@ namespace BayesicSpace {
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
-		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
+		 * \param[in] locusInd locus index
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void mac2bin_(const vector<int> &macData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &randVecLen);
+		void mac2bin_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] iLocus first locus index
