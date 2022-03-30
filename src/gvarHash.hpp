@@ -43,6 +43,7 @@ using std::array;
 using std::string;
 
 namespace BayesicSpace {
+	class GenoTableBinCPP;
 	class GenoTableBin;
 	class GenoTableHash;
 
@@ -73,6 +74,76 @@ namespace BayesicSpace {
 	 */
 	uint32_t countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length);
 
+	class GenoTableBinCPP {
+	public:
+		/** \brief Default constructor */
+		GenoTableBinCPP(){};
+		/** \brief Constructor with input file name
+		 *
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 *
+		 * \param[in] inputFileName input file name
+		 * \param[in] nIndividuals number of genotyped individuals
+		 */
+		GenoTableBinCPP(const string &inputFileName, const size_t &nIndividuals);
+
+		/** \brief Copy constructor (deleted) */
+		GenoTableBinCPP(const GenoTableBinCPP &in) = delete;
+		/** \brief Copy assignment operator (deleted) */
+		GenoTableBinCPP operator=(const GenoTableBinCPP &in) = delete;
+		/** \brief Move constructor
+		 *
+		 * \param[in] in object to move
+		 */
+		GenoTableBinCPP(GenoTableBinCPP &&in) noexcept;
+		/** \brief Move assignment operator
+		 *
+		 * \param[in] in object to be moved
+		 * \return `GenoTableBinCPP` object
+		 */
+		GenoTableBinCPP& operator=(GenoTableBinCPP &&in) noexcept;
+
+	protected:
+		/** \brief Binarized genotype table
+		 *
+		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
+		 */
+		vector<uint8_t> binGenotypes_;
+		/** \brief Alternative allele frequencies
+		 *
+		 * One value per locus. This is typically the minor allele frequency.
+		 */
+		vector<float> aaf_;
+		/** \brief Number of individuals */
+		size_t nIndividuals_;
+		/** \brief Number of loci */
+		size_t nLoci_;
+		/** \brief Locus size in bytes */
+		size_t locusSize_;
+		/** \brief Random number generator */
+		RanDraw rng_;
+		/** \brief Leading bytes for .bed files */
+		static const array<char, 3> magicBytes_;
+		/** \brief One set bit for masking */
+		static const uint8_t oneBit_;
+		/** \brief Size of one byte in bits */
+		static const uint8_t byteSize_;
+		/** \brief 64 bit word size in bytes */
+		static const uint8_t llWordSize_;
+		/** \brief Binarize _.bed_ file input
+		 *
+		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
+		 *
+		 * \param[in] bedData _.bed_ file input
+		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
+		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
+		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 */
+		void bed2bin_(const vector<char> &bedData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &locusLength, const size_t &randVecLen);
+	};
 	/** \brief Class to store binary compressed genotype tables
 	 *
 	 * Converts genotype data to a lossy compressed binary code.
@@ -117,7 +188,7 @@ namespace BayesicSpace {
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] in object to be moved
-		 * \return `GenoTable` object
+		 * \return `GenoTableBin` object
 		 */
 		GenoTableBin& operator=(GenoTableBin &&in) noexcept;
 
@@ -244,7 +315,7 @@ namespace BayesicSpace {
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] in object to be moved
-		 * \return `GenoTable` object
+		 * \return `GenoTableHash object
 		 */
 		GenoTableHash& operator=(GenoTableHash &&in) noexcept;
 

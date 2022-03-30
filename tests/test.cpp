@@ -79,8 +79,9 @@ int main(){
 		}
 		*/
 		const size_t Ngeno = 2000;
+		//const size_t Nindv = 2000;
 		const size_t Nindv = 2000;
-		const size_t k = 13;
+		const size_t k = 200;
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);
 		//testTab.makeIndividualOPH(k);
@@ -101,7 +102,8 @@ int main(){
 			lineSS >> field;
 
 			string firstGenotype;
-			while (lineSS >> field){
+			size_t iIndiv = 0;
+			while ( (lineSS >> field) && (iIndiv < Nindv) ){
 				string secondField;
 				lineSS >> secondField;
 				if ( firstGenotype.empty() ){ // first non-missing genotype has not been seen yet
@@ -118,6 +120,7 @@ int main(){
 						genoCodes.push_back( static_cast<int>(field != firstGenotype) + static_cast<int>(secondField != firstGenotype) );
 					}
 				}
+				++iIndiv;
 			}
 		}
 		input.close();
@@ -140,12 +143,15 @@ int main(){
 		//GenoTableHash testTab(genoCodes, Nindv, k);
 		//GenoTableBin testTab(genoCodes, Nindv);
 		const string bedFile("sim1.bed");
-		//GenoTableHash testBed(bedFile, Nindv, k);
-		GenoTableBin testBed(bedFile, Nindv);
+		//const string bedFile("sim1_1997.bed");
+		GenoTableHash testBed(bedFile, Nindv, k);
+		//GenoTableBin testBed(bedFile, Nindv);
 		vector<float> outLD;
-		outLD = testBed.allJaccardLD();
+		//outLD = testBed.allJaccardLD();
 		//outLD = testTab.allJaccardLD();
-		string outFileName("sim1jac.txt");
+		//outLD = testTab.allHashLD();
+		outLD = testBed.allHashLD();
+		string outFileName("sim1hash200.txt");
 		fstream output;
 		output.open(outFileName.c_str(), ios::trunc | ios::out);
 		for (const auto &o : outLD){
