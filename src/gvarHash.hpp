@@ -228,7 +228,7 @@ namespace BayesicSpace {
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
-		static const array<char, 3> magicBytes_;
+		static const array<uint8_t, 3> magicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
@@ -245,7 +245,7 @@ namespace BayesicSpace {
 		 * \param[in] bedLocusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void bed2bin_(const vector<char> &bedData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &locusLength, const size_t &randVecLen);
+		void bed2bin_(const uint8_t *bedData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &locusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).

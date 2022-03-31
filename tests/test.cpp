@@ -23,6 +23,8 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <chrono>
+#include <cmath>
 
 #include "../src/gvarHash.hpp"
 
@@ -32,6 +34,10 @@ using std::stringstream;
 using std::ios;
 using std::cerr;
 
+using std::chrono::high_resolution_clock;
+using std::chrono::duration;
+using std::chrono::milliseconds;
+using std::milli;
 using namespace BayesicSpace;
 
 int main(){
@@ -79,7 +85,6 @@ int main(){
 		}
 		*/
 		const size_t Ngeno = 2000;
-		//const size_t Nindv = 2000;
 		const size_t Nindv = 2000;
 		const size_t k = 200;
 		//const string bedFile("sim1test.bed");
@@ -144,12 +149,21 @@ int main(){
 		//GenoTableBin testTab(genoCodes, Nindv);
 		const string bedFile("sim1.bed");
 		//const string bedFile("sim1_1997.bed");
-		GenoTableHash testBed(bedFile, Nindv, k);
-		//GenoTableBin testBed(bedFile, Nindv);
-		vector<float> outLD;
+		//GenoTableHash testBed(bedFile, Nindv, k);
+		auto time1 = high_resolution_clock::now();
+		GenoTableBinCPP testBedCPP(bedFile, Nindv);
+		auto time2 = high_resolution_clock::now();
+		duration<float, milli> execTimeCPP = time2 - time1;
+		time1 = high_resolution_clock::now();
+		GenoTableBin testBed(bedFile, Nindv);
+		time2 = high_resolution_clock::now();
+		duration<float, milli> execTime = time2 - time1;
+		std::cout << execTimeCPP.count() << " " << execTime.count() << "\n";
+		//vector<float> outLD;
 		//outLD = testBed.allJaccardLD();
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
+		/*
 		outLD = testBed.allHashLD();
 		string outFileName("sim1hash200.txt");
 		fstream output;
@@ -158,6 +172,7 @@ int main(){
 			output << o << " ";
 		}
 		output.close();
+		*/
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);

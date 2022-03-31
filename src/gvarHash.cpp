@@ -37,12 +37,16 @@
 #include <fstream>
 #include <future>
 #include <mutex>
+#include <memory>
 // for memory mapping files
 #include <sys/mman.h>
 #include <fcntl.h>    // for O_RDONLY
+#include <unistd.h>   // for C type file close()
 
 #include <chrono>
 #include <cmath>
+
+#include <iostream>
 
 #include "gvarHash.hpp"
 
@@ -60,6 +64,7 @@ using std::future;
 using std::async;
 using std::mutex;
 using std::lock_guard;
+using std::unique_ptr;
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration;
@@ -247,10 +252,10 @@ void GenoTableBinCPP::bed2bin_(const vector<char> &bedData, const size_t &bedInd
 }
 
 // GenoTableBin methods
-constexpr array<char, 3> GenoTableBin::magicBytes_ = {0x6c, 0x1b, 0x01};   // Leading bytes for .bed files 
-constexpr uint8_t  GenoTableBin::oneBit_           = 0b00000001;           // One set bit for masking 
-constexpr uint8_t  GenoTableBin::byteSize_         = 8;                    // Size of one byte in bits 
-constexpr uint8_t  GenoTableBin::llWordSize_       = 8;                    // 64 bit word size in bytes 
+constexpr array<uint8_t, 3> GenoTableBin::magicBytes_ = {0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
+constexpr uint8_t  GenoTableBin::oneBit_              = 0b00000001;           // One set bit for masking
+constexpr uint8_t  GenoTableBin::byteSize_            = 8;                    // Size of one byte in bits
+constexpr uint8_t  GenoTableBin::llWordSize_          = 8;                    // 64 bit word size in bytes
 
 // Constructors
 GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{0} {
@@ -263,42 +268,58 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	fstream inStr;
 	// Start by measuring file size
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary | ios::ate);
-	const size_t N = static_cast<uint64_t>( inStr.tellg() ) - 3UL;       // first three bytes are majic
+	const size_t N = static_cast<uint64_t>( inStr.tellg() );       // first three bytes are majic
 	inStr.close();
-	nLoci_ = N / nBedBytes;
+	nLoci_ = (N - 3UL) / nBedBytes;
+	if ( (N < 3) || (nLoci_ < 2) ) {
+		throw string("ERROR: Fewer than two loci in input file ") + inputFileName + string(" in ") + string(__FUNCTION__);
+	}
 
 	int inFile = open(inputFileName.c_str(), O_RDONLY);
 	if (inFile < 0) {
 		throw string("ERROR: could not open ") + inputFileName + string(" for reading in ") + string(__FUNCTION__);
 	}
-	char *bedData = mmap(NULL, N - 3, PROT_READ, MAP_PRIVATE, inFile, magicBytes_.size());
-	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
-	char magicBuf[magicBytes_.size()]{};
-	inStr.read( magicBuf, magicBytes_.size() );
-	if ( inStr.eof() ){
-		throw string("ERROR: No loci in the input .bed file ") + inputFileName + string(" in ") + string(__FUNCTION__);
-	} else if (magicBuf[0] != magicBytes_[0]){
+	/*
+	auto bedDeleter = [inFile, N](uint8_t p[]){
+		munmap(p, N);
+		close(inFile);
+		delete [] p;
+	};
+	*/
+	auto bedData = static_cast<uint8_t*>( mmap(NULL, N, PROT_READ, MAP_PRIVATE, inFile, 0) );
+	if (bedData == MAP_FAILED) {
+		close(inFile);
+		throw string("ERROR: Failed to memory map file ") + inputFileName + string(" in ") + string(__FUNCTION__);
+	}
+	if (bedData[0] != magicBytes_[0]){
+		munmap(bedData, N);
+		close(inFile);
 		throw string("ERROR: first magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
-	} else if (magicBuf[1] != magicBytes_[1]){
+	} else if (bedData[1] != magicBytes_[1]){
+		munmap(bedData, N);
+		close(inFile);
 		throw string("ERROR: second magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
-	} else if (magicBuf[2] != magicBytes_[2]){
+	} else if (bedData[2] != magicBytes_[2]){
+		munmap(bedData, N);
+		close(inFile);
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	}
 	// Generate the binary genotype table while reading the .bed file
 	locusSize_              = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	const size_t ranVecSize = nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_);
-	vector<char> bedLocus(nBedBytes, 0);
 	binGenotypes_.resize(nLoci_ * locusSize_, 0);
 	aaf_.resize(nLoci_, 0.0);
-
-	size_t bedInd   = 0;
-	size_t locusInd = 0;
-	while ( inStr.read(bedLocus.data(), nBedBytes) ) {
-		bed2bin_(bedLocus, bedInd, locusInd, nBedBytes, ranVecSize);
-		++locusInd;
-		// Keeping bedInd at 0 because the bed vector is the locus; will increment when I try mmap()
+	
+	std::cout << nLoci_ << " " << nBedBytes << "\n";
+	size_t bedInd   = magicBytes_.size();
+	/*
+	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
+		bed2bin_(bedData, bedInd, iLocus, nBedBytes, ranVecSize);
+		bedInd += nBedBytes;
 	}
-	inStr.close();
+	*/
+	munmap(bedData, N);
+	close(inFile);
 }
 
 GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -359,7 +380,7 @@ vector<float> GenoTableBin::allJaccardLD() const {
 	return LDmat;
 }
 
-void GenoTableBin::bed2bin_(const vector<char> &bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen){
+void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	const size_t begInd      = bedInd * locusLength;
