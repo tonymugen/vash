@@ -37,7 +37,6 @@
 #include <fstream>
 #include <future>
 #include <mutex>
-#include <memory>
 // for memory mapping files
 #include <sys/mman.h>
 #include <fcntl.h>    // for O_RDONLY
@@ -64,7 +63,6 @@ using std::future;
 using std::async;
 using std::mutex;
 using std::lock_guard;
-using std::unique_ptr;
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration;
@@ -279,14 +277,8 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	if (inFile < 0) {
 		throw string("ERROR: could not open ") + inputFileName + string(" for reading in ") + string(__FUNCTION__);
 	}
-	/*
-	auto bedDeleter = [inFile, N](uint8_t p[]){
-		munmap(p, N);
-		close(inFile);
-		delete [] p;
-	};
-	*/
-	auto bedData = static_cast<uint8_t*>( mmap(NULL, N, PROT_READ, MAP_PRIVATE, inFile, 0) );
+	// I tried using unique_ptr instead of the raw pointer, but it did not work (segfault on construction)
+	uint8_t *bedData = static_cast<uint8_t*>( mmap(NULL, N, PROT_READ, MAP_PRIVATE, inFile, 0) );
 	if (bedData == MAP_FAILED) {
 		close(inFile);
 		throw string("ERROR: Failed to memory map file ") + inputFileName + string(" in ") + string(__FUNCTION__);
@@ -309,16 +301,18 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	const size_t ranVecSize = nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_);
 	binGenotypes_.resize(nLoci_ * locusSize_, 0);
 	aaf_.resize(nLoci_, 0.0);
-	
-	std::cout << nLoci_ << " " << nBedBytes << "\n";
-	size_t bedInd   = magicBytes_.size();
-	/*
-	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		bed2bin_(bedData, bedInd, iLocus, nBedBytes, ranVecSize);
-		bedInd += nBedBytes;
+	{
+		vector< future<void> > tasks;
+		tasks.reserve(nLoci_);
+		for (size_t iLocus = 0; iLocus < 100; ++iLocus){
+			tasks.emplace_back( async([this, bedData, iLocus, nBedBytes, ranVecSize]{bed2bin_(bedData, iLocus, nBedBytes, ranVecSize);}) );
+		}
 	}
-	*/
-	munmap(bedData, N);
+	int err = munmap(bedData, N);
+	if (err != 0) {
+		close(inFile);
+		throw string("ERROR: Unable to un-map the ") + inputFileName + string(" file in ") + string(__FUNCTION__);
+	}
 	close(inFile);
 }
 
@@ -380,12 +374,12 @@ vector<float> GenoTableBin::allJaccardLD() const {
 	return LDmat;
 }
 
-void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen){
+void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
-	const size_t begInd      = bedInd * locusLength;
-	const size_t endWholeBed = begInd + locusLength - 2UL + (locusLength & 1UL);
-	const size_t addIndv     = nIndividuals_ - endWholeBed * 4UL;
+	const size_t begInd      = locusInd * bedLocusLength + magicBytes_.size();
+	const size_t addIndv     = nIndividuals_ % 4UL;
+	const size_t endWholeBed = begInd + bedLocusLength - static_cast<size_t>(addIndv > 0);
 	const size_t begByte     = locusInd * locusSize_;
 	// Fill the random byte vector
 	vector<uint64_t> rand(randVecLen);
@@ -395,6 +389,7 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const 
 	}
 	vector<uint8_t> missMasks(locusSize_, 0);
 	size_t iBinGeno = begByte;                       // binLocus vector index
+	size_t iMissMsk = 0;
 	uint8_t bedByte = 0;
 	// Two bytes of .bed code go into one byte of my binary representation
 	// Therefore, work on two consecutive bytes of .bed code in the loop
@@ -406,7 +401,7 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const 
 			uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
 			// Keep track of missing genotypes to revert them if I have to flip bits later on
 			const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
-			missMasks[iBinGeno]      |= curMissMask >> offsetToBin;
+			missMasks[iMissMsk]      |= curMissMask >> offsetToBin;
 			// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
 			secondBitMask           |= randBytes[iBed] & (firstBitMask << 1);
 			firstBitMask            &= secondBitMask >> 1;
@@ -420,7 +415,7 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const 
 			uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
 			// Keep track of missing genotypes to revert them if I have to flip bits later on
 			const uint8_t curMissMask = ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1;  // 2nd different from 1st, and 2nd set => missing
-			missMasks[iBinGeno]      |= curMissMask << offsetToBin;
+			missMasks[iMissMsk]      |= curMissMask << offsetToBin;
 			// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
 			secondBitMask           |= randBytes[nextIbed] & (firstBitMask << 1);
 			firstBitMask            &= secondBitMask >> 1;
@@ -428,6 +423,7 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const 
 			--offsetToBin;
 		}
 		++iBinGeno;
+		++iMissMsk;
 	}
 	uint8_t inBedByteOffset = 0;
 	for (size_t iInd = 0; iInd < addIndv; ++iInd){
@@ -460,6 +456,12 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &bedInd, const 
 	aaf_[locusInd] = aaCount;
 }
 
+void GenoTableBin::bed2binBlk_(const uint8_t *bedData, const size_t &firstLocusInd, const size_t &lastLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
+	for (size_t iLocus = firstLocusInd; iLocus < lastLocusInd; ++iLocus){
+		bed2bin_(bedData, iLocus, bedLocusLength, randVecLen);
+	}
+}
+
 void GenoTableBin::mac2bin_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
@@ -478,7 +480,7 @@ void GenoTableBin::mac2bin_(const vector<int> &macData, const size_t &locusInd, 
 	const size_t begByte  = locusInd * locusSize_;
 	vector<uint8_t> missMasks(locusSize_, 0);
 	size_t i0Byte = 0;                                                                         // to index the missMasks vector
-	for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; ++iByte){               // treat the last byte separately
+	for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; ++iByte){                   // treat the last byte separately
 		for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte){
 			uint8_t curIndiv          = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
 			curIndiv                 &= 0b10000011;                                            // mask everything in the middle

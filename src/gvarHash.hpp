@@ -240,15 +240,25 @@ namespace BayesicSpace {
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
 		 *
 		 * \param[in] bedData _.bed_ file input
-		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
-		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
+		 * \param[in] locusInd locus index
 		 * \param[in] bedLocusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void bed2bin_(const uint8_t *bedData, const size_t &bedBegInd, const size_t &binBegInd, const size_t &locusLength, const size_t &randVecLen);
+		void bed2bin_(const uint8_t *bedData, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen);
+		/** \brief Binarize a block of _.bed_ file input
+		 *
+		 * Binarizes a portion of a vector of input from a _.bed_ file that corresponds to a block of loci.
+		 *
+		 * \param[in] bedData _.bed_ file input
+		 * \param[in] firstLocusInd index of the first locus in the block
+		 * \param[in] lastLocusInd index of the last locus in the block
+		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 */
+		void bed2binBlk_(const uint8_t *bedData, const size_t &firstLocusInd, const size_t &lastLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts
 		 *
-		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
+		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 *
 		 * \param[in] macData vector of minor allele counts
 		 * \param[in] locusInd locus index

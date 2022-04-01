@@ -159,13 +159,13 @@ int main(){
 		time2 = high_resolution_clock::now();
 		duration<float, milli> execTime = time2 - time1;
 		std::cout << execTimeCPP.count() << " " << execTime.count() << "\n";
-		//vector<float> outLD;
-		//outLD = testBed.allJaccardLD();
+		/*
+		vector<float> outLD;
+		outLD = testBed.allJaccardLD();
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
-		/*
-		outLD = testBed.allHashLD();
-		string outFileName("sim1hash200.txt");
+		//outLD = testBed.allHashLD();
+		string outFileName("sim1jacMap.txt");
 		fstream output;
 		output.open(outFileName.c_str(), ios::trunc | ios::out);
 		for (const auto &o : outLD){
