@@ -73,6 +73,13 @@ namespace BayesicSpace {
 	 * \return number of bits set
 	 */
 	uint32_t countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length);
+	/** \brief Get available RAM
+	 *
+	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.
+	 *
+	 * \return estimated available RAM in bytes
+	 */
+	size_t getAvailableRAM();
 
 	class GenoTableBinCPP {
 	public:
@@ -164,6 +171,18 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 */
 		GenoTableBin(const string &inputFileName, const size_t &nIndividuals);
+		/** \brief Constructor with input file name and thread count
+		 *
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 * The number of threads requested is maximum to be used, depending on available system resources.
+		 *
+		 * \param[in] inputFileName input file name
+		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] nThreads maximal number of threads to use
+		 */
+		GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -223,12 +242,14 @@ namespace BayesicSpace {
 		size_t nIndividuals_;
 		/** \brief Number of loci */
 		size_t nLoci_;
-		/** \brief Locus size in bytes */
-		size_t locusSize_;
+		/** \brief Binarized locus size in bytes */
+		size_t binLocusSize_;
+		/** \brief Maximal number of threads to use */
+		size_t nThreads_;
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
-		static const array<uint8_t, 3> magicBytes_;
+		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
@@ -240,22 +261,12 @@ namespace BayesicSpace {
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
 		 *
 		 * \param[in] bedData _.bed_ file input
-		 * \param[in] locusInd locus index
+		 * \param[in] bedBegInd index of the locus start in the _.bed_ stream
+		 * \param[in] binBegInd index of the locus start in the binarized genotype vector
 		 * \param[in] bedLocusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void bed2bin_(const uint8_t *bedData, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen);
-		/** \brief Binarize a block of _.bed_ file input
-		 *
-		 * Binarizes a portion of a vector of input from a _.bed_ file that corresponds to a block of loci.
-		 *
-		 * \param[in] bedData _.bed_ file input
-		 * \param[in] firstLocusInd index of the first locus in the block
-		 * \param[in] lastLocusInd index of the last locus in the block
-		 * \param[in] bedLocusLength number of bytes in each locus
-		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
-		 */
-		void bed2binBlk_(const uint8_t *bedData, const size_t &firstLocusInd, const size_t &lastLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
+		void bed2bin_(const vector<char> &bedData, const size_t &blockLocusInd, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).

@@ -29,18 +29,17 @@
 
 #include <cstring>
 #include <string>
+#include <sstream>
 #include <vector>
 #include <array>
+#include <utility>  // for std::pair
 #include <iterator>
 #include <algorithm>
 #include <limits>
 #include <fstream>
 #include <future>
+#include <thread>
 #include <mutex>
-// for memory mapping files
-#include <sys/mman.h>
-#include <fcntl.h>    // for O_RDONLY
-#include <unistd.h>   // for C type file close()
 
 #include <chrono>
 #include <cmath>
@@ -51,18 +50,23 @@
 
 using std::vector;
 using std::array;
+using std::pair;
 using std::distance;
 using std::string;
 using std::to_string;
+using std::stringstream;
 using std::move;
 using std::numeric_limits;
 using std::fstream;
+using std::ifstream;
 using std::ios;
 using std::streampos;
 using std::future;
 using std::async;
 using std::mutex;
 using std::lock_guard;
+using std::thread;
+using std::stoi;
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration;
@@ -101,6 +105,26 @@ uint32_t BayesicSpace::countSetBits(const vector<uint8_t> &inVec, const size_t &
 	return totSet;
 }
 
+size_t BayesicSpace::getAvailableRAM() {
+	if ( ifstream("/proc/meminfo").good() ) {
+		string memLine;
+		fstream memInfoStream;
+		memInfoStream.open("/proc/meminfo", ios::in);
+		while ( getline(memInfoStream, memLine) ){
+			if (memLine.compare(0, 13, "MemAvailable:") == 0) {
+				break;
+			}
+		}
+		memInfoStream.close();
+		stringstream memLineStream(memLine);
+		string freeMemStr;
+		memLineStream >> freeMemStr;
+		memLineStream >> freeMemStr;
+		return static_cast<size_t>(stoi(freeMemStr) * 1024); // memory is in kB in the file
+	} else {
+		return 2147483648UL;
+	}
+}
 // GenoTableBinCPP methods
 constexpr array<char, 3> GenoTableBinCPP::magicBytes_ = {0x6c, 0x1b, 0x01};   // Leading bytes for .bed files 
 constexpr uint8_t  GenoTableBinCPP::oneBit_           = 0b00000001;           // One set bit for masking 
@@ -250,70 +274,60 @@ void GenoTableBinCPP::bed2bin_(const vector<char> &bedData, const size_t &bedInd
 }
 
 // GenoTableBin methods
-constexpr array<uint8_t, 3> GenoTableBin::magicBytes_ = {0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
-constexpr uint8_t  GenoTableBin::oneBit_              = 0b00000001;           // One set bit for masking
-constexpr uint8_t  GenoTableBin::byteSize_            = 8;                    // Size of one byte in bits
-constexpr uint8_t  GenoTableBin::llWordSize_          = 8;                    // 64 bit word size in bytes
+constexpr array<char, 3> GenoTableBin::magicBytes_ = {0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
+constexpr uint8_t  GenoTableBin::oneBit_           = 0b00000001;           // One set bit for masking
+constexpr uint8_t  GenoTableBin::byteSize_         = 8;                    // Size of one byte in bits
+constexpr uint8_t  GenoTableBin::llWordSize_       = 8;                    // 64 bit word size in bytes
 
 // Constructors
-GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{0} {
+GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nLoci_{0}, nThreads_{nThreads} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string( ") is too big to make a square relationship matrix in ") + string(__FUNCTION__);
 	}
-	size_t nBedBytes = nIndividuals_ / 4 + static_cast<bool>(nIndividuals_ % 4);
+	const size_t nBedBytesPerLocus = nIndividuals_ / 4 + static_cast<bool>(nIndividuals_ % 4);
 	fstream inStr;
 	// Start by measuring file size
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary | ios::ate);
-	const size_t N = static_cast<uint64_t>( inStr.tellg() );       // first three bytes are majic
+	const size_t N = static_cast<uint64_t>( inStr.tellg() ) - 3UL;       // first three bytes are majic
 	inStr.close();
-	nLoci_ = (N - 3UL) / nBedBytes;
-	if ( (N < 3) || (nLoci_ < 2) ) {
-		throw string("ERROR: Fewer than two loci in input file ") + inputFileName + string(" in ") + string(__FUNCTION__);
-	}
+	nLoci_ = N / nBedBytesPerLocus;
 
-	int inFile = open(inputFileName.c_str(), O_RDONLY);
-	if (inFile < 0) {
-		throw string("ERROR: could not open ") + inputFileName + string(" for reading in ") + string(__FUNCTION__);
-	}
-	// I tried using unique_ptr instead of the raw pointer, but it did not work (segfault on construction)
-	uint8_t *bedData = static_cast<uint8_t*>( mmap(NULL, N, PROT_READ, MAP_PRIVATE, inFile, 0) );
-	if (bedData == MAP_FAILED) {
-		close(inFile);
-		throw string("ERROR: Failed to memory map file ") + inputFileName + string(" in ") + string(__FUNCTION__);
-	}
-	if (bedData[0] != magicBytes_[0]){
-		munmap(bedData, N);
-		close(inFile);
+	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
+	char magicBuf[magicBytes_.size()]{};
+	inStr.read( magicBuf, magicBytes_.size() );
+	if ( inStr.eof() ){
+		throw string("ERROR: No loci in the input .bed file ") + inputFileName + string(" in ") + string(__FUNCTION__);
+	} else if (magicBuf[0] != magicBytes_[0]){
 		throw string("ERROR: first magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
-	} else if (bedData[1] != magicBytes_[1]){
-		munmap(bedData, N);
-		close(inFile);
+	} else if (magicBuf[1] != magicBytes_[1]){
 		throw string("ERROR: second magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
-	} else if (bedData[2] != magicBytes_[2]){
-		munmap(bedData, N);
-		close(inFile);
+	} else if (magicBuf[2] != magicBytes_[2]){
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	}
 	// Generate the binary genotype table while reading the .bed file
-	locusSize_              = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const size_t ranVecSize = nBedBytes / llWordSize_ + static_cast<bool>(nBedBytes % llWordSize_);
-	binGenotypes_.resize(nLoci_ * locusSize_, 0);
+	binLocusSize_           = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	const size_t ranVecSize = nBedBytesPerLocus / llWordSize_ + static_cast<bool>(nBedBytesPerLocus % llWordSize_);
+	vector<char> bedLocus(nBedBytesPerLocus, 0);
+	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	aaf_.resize(nLoci_, 0.0);
-	{
-		vector< future<void> > tasks;
-		tasks.reserve(nLoci_);
-		for (size_t iLocus = 0; iLocus < 100; ++iLocus){
-			tasks.emplace_back( async([this, bedData, iLocus, nBedBytes, ranVecSize]{bed2bin_(bedData, iLocus, nBedBytes, ranVecSize);}) );
-		}
+	const size_t ramSize         = getAvailableRAM();                                     // measuring here, after all the major allocations
+	size_t nBedLociToRead        = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
+	nBedLociToRead               = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
+	const size_t remainingLoci   = nLoci_ % nBedLociToRead;
+	const size_t nChunks         = nLoci_ / nBedLociToRead;
+	const size_t nBedBytesToRead = nBedLociToRead * nBedBytesPerLocus;
+	vector<char> bedChunkToRead(nBedBytesToRead, 0);
+
+	size_t bedInd   = 0;
+	size_t locusInd = 0;
+	while ( inStr.read(bedLocus.data(), nBedBytesPerLocus) ){
+		bed2bin_(bedLocus, bedInd, locusInd, nBedBytesPerLocus, ranVecSize);
+		++locusInd;
+		// Keeping bedInd at 0 because the bed vector is the locus; will increment when I try mmap()
 	}
-	int err = munmap(bedData, N);
-	if (err != 0) {
-		close(inFile);
-		throw string("ERROR: Unable to un-map the ") + inputFileName + string(" file in ") + string(__FUNCTION__);
-	}
-	close(inFile);
+	inStr.close();
 }
 
 GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals} {
@@ -327,11 +341,11 @@ GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividua
 	if ( maCounts.empty() ){
 		throw string("ERROR: empty vector of minor allele counts in ") + string(__FUNCTION__);
 	}
-	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	binGenotypes_.resize(nLoci_ * locusSize_, 0);
+	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
+	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	aaf_.resize(nLoci_, 0.0);
 	const size_t ranVecSize = nIndividuals_ / llWordSize_ + static_cast<bool>(nIndividuals_ % llWordSize_);
-	for (size_t jLoc = 0; jLoc < nLoci_; ++jLoc) {
+	for (size_t jLoc = 0; jLoc < nLoci_; ++jLoc){
 		mac2bin_(maCounts, jLoc, ranVecSize);
 	}
 }
@@ -339,8 +353,11 @@ GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividua
 GenoTableBin::GenoTableBin(GenoTableBin &&in) noexcept {
 	if (this != &in){
 		binGenotypes_ = move(in.binGenotypes_);
+		aaf_          = move(in.aaf_);
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
+		binLocusSize_ = in.binLocusSize_;
+		nThreads_     = in.nThreads_;
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
@@ -380,14 +397,14 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &locusInd, cons
 	const size_t begInd      = locusInd * bedLocusLength + magicBytes_.size();
 	const size_t addIndv     = nIndividuals_ % 4UL;
 	const size_t endWholeBed = begInd + bedLocusLength - static_cast<size_t>(addIndv > 0);
-	const size_t begByte     = locusInd * locusSize_;
+	const size_t begByte     = locusInd * binLocusSize_;
 	// Fill the random byte vector
 	vector<uint64_t> rand(randVecLen);
 	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
 	for (auto &rv : rand){
 		rv = rng_.ranInt();
 	}
-	vector<uint8_t> missMasks(locusSize_, 0);
+	vector<uint8_t> missMasks(binLocusSize_, 0);
 	size_t iBinGeno = begByte;                       // binLocus vector index
 	size_t iMissMsk = 0;
 	uint8_t bedByte = 0;
@@ -439,18 +456,18 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &locusInd, cons
 		firstBitMask                            &= secondBitMask >> 1;
 		firstBitMask                             = firstBitMask >> inBedByteOffset;
 		firstBitMask                             = firstBitMask << iInd;
-		binGenotypes_[begByte + locusSize_ - 1] |= firstBitMask;
+		binGenotypes_[begByte + binLocusSize_ - 1] |= firstBitMask;
 		inBedByteOffset                         += 2;
 		inBedByteOffset                          = inBedByteOffset % 8;
 	}
-	float aaCount = static_cast<float>( countSetBits(binGenotypes_, begByte, locusSize_) ) / static_cast<float>(nIndividuals_);
+	float aaCount = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
 	if (aaCount > 0.5){ // always want the alternative to be the minor allele
-		for (size_t iBL = 0; iBL < locusSize_; ++iBL){
+		for (size_t iBL = 0; iBL < binLocusSize_; ++iBL){
 			const size_t biBL = begByte + iBL;
 			binGenotypes_[biBL] = (~binGenotypes_[biBL]) & (~missMasks[iBL]);
 		}
-		const uint8_t lastByteMask               = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
-		binGenotypes_[begByte + locusSize_ - 1] &= lastByteMask; // unset the remainder bits
+		const uint8_t lastByteMask               = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
+		binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		aaCount                                  = 1.0 - aaCount;
 	}
 	aaf_[locusInd] = aaCount;
@@ -465,7 +482,7 @@ void GenoTableBin::bed2binBlk_(const uint8_t *bedData, const size_t &firstLocusI
 void GenoTableBin::mac2bin_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
-	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	uint8_t remainderInd       = static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 	remainderInd               = byteSize_ - remainderInd;
 	// Create a vector to store random bytes for stochastic heterozygote resolution
@@ -477,10 +494,10 @@ void GenoTableBin::mac2bin_(const vector<int> &macData, const size_t &locusInd, 
 	}
 	size_t iIndiv         = 0;
 	const size_t begIndiv = locusInd * nIndividuals_;
-	const size_t begByte  = locusInd * locusSize_;
-	vector<uint8_t> missMasks(locusSize_, 0);
+	const size_t begByte  = locusInd * binLocusSize_;
+	vector<uint8_t> missMasks(binLocusSize_, 0);
 	size_t i0Byte = 0;                                                                         // to index the missMasks vector
-	for (size_t iByte = begByte; iByte < begByte + locusSize_ - 1; ++iByte){                   // treat the last byte separately
+	for (size_t iByte = begByte; iByte < begByte + binLocusSize_ - 1; ++iByte){                   // treat the last byte separately
 		for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte){
 			uint8_t curIndiv          = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
 			curIndiv                 &= 0b10000011;                                            // mask everything in the middle
@@ -502,37 +519,37 @@ void GenoTableBin::mac2bin_(const vector<int> &macData, const size_t &locusInd, 
 		const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
 		missMasks.back()         |= (missingMask << iRem);
 		curIndiv                 &= 0b00000011;                                                
-		const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;             // 0b00000000 or 0b00000001 with equal chance
+		const uint8_t randMask    = (randBytes[binLocusSize_ - 1] >> iRem) & oneBit_;             // 0b00000000 or 0b00000001 with equal chance
 		uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 		curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
 
-		binGenotypes_[begByte + locusSize_ - 1] |= curBitMask << iRem;
+		binGenotypes_[begByte + binLocusSize_ - 1] |= curBitMask << iRem;
 		++iIndiv;
 	}
-	float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, locusSize_) ) / static_cast<float>(nIndividuals_);
+	float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
 	if (maf > 0.5){ // always want the alternative to be the minor allele
 		i0Byte = 0;
-		for (size_t i = begByte; i < begByte + locusSize_; ++i){
+		for (size_t i = begByte; i < begByte + binLocusSize_; ++i){
 			binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
 			++i0Byte;
 		}
-		binGenotypes_[begByte + locusSize_ - 1] &= lastByteMask; // unset the remainder bits
+		binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		maf = 1.0 - maf;
 	}
 	aaf_[locusInd] = maf;
 }
 
 void GenoTableBin::jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const {
-	vector<uint8_t> locus(locusSize_);
+	vector<uint8_t> locus(binLocusSize_);
 	size_t ind = blockInd;
 	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
-		size_t rowInd = iLocus * locusSize_;
-		size_t colInd = jCol * locusSize_;
-		for (size_t iBinLoc = 0; iBinLoc < locusSize_; ++iBinLoc){
+		size_t rowInd = iLocus * binLocusSize_;
+		size_t colInd = jCol * binLocusSize_;
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
 			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
 		}
 		const uint32_t uni = countSetBits(locus);
-		for (size_t iBinLoc = 0; iBinLoc < locusSize_; ++iBinLoc){
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
 			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
 		}
 		const uint32_t isect = countSetBits(locus);
