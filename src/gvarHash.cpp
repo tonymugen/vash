@@ -286,6 +286,9 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string( ") is too big to make a square relationship matrix in ") + string(__FUNCTION__);
 	}
+	if (nThreads_ == 0){
+		nThreads_ = 1;
+	}
 	const size_t nBedBytesPerLocus = nIndividuals_ / 4 + static_cast<bool>(nIndividuals_ % 4);
 	fstream inStr;
 	// Start by measuring file size
@@ -309,23 +312,66 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	// Generate the binary genotype table while reading the .bed file
 	binLocusSize_           = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	const size_t ranVecSize = nBedBytesPerLocus / llWordSize_ + static_cast<bool>(nBedBytesPerLocus % llWordSize_);
-	vector<char> bedLocus(nBedBytesPerLocus, 0);
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	aaf_.resize(nLoci_, 0.0);
-	const size_t ramSize         = getAvailableRAM();                                     // measuring here, after all the major allocations
+	const size_t ramSize         = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
 	size_t nBedLociToRead        = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
 	nBedLociToRead               = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
 	const size_t remainingLoci   = nLoci_ % nBedLociToRead;
+	const size_t remainingBytes  = remainingLoci * nBedBytesPerLocus;
 	const size_t nChunks         = nLoci_ / nBedLociToRead;
 	const size_t nBedBytesToRead = nBedLociToRead * nBedBytesPerLocus;
+	size_t nLociPerThread        = nBedLociToRead / nThreads_;
 	vector<char> bedChunkToRead(nBedBytesToRead, 0);
+	vector< pair<size_t, size_t> > threadRanges;
 
-	size_t bedInd   = 0;
-	size_t locusInd = 0;
-	while ( inStr.read(bedLocus.data(), nBedBytesPerLocus) ){
-		bed2bin_(bedLocus, bedInd, locusInd, nBedBytesPerLocus, ranVecSize);
-		++locusInd;
-		// Keeping bedInd at 0 because the bed vector is the locus; will increment when I try mmap()
+	if (nLociPerThread){
+		size_t bedInd = 0;
+		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+			threadRanges.emplace_back(pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
+			bedInd += nLociPerThread;
+		}
+		threadRanges.back().second = nBedLociToRead;
+		size_t locusInd = 0;
+		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+			inStr.read(bedChunkToRead.data(), nBedBytesToRead);
+			vector< future<void> > tasks;
+			tasks.reserve(nThreads_);
+			for (const auto &tr : threadRanges){
+				tasks.emplace_back(
+					async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize]{
+						bed2binBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize);
+					})
+				);
+				locusInd += nLociPerThread;
+			}
+		}
+	} else {
+		size_t locusInd = 0;
+		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+			inStr.read(bedChunkToRead.data(), nBedBytesToRead);
+			vector< future<void> > tasks;
+			tasks.reserve(nBedLociToRead);
+			for (size_t iBedLocus = 0; iBedLocus < nBedLociToRead; ++iBedLocus){
+				tasks.emplace_back(
+					async([this, &bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize]{
+						bed2bin_(bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize);})
+				);
+				++locusInd;
+			}
+		}
+	}
+	if (remainingLoci) {
+		bedChunkToRead.resize(remainingBytes);
+		inStr.read(bedChunkToRead.data(), remainingBytes);
+		nLociPerThread = remainingLoci / nThreads_;
+		if (nLociPerThread){
+			size_t bedInd = 0;
+			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+				threadRanges[iThread] = pair<size_t, size_t>{bedInd, bedInd + nLociPerThread};
+				bedInd += nLociPerThread;
+			}
+		}
 	}
 	inStr.close();
 }
@@ -391,10 +437,10 @@ vector<float> GenoTableBin::allJaccardLD() const {
 	return LDmat;
 }
 
-void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen){
+void GenoTableBin::bed2bin_(const vector<char> &bedData, const size_t &bedLocusInd, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
-	const size_t begInd      = locusInd * bedLocusLength + magicBytes_.size();
+	const size_t begInd      = bedLocusInd * bedLocusLength;
 	const size_t addIndv     = nIndividuals_ % 4UL;
 	const size_t endWholeBed = begInd + bedLocusLength - static_cast<size_t>(addIndv > 0);
 	const size_t begByte     = locusInd * binLocusSize_;
@@ -466,16 +512,18 @@ void GenoTableBin::bed2bin_(const uint8_t *bedData, const size_t &locusInd, cons
 			const size_t biBL = begByte + iBL;
 			binGenotypes_[biBL] = (~binGenotypes_[biBL]) & (~missMasks[iBL]);
 		}
-		const uint8_t lastByteMask               = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
+		const uint8_t lastByteMask                  = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
 		binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
-		aaCount                                  = 1.0 - aaCount;
+		aaCount                                     = 1.0 - aaCount;
 	}
 	aaf_[locusInd] = aaCount;
 }
 
-void GenoTableBin::bed2binBlk_(const uint8_t *bedData, const size_t &firstLocusInd, const size_t &lastLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
-	for (size_t iLocus = firstLocusInd; iLocus < lastLocusInd; ++iLocus){
-		bed2bin_(bedData, iLocus, bedLocusLength, randVecLen);
+void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
+	size_t iLocus = firstLocusInd;
+	for (size_t iBedLocus = firstBedLocusInd; iBedLocus < lastBedLocusInd; ++iBedLocus){
+		bed2bin_(bedData, iBedLocus, iLocus, bedLocusLength, randVecLen);
+		++iLocus;
 	}
 }
 
