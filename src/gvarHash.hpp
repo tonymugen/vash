@@ -30,17 +30,18 @@
 #ifndef gvhash_hpp
 #define gvhash_hpp
 
-#include <algorithm>
 #include <cstddef>
 #include <vector>
 #include <array>
 #include <string>
+#include <thread>
 
 #include "bayesicUtilities/random.hpp"
 
 using std::vector;
 using std::array;
 using std::string;
+using std::thread;
 
 namespace BayesicSpace {
 	class GenoTableBinCPP;
@@ -170,7 +171,7 @@ namespace BayesicSpace {
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
 		 */
-		GenoTableBin(const string &inputFileName, const size_t &nIndividuals);
+		GenoTableBin(const string &inputFileName, const size_t &nIndividuals) : GenoTableBin( inputFileName, nIndividuals, thread::hardware_concurrency() ){};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).

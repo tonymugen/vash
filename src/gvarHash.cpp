@@ -38,7 +38,6 @@
 #include <limits>
 #include <fstream>
 #include <future>
-#include <thread>
 #include <mutex>
 
 #include <chrono>
@@ -65,7 +64,6 @@ using std::future;
 using std::async;
 using std::mutex;
 using std::lock_guard;
-using std::thread;
 using std::stoi;
 
 using std::chrono::high_resolution_clock;
@@ -280,7 +278,7 @@ constexpr uint8_t  GenoTableBin::byteSize_         = 8;                    // Si
 constexpr uint8_t  GenoTableBin::llWordSize_       = 8;                    // 64 bit word size in bytes
 
 // Constructors
-GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nLoci_{0}, nThreads_{nThreads} {
+GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nThreads_{nThreads} {
 	if (nIndividuals <= 1){
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
@@ -293,7 +291,7 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	fstream inStr;
 	// Start by measuring file size
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary | ios::ate);
-	const size_t N = static_cast<uint64_t>( inStr.tellg() ) - 3UL;       // first three bytes are majic
+	const size_t N = static_cast<uint64_t>( inStr.tellg() ) - magicBytes_.size();
 	inStr.close();
 	nLoci_ = N / nBedBytesPerLocus;
 
@@ -323,16 +321,21 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	const size_t nBedBytesToRead = nBedLociToRead * nBedBytesPerLocus;
 	size_t nLociPerThread        = nBedLociToRead / nThreads_;
 	vector<char> bedChunkToRead(nBedBytesToRead, 0);
-	vector< pair<size_t, size_t> > threadRanges;
 
+	std::cout << "RAM size: " << ramSize << "; nLoci_: " << nLoci_ << "; nBedLociToRead: " << nBedLociToRead << "; remainingLoci: " << remainingLoci << "; nLociPerThread: " << nLociPerThread << "; nChunks: " << nChunks << "\n";
+	size_t locusInd = 0;
+	/*
 	if (nLociPerThread){
+		vector< pair<size_t, size_t> > threadRanges;
 		size_t bedInd = 0;
 		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
 			threadRanges.emplace_back(pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
 			bedInd += nLociPerThread;
 		}
 		threadRanges.back().second = nBedLociToRead;
-		size_t locusInd = 0;
+		//for (const auto &t : threadRanges){
+		//	std::cout << t.first << " " << t.second << "\n";
+		//}
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			inStr.read(bedChunkToRead.data(), nBedBytesToRead);
 			vector< future<void> > tasks;
@@ -347,7 +350,6 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 			}
 		}
 	} else {
-		size_t locusInd = 0;
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			inStr.read(bedChunkToRead.data(), nBedBytesToRead);
 			vector< future<void> > tasks;
@@ -366,12 +368,53 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 		inStr.read(bedChunkToRead.data(), remainingBytes);
 		nLociPerThread = remainingLoci / nThreads_;
 		if (nLociPerThread){
+			vector< pair<size_t, size_t> > threadRanges;
 			size_t bedInd = 0;
 			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges[iThread] = pair<size_t, size_t>{bedInd, bedInd + nLociPerThread};
+				threadRanges.emplace_back(pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
 				bedInd += nLociPerThread;
 			}
+			threadRanges.back().second = remainingLoci;
+			vector< future<void> > tasks;
+			tasks.reserve(nThreads_);
+			for (const auto &tr : threadRanges){
+				tasks.emplace_back(
+					async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize]{
+						bed2binBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize);
+					})
+				);
+				locusInd += nLociPerThread;
+			}
+		} else {
+			vector< future<void> > tasks;
+			tasks.reserve(remainingLoci);
+			for (size_t iBedLocus = 0; iBedLocus < remainingLoci; ++iBedLocus){
+				tasks.emplace_back(
+					async([this, &bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize]{
+						bed2bin_(bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize);})
+				);
+				++locusInd;
+			}
 		}
+	}
+*/
+	vector< pair<size_t, size_t> > threadRanges;
+	size_t bedInd = 0;
+	for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+		threadRanges.emplace_back(pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
+		bedInd += nLociPerThread;
+	}
+	threadRanges.back().second = nBedLociToRead;
+	inStr.read(bedChunkToRead.data(), nBedBytesToRead);
+	vector< future<void> > tasks;
+	tasks.reserve(nThreads_);
+	for (const auto &tr : threadRanges){
+		tasks.emplace_back(
+			async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize]{
+				bed2binBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize);
+			})
+		);
+		locusInd += nLociPerThread;
 	}
 	inStr.close();
 }
