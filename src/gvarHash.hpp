@@ -257,17 +257,6 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
-		/** \brief Binarize one locus from _.bed_ file input
-		 *
-		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
-		 *
-		 * \param[in] bedData vector of _.bed_ file input
-		 * \param[in] bedLocusInd locus index in the _.bed_ vector
-		 * \param[in] locusInd overall locus index
-		 * \param[in] bedLocusLength number of bytes in each locus
-		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
-		 */
-		void bed2bin_(const vector<char> &bedData, const size_t &bedLocusInd, const size_t &locusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize a range of loci from _.bed_ file input
 		 *
 		 * Hashes a range of loci from a vector of input from a _.bed_ file.
