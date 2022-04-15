@@ -202,7 +202,7 @@ namespace BayesicSpace {
 		static const uint8_t llWordSize_;
 		/** \brief Binarize a range of loci from _.bed_ file input
 		 *
-		 * Hashes a range of loci from a vector of input from a _.bed_ file.
+		 * Binarizes a range of loci from a vector of input from a _.bed_ file.
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] firstBedLocusInd index of the first locus in the _.bed_ vector
@@ -240,6 +240,22 @@ namespace BayesicSpace {
 	public:
 		/** \brief Default constructor */
 		GenoTableHash() : kSketches_{0} {};
+		/** \brief Constructor with input file name and thread number
+		 *
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
+		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
+		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
+		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
+		 *
+		 * \param[in] inputFileName input file name
+		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches number of sketches per locus
+		 * \param[in] nThreds maximal number of threads to use
+		 */
+		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -253,7 +269,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches the number of sketches per locus
 		 */
-		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches);
+		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : GenoTableHash( inputFileName, nIndividuals, kSketches, thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -350,6 +366,8 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
 		size_t locusSize_;
+		/** \brief Maximal number of threads to use */
+		size_t nThreads_;
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
@@ -383,17 +401,19 @@ namespace BayesicSpace {
 		void locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
 		/** \brief OPH from _.bed_ file input
 		 *
-		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a locus.
+		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
 		 *
 		 * \param[in] bedData _.bed_ file input
-		 * \param[in] bedInd bed stream locus index (may be different from locus index if reading by line)
-		 * \param[in] locusInd locus index
+		 * \param[in] firstBedLocusInd index of the first locus in the _.bed_ vector
+		 * \param[in] lastBedLocusInd index of one past the last locus in the _.bed_ vector
+		 * \param[in] firstLocusInd overall index of the first locus in the range
 		 * \param[in] locusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2oph_(const vector<char> &bedData, const size_t &bedInd, const size_t &locusInd, const size_t &locusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void bed2ophBlk_(const vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd,
+							const size_t &bedLocusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
