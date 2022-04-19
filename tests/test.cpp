@@ -158,16 +158,14 @@ int main(){
 		//outLD = testBed.allJaccardLD();
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
-		//outLD = testBed.allHashLD();
+		outLD = testBed.allHashLD();
 		string outFileName("sim1jacMT.txt");
-		/*
 		fstream output;
 		output.open(outFileName.c_str(), ios::trunc | ios::out);
 		for (const auto &o : outLD){
 			output << o << " ";
 		}
 		output.close();
-		*/
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);

@@ -592,7 +592,8 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	nLoci_ = N / nBedBytes;
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
-	aaf_.resize(nIndividuals_, 0.0);
+	aaf_.resize(nLoci_, 0.0);
+	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
 	char magicBuf[magicBytes_.size()]{};
 	inStr.read( magicBuf, magicBytes_.size() );
@@ -619,13 +620,8 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	vector<char> bedChunkToRead(nBedBytesToRead, 0);
 
 	// generate the sequence of random integers; each column must be permuted the same
-	vector<size_t> ranInts;
-	size_t i = nIndividuals_;
-	while (i >= 2UL){
-		ranInts.push_back( rng_.ranInt() % i ); // need 0 <= j <= i, so i is actually i+1 (compared to the Wikipedia description)
-		--i;
-	}
-	vector<uint32_t> seeds = {static_cast<uint32_t>( rng_.ranInt() )};
+	vector<size_t> ranInts{rng_.shuffleUint(nIndividuals_)};
+	vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
 
 	size_t locusInd = 0;
 	if (nLociPerThread){
@@ -642,12 +638,11 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 			vector< future<void> > tasks;
 			tasks.reserve(nThreads_);
 			for (const auto &tr : threadRanges){
-				//tasks.emplace_back(
-				//	async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &seeds]{
-				//		bed2ophBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, seeds);
-				//	})
-				//);
-				bed2ophBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, seeds);
+				tasks.emplace_back(
+					async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &seeds]{
+						bed2ophBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, seeds);
+					})
+				);
 				locusInd += nLociPerThread;
 			}
 			locusInd += excessLoci;
@@ -998,6 +993,9 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
 		}
 	} else if (filledIndexes.size() != kSketches_){
+		if ( filledIndexes.empty() ){ // in the case where the whole locus is monomorphic, pick a random index as filled
+			filledIndexes.push_back( rng_.sampleInt(kSketches_) );
+		}
 		size_t emptyCount = kSketches_ - filledIndexes.size();
 		while (emptyCount){
 			for (const auto &f : filledIndexes){
@@ -1044,7 +1042,7 @@ void GenoTableHash::bed2ophBlk_(const vector<char> &bedData, const size_t &first
 		size_t iRB      = 0;                       // random byte index
 		// Two bytes of .bed code go into one byte of my binary representation
 		// Therefore, work on two consecutive bytes of .bed code in the loop
-		for (size_t iBed = begInd; iBed < endWholeBed ; iBed += 2){                // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
+		for (size_t iBed = begInd; iBed < endWholeBed; iBed += 2){                // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
 			bedByte             = ~bedData[iBed];                                  // flip so that homozygous second allele (usually minor) is set to 11
 			uint8_t offsetToBin = 0;                                               // move the .bed mask by this much to align with the binarized byte
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
@@ -1061,6 +1059,7 @@ void GenoTableHash::bed2ophBlk_(const vector<char> &bedData, const size_t &first
 			}
 			const size_t nextIbed = iBed + 1;
 			bedByte               = ~bedData[nextIbed];
+			++iRB;
 			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
 				uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
 				uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );

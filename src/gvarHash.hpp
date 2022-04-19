@@ -395,7 +395,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] locusInd locus index
 		 * \param[in] permutation permutation to be applied to each locus 
-		 * \param[in,out] seeds random number seeds for empty bin filling NB!!! Not thread safe ATM!!!
+		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
 		void locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
