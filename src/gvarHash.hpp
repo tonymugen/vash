@@ -270,6 +270,23 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 */
 		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : GenoTableHash( inputFileName, nIndividuals, kSketches, thread::hardware_concurrency() ) {};
+		/** \brief Constructor with count vector and thread number
+		 *
+		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
+		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
+		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
+		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
+		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
+		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
+		 *
+		 * \param[in] maCounts vector of minor allele numbers
+		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] nThreds maximal number of threads to use
+		 */
+		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -284,7 +301,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches the number of sketches per locus
 		 */
-		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches);
+		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : GenoTableHash( maCounts, nIndividuals, kSketches, thread::hardware_concurrency() ) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &in) = delete;
@@ -417,14 +434,16 @@ namespace BayesicSpace {
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
+		 * The vector portion corresponds to a block of loci.
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] locusInd locus index
+		 * \param[in] startLocusInd index of the first locus in block
+		 * \param[in] endLocusInd index of one past the last locus in block
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2oph_(const vector<int> &macData, const size_t &locusInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void mac2ophBlk_(const vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

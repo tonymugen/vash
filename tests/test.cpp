@@ -85,7 +85,7 @@ int main(){
 		}
 		*/
 		const size_t Ngeno = 2000;
-		const size_t Nindv = 1997;
+		const size_t Nindv = 2000;
 		const size_t k     = 200;
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);
@@ -145,11 +145,11 @@ int main(){
 			std::cout << "\b\n";
 		}
 		*/
-		//GenoTableHash testTab(genoCodes, Nindv, k);
+		GenoTableHash testTab(genoCodes, Nindv, k);
 		//GenoTableBin testTab(genoCodes, Nindv);
 		//const string bedFile("sim1.bed");
-		const string bedFile("sim1_1997.bed");
-		GenoTableHash testBed(bedFile, Nindv, k);
+		//const string bedFile("sim1_1997.bed");
+		//GenoTableHash testBed(bedFile, Nindv, k);
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;
@@ -157,9 +157,9 @@ int main(){
 		vector<float> outLD;
 		//outLD = testBed.allJaccardLD();
 		//outLD = testTab.allJaccardLD();
-		//outLD = testTab.allHashLD();
-		outLD = testBed.allHashLD();
-		string outFileName("sim1jacMT.txt");
+		outLD = testTab.allHashLD();
+		//outLD = testBed.allHashLD();
+		string outFileName("sim1ophMT.txt");
 		fstream output;
 		output.open(outFileName.c_str(), ios::trunc | ios::out);
 		for (const auto &o : outLD){
