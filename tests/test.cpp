@@ -145,20 +145,21 @@ int main(){
 			std::cout << "\b\n";
 		}
 		*/
-		GenoTableHash testTab(genoCodes, Nindv, k);
+		//GenoTableHash testTab(genoCodes, Nindv, k);
 		//GenoTableBin testTab(genoCodes, Nindv);
-		//const string bedFile("sim1.bed");
+		const string bedFile("sim1.bed");
 		//const string bedFile("sim1_1997.bed");
 		//GenoTableHash testBed(bedFile, Nindv, k);
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;
-		//GenoTableBin testBed(bedFile, Nindv);
-		vector<float> outLD;
-		//outLD = testBed.allJaccardLD();
+		GenoTableBin testBed(bedFile, Nindv);
+		//vector<float> outLD;
+		testBed.allJaccardLD(string("sim1ophMT.txt"));
 		//outLD = testTab.allJaccardLD();
-		outLD = testTab.allHashLD();
+		//outLD = testTab.allHashLD();
 		//outLD = testBed.allHashLD();
+		/*
 		string outFileName("sim1ophMT.txt");
 		fstream output;
 		output.open(outFileName.c_str(), ios::trunc | ios::out);
@@ -166,6 +167,7 @@ int main(){
 			output << o << " ";
 		}
 		output.close();
+		*/
 	} catch(string problem){
 		cerr << problem << "\n";
 		exit(1);

@@ -131,6 +131,7 @@ constexpr array<char, 3> GenoTableBin::magicBytes_ = {0x6c, 0x1b, 0x01};   // Le
 constexpr uint8_t  GenoTableBin::oneBit_           = 0b00000001;           // One set bit for masking
 constexpr uint8_t  GenoTableBin::byteSize_         = 8;                    // Size of one byte in bits
 constexpr uint8_t  GenoTableBin::llWordSize_       = 8;                    // 64 bit word size in bytes
+constexpr size_t   GenoTableBin::maxNlocusPairs_   = 6074000999UL;         // approximate number that does not overflow with n*(n-1)/2
 
 // Constructors
 GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nThreads_{nThreads} {
@@ -310,6 +311,8 @@ GenoTableBin::GenoTableBin(GenoTableBin &&in) noexcept {
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
+		in.binLocusSize_ = 0;
+		in.nThreads_     = 0;
 	}
 }
 
@@ -327,17 +330,120 @@ void GenoTableBin::saveGenoBinary(const string &outFileName) const {
 	out.close();
 }
 
-vector<float> GenoTableBin::allJaccardLD() const {
-	// TODO: a try/catch block that writes to file directly if allocation fails
-	vector<float> LDmat(nLoci_ * (nLoci_ - 1) / 2, 0.0);
-	vector< future<void> > tasks;
-	tasks.reserve(nLoci_);
-	size_t blockBeg = 0; // index in LDmat of the first element of the block of similarities
-	for (size_t iRow = 0; iRow < nLoci_; ++iRow) {
-		tasks.emplace_back( async([this, iRow, blockBeg, &LDmat]{jaccardBlock_(iRow, blockBeg, LDmat);}) );
-		blockBeg += nLoci_ - iRow - 1;
+void GenoTableBin::allJaccardLD(const string &ldFileName) const {
+	if (nLoci_ > maxNlocusPairs_){
+		throw string("ERROR: Too many loci (") + to_string(nLoci_) + string(") to do all pairwise LD. Maximum supported is ") +
+			 to_string(maxNlocusPairs_) + string(" in ") + string(__FUNCTION__);
 	}
-	return LDmat;
+	//const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(float) );      // use half to leave resources for other operations
+	const size_t maxInRAM = 150000;
+	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
+	if (nPairs > maxInRAM){
+		// too many loci to fit the LD matrix in RAM
+		// will work on chunks and save as we go
+		const size_t nChunks        = nPairs / maxInRAM;
+		const size_t remainingPairs = nPairs % maxInRAM;
+		fstream output;
+		output.open(ldFileName.c_str(), ios::trunc | ios::out);
+		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
+		size_t overallPairInd = 0;
+		if (nLocusPairsPerThread){
+			vector< pair<size_t, size_t> > threadRanges;
+			size_t locusPairInd = 0;
+			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+				threadRanges.emplace_back(pair<size_t, size_t>{locusPairInd, locusPairInd + nLocusPairsPerThread});
+				locusPairInd += nLocusPairsPerThread;
+			}
+			threadRanges.back().second = maxInRAM;
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				vector<float> LDmatChunk(maxInRAM, 0.0);
+				vector< future<void> > tasks;
+				tasks.reserve(nThreads_);
+				for (const auto &tr : threadRanges){
+					std::cout << "overallPairInd: " << overallPairInd << "\n";
+					tasks.emplace_back(
+						async([this, &LDmatChunk, &tr, overallPairInd]{
+							jaccardBlock_(tr.first, tr.second, overallPairInd, LDmatChunk);
+						})
+					);
+					overallPairInd += nLocusPairsPerThread;
+				}
+				for (const auto &ld : LDmatChunk){
+					output << ld << " ";
+				}
+			}
+		} else {
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				vector<float> LDmatChunk(maxInRAM, 0.0);
+				jaccardBlock_(0, maxInRAM, overallPairInd, LDmatChunk);
+				overallPairInd += maxInRAM;
+				for (const auto &ld : LDmatChunk){
+					output << ld << " ";
+				}
+			}
+		}
+		std::cout << "finished chunks\n";
+		overallPairInd = maxInRAM * nChunks;
+		if (remainingPairs){
+			vector<float> LDmatChunk(remainingPairs, 0.0);
+			const size_t nLocusPairsPerThread = remainingPairs / nThreads_;
+			if (nLocusPairsPerThread){
+				vector< pair<size_t, size_t> > threadRanges;
+				size_t locusPairInd = 0;
+				for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+					threadRanges.emplace_back(pair<size_t, size_t>{locusPairInd, locusPairInd + nLocusPairsPerThread});
+					locusPairInd += nLocusPairsPerThread;
+				}
+				threadRanges.back().second = remainingPairs;
+				vector< future<void> > tasks;
+				tasks.reserve(nThreads_);
+				for (const auto &tr : threadRanges){
+					std::cout << "overallPairInd: " << overallPairInd << "\n";
+					tasks.emplace_back(
+						async([this, &LDmatChunk, &tr, overallPairInd]{
+							jaccardBlock_(tr.first, tr.second, overallPairInd, LDmatChunk);
+						})
+					);
+					overallPairInd += nLocusPairsPerThread;
+				}
+			} else {
+				jaccardBlock_(0, remainingPairs, overallPairInd, LDmatChunk);
+			}
+			for (const auto &ld : LDmatChunk){
+				output << ld << " ";
+			}
+		}
+		output.close();
+	} else {
+		vector<float> LDmat(nPairs, 0.0);
+		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
+		if (nLocusPairsPerThread){
+			vector< pair<size_t, size_t> > threadRanges;
+			size_t locusPairInd = 0;
+			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+				threadRanges.emplace_back(pair<size_t, size_t>{locusPairInd, locusPairInd + nLocusPairsPerThread});
+				locusPairInd += nLocusPairsPerThread;
+			}
+			threadRanges.back().second = LDmat.size();
+			vector< future<void> > tasks;
+			tasks.reserve(nThreads_);
+			for (const auto &tr : threadRanges){
+				tasks.emplace_back(
+					async([this, &LDmat, &tr]{
+						jaccardBlock_(tr.first, tr.second, tr.first, LDmat);
+					})
+				);
+			}
+		} else {
+			jaccardBlock_(0, LDmat.size(), 0, LDmat);
+		}
+		fstream output;
+		output.open(ldFileName.c_str(), ios::trunc | ios::out);
+		for (const auto &ld : LDmat){
+			output << ld << " ";
+		}
+		output.close();
+	}
 }
 
 void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
@@ -539,22 +645,33 @@ void GenoTableBin::mac2binBlk_(const vector<int> &macData, const size_t &startLo
 	}
 }
 
-void GenoTableBin::jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const {
+void GenoTableBin::jaccardBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &jaccardVec) const {
+	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	vector<uint8_t> locus(binLocusSize_);
-	size_t ind = blockInd;
-	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
-		size_t rowInd = iLocus * binLocusSize_;
-		size_t colInd = jCol * binLocusSize_;
+	size_t curJacMatInd = blockStartAll;
+	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
+		// compute row and column indexes from the vectorized lower triangle index
+		// got these expressions by combining various web sources and verifying
+		const size_t kp     = nnLoci - curJacMatInd;
+		const size_t p      = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
+		const size_t row    = nLoci_ - 2 - p;
+		const size_t col    = nLoci_ - (kp - p * (p + 1) / 2) - 1;
+		const size_t rowBin = row * binLocusSize_;
+		const size_t colBin = col * binLocusSize_;
 		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
-			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] & binGenotypes_[colInd + iBinLoc];
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
 		}
 		const uint32_t uni = countSetBits(locus);
 		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
-			locus[iBinLoc] = binGenotypes_[rowInd + iBinLoc] | binGenotypes_[colInd + iBinLoc];
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
 		}
 		const uint32_t isect = countSetBits(locus);
-		jaccardVec[ind]      = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[iLocus] * aaf_[jCol];
-		++ind;
+		// mutex may have a performance hit sometimes
+		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
+		mutex mtx;
+		lock_guard<mutex> lk(mtx);
+		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[row] * aaf_[col];
+		++curJacMatInd;
 	}
 }
 

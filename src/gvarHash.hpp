@@ -168,9 +168,10 @@ namespace BayesicSpace {
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
 		 *
+		 * \param[in] ldFileName name of the output file
 		 * \return lower triangle of the LD matrix
 		 */
-		vector<float> allJaccardLD() const;
+		void allJaccardLD(const string &ldFileName) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
@@ -200,6 +201,8 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
+		/** \brief Maximum number of loci for all by all LD */
+		static const size_t maxNlocusPairs_;
 		/** \brief Binarize a range of loci from _.bed_ file input
 		 *
 		 * Binarizes a range of loci from a vector of input from a _.bed_ file.
@@ -224,11 +227,12 @@ namespace BayesicSpace {
 		void mac2binBlk_(const vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
-		 * \param[in] iLocus first locus index
-		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
-		 * \param[out] jaccardVec vector of Jaccard similarities
+		 * \param[in] blockStartVec index of the block start in `jaccardVec`
+		 * \param[in] blockEndVec index of one past the block end in `jaccardVec`
+		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
+		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
 		 */
-		void jaccardBlock_(const size_t &iLocus, const size_t &blockInd, vector<float> &jaccardVec) const;
+		void jaccardBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &jaccardVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
