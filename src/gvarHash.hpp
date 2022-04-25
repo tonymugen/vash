@@ -328,11 +328,10 @@ namespace BayesicSpace {
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities.
-		 * This function must be run after a sketch-generating function (e.g., `makeIndividualOPH()`). This is checked and an exception thrown if the sketch vector is empty.
 		 *
-		 * \return lower triangle of the LD matrix
+		 * \param[in] ldFileName name of file to save the results
 		 */
-		vector<float> allHashLD() const;
+		void allHashLD(const string &ldFileName) const;
 		/** \brief Assign groups from OPH portions
 		 *
 		 * Use sketch portions to assign loci to groups.
@@ -389,6 +388,8 @@ namespace BayesicSpace {
 		size_t locusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
+		/** \brief Maximum number of loci for all by all LD */
+		static const size_t maxNlocusPairs_;
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief Leading bytes for .bed files */
@@ -510,16 +511,16 @@ namespace BayesicSpace {
 		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
 		 */
 		void hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
-		/** \brief Hash-based similarity in a (possibly discontinuous) block of loci
+		/** \brief Hash-based similarity in a block of loci
 		 *
-		 * Pairwise Jaccard similarity estimates among loci marked by indexes in the provided vector.
+		 * Pairwise hash-estimated Jaccard similarity estimates among loci marked by indexes in the provided vector.
 		 *
-		 * \param[in] locusIndexes vector of locus indexes
-		 * \param[in] kSketches number of sketches
-		 * \param[in] invK 1/K (where K is the number of sketches)
-		 * \return vector of hash-estimated Jaccard similarities
+		 * \param[in] blockStartVec index of the block start in `hashJacVec`
+		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
+		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
+		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		vector<float> hashJacBlock_(const vector<size_t> &locusIndexes, const size_t &kSketches, const float &invK) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &hashJacVec) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.

@@ -149,16 +149,16 @@ int main(){
 		//GenoTableBin testTab(genoCodes, Nindv);
 		const string bedFile("sim1.bed");
 		//const string bedFile("sim1_1997.bed");
-		//GenoTableHash testBed(bedFile, Nindv, k);
+		GenoTableHash testBed(bedFile, Nindv, k);
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;
-		GenoTableBin testBed(bedFile, Nindv);
+		//GenoTableBin testBed(bedFile, Nindv);
 		//vector<float> outLD;
-		testBed.allJaccardLD(string("sim1ophMT.txt"));
+		//testBed.allJaccardLD(string("sim1ophMT.txt"));
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
-		//outLD = testBed.allHashLD();
+		testBed.allHashLD(string("sim1ophMT.txt"));
 		/*
 		string outFileName("sim1ophMT.txt");
 		fstream output;
