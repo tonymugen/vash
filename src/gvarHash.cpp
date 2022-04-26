@@ -169,7 +169,6 @@ GenoTableBin::GenoTableBin(const string &inputFileName, const size_t &nIndividua
 	binLocusSize_           = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	const size_t ranVecSize = nBedBytesPerLocus / llWordSize_ + static_cast<bool>(nBedBytesPerLocus % llWordSize_);
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
-	aaf_.resize(nLoci_, 0.0);
 	const size_t ramSize         = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
 	size_t nBedLociToRead        = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
 	nBedLociToRead               = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
@@ -275,7 +274,6 @@ GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividua
 	}
 	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
-	aaf_.resize(nLoci_, 0.0);
 	const size_t ranVecSize     = nIndividuals_ / llWordSize_ + static_cast<bool>(nIndividuals_ % llWordSize_);
 	const size_t nLociPerThread = nLoci_ / nThreads_;
 	if (nLociPerThread){
@@ -303,7 +301,6 @@ GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividua
 GenoTableBin::GenoTableBin(GenoTableBin &&in) noexcept {
 	if (this != &in){
 		binGenotypes_ = move(in.binGenotypes_);
-		aaf_          = move(in.aaf_);
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
 		binLocusSize_ = in.binLocusSize_;
@@ -552,9 +549,7 @@ void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstB
 			mutex mtx;
 			lock_guard<mutex> lk(mtx);
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
-			aaCount                                     = 1.0 - aaCount;
 		}
-		aaf_[iLocus] = aaCount;
 		begByte     += binLocusSize_;
 		++iLocus;
 	}
@@ -640,9 +635,7 @@ void GenoTableBin::mac2binBlk_(const vector<int> &macData, const size_t &startLo
 			mutex mtx;
 			lock_guard<mutex> lk(mtx);
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
-			maf = 1.0 - maf;
 		}
-		aaf_[iLocus] = maf;
 	}
 }
 
@@ -671,7 +664,7 @@ void GenoTableBin::jaccardBlock_(const size_t &blockStartVec, const size_t &bloc
 		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
 		mutex mtx;
 		lock_guard<mutex> lk(mtx);
-		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect) - aaf_[row] * aaf_[col];
+		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect);
 		++curJacMatInd;
 	}
 }
@@ -715,7 +708,6 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	nLoci_ = N / nBedBytes;
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
-	aaf_.resize(nLoci_, 0.0);
 	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary);
 	char magicBuf[magicBytes_.size()]{};
@@ -851,7 +843,6 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	const size_t ranVecSize = locusSize_ / llWordSize_ + static_cast<bool>(locusSize_ % llWordSize_);
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
-	aaf_.resize(nLoci_, 0.0);
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts{rng_.shuffleUint(nIndividuals_)};
 	vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
@@ -1342,9 +1333,7 @@ void GenoTableHash::bed2ophBlk_(const vector<char> &bedData, const size_t &first
 				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
 			}
 			binLocus.back() &= lastByteMask; // unset the remainder bits
-			aaCount = 1.0 - aaCount;
 		}
-		aaf_[iLocus] = aaCount;
 		locusOPH_(iLocus, permutation, seeds, binLocus);
 		++iLocus;
 	}
@@ -1404,9 +1393,7 @@ void GenoTableHash::mac2ophBlk_(const vector<int> &macData, const size_t &startL
 				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
 			}
 			binLocus.back() &= lastByteMask; // unset the remainder bits
-			maf = 1.0 - maf;
 		}
-		aaf_[iLocus] = maf;
 		locusOPH_(iLocus, permutation, seeds, binLocus);
 	}
 }
@@ -1531,7 +1518,6 @@ void GenoTableHash::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, 
 			}
 		}
 		simVal *= invK;
-		simVal -= aaf_[iLocus] * aaf_[jCol]; // subtracting expected similarity
 		hashJacVec[ind] = simVal;
 		++ind;
 	}
@@ -1546,7 +1532,6 @@ void GenoTableHash::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jL
 			}
 		}
 		simVal *= invK;
-		simVal -= aaf_[jLocus[iLocus] / kSketches] * aaf_[jLocus[jCol] / kSketches]; // subtracting expected similarity
 		hashJacVec.push_back(simVal);
 	}
 }
@@ -1571,7 +1556,7 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
 		mutex mtx;
 		lock_guard<mutex> lk(mtx);
-		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_) - aaf_[row] * aaf_[col];
+		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
 		++curJacMatInd;
 	}
 }

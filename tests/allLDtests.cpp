@@ -30,7 +30,6 @@
 
 #include <cstdlib>
 #include <string>
-#include <vector>
 #include <fstream>
 #include <iostream>
 #include <chrono>
@@ -39,7 +38,6 @@
 #include "../src/gvarHash.hpp"
 
 using std::string;
-using std::vector;
 using std::fstream;
 using std::ios;
 using std::cerr;
@@ -57,49 +55,42 @@ int main(int argc, char *argv[]){
 		cerr << "Number of individuals (is " << Nindv << ") must be greater than 1\n";
 		exit(1);
 	}
-	const int kSketches = atoi(argv[3]);
+	const size_t kSketches = static_cast<size_t>( atoi(argv[3]) );
+	const size_t nThreads  = static_cast<size_t>( atoi(argv[4]) );
+	const string outFileName(argv[5]);
+	const string outTimeFileName(argv[6]);
 	try {
-		const string outFileName(argv[4]);
-		auto time1 = high_resolution_clock::now();
-		GenoTable abaTest(inFileName, Nindv);
-		auto time2 = high_resolution_clock::now();
-		duration<float, milli> loadTime = time2 - time1;
 		if (kSketches <= 1){
-			duration<float, milli> hashTime;
+			auto time1 = high_resolution_clock::now();
+			GenoTableBin binTest(inFileName, Nindv, nThreads);
+			auto time2 = high_resolution_clock::now();
+			duration<float, milli> loadTime = time2 - time1;
 			duration<float, milli> runTime;
 			time1 = high_resolution_clock::now();
-			vector<float> result = abaTest.allJaccardLD();
+			binTest.allJaccardLD(outFileName);
 			time2 = high_resolution_clock::now();
 			runTime = time2 - time1;
 
 			fstream output;
-			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			output.open(outTimeFileName.c_str(), ios::out | ios::trunc);
 			// output times in milliseconds
-			output << loadTime.count() << " " << runTime.count();
-			for (const auto &r : result){
-				output << " " << r;
-			}
-			output << "\n";
+			output << loadTime.count() << " " << runTime.count() << "\n";
 			output.close();
 		} else {
 			duration<float, milli> hashTime;
 			duration<float, milli> runTime;
-			time1 = high_resolution_clock::now();
-			abaTest.makeIndividualOPH(kSketches);
-			time2 = high_resolution_clock::now();
+			auto time1 = high_resolution_clock::now();
+			GenoTableHash hashTest(inFileName, Nindv, kSketches, nThreads);
+			auto time2 = high_resolution_clock::now();
 			hashTime = time2 - time1;
 			time1 = high_resolution_clock::now();
-			vector<float> result = abaTest.allHashLD();
+			hashTest.allHashLD(outFileName);
 			time2 = high_resolution_clock::now();
 			runTime = time2 - time1;
 			fstream output;
-			output.open(outFileName.c_str(), ios::out | ios::trunc);
+			output.open(outTimeFileName.c_str(), ios::out | ios::trunc);
 			// output times in milliseconds
-			output << loadTime.count() << " " << hashTime.count() << " " << runTime.count();
-			for (const auto &r : result){
-				output << " " << r;
-			}
-			output << "\n";
+			output << hashTime.count() << " " << runTime.count() << "\n";
 			output.close();
 		}
 	} catch(string problem){

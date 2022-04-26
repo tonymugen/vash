@@ -178,11 +178,6 @@ namespace BayesicSpace {
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
 		 */
 		vector<uint8_t> binGenotypes_;
-		/** \brief Alternative allele frequencies
-		 *
-		 * One value per locus. This is typically the minor allele frequency.
-		 */
-		vector<float> aaf_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
@@ -371,11 +366,6 @@ namespace BayesicSpace {
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
 		 */
 		vector<uint16_t> sketches_;
-		/** \brief Alternative allele frequencies
-		 *
-		 * One value per locus. This is typically the minor allele frequency.
-		 */
-		vector<float> aaf_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of sketches */
