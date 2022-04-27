@@ -35,6 +35,7 @@
 #include <array>
 #include <string>
 #include <thread>
+#include <mutex>
 
 #include "bayesicUtilities/random.hpp"
 
@@ -42,6 +43,7 @@ using std::vector;
 using std::array;
 using std::string;
 using std::thread;
+using std::mutex;
 
 namespace BayesicSpace {
 	class GenoTableBinCPP;
@@ -188,6 +190,8 @@ namespace BayesicSpace {
 		size_t nThreads_;
 		/** \brief Random number generator */
 		RanDraw rng_;
+		/** \brief The mutex */
+		mutable mutex mtx_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */
@@ -382,6 +386,8 @@ namespace BayesicSpace {
 		static const size_t maxNlocusPairs_;
 		/** \brief Random number generator */
 		RanDraw rng_;
+		/** \brief The mutex */
+		mutable mutex mtx_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */

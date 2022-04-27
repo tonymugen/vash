@@ -38,7 +38,6 @@
 #include <limits>
 #include <fstream>
 #include <future>
-#include <mutex>
 #include <thread>
 
 #include <chrono>
@@ -63,7 +62,6 @@ using std::ios;
 using std::streampos;
 using std::future;
 using std::async;
-using std::mutex;
 using std::lock_guard;
 using std::thread;
 using std::stoi;
@@ -120,7 +118,7 @@ size_t BayesicSpace::getAvailableRAM() {
 		string freeMemStr;
 		memLineStream >> freeMemStr;
 		memLineStream >> freeMemStr;
-		return static_cast<size_t>( stoi(freeMemStr) ) * 1024; // memory is in kB in the file
+		return static_cast<size_t>( stoi(freeMemStr) ) * 1024UL; // memory is in kB in the file
 	} else {
 		return 2147483648UL;
 	}
@@ -501,8 +499,7 @@ void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstB
 			}
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[iBinGeno] = binByte;
 			++iBinGeno;
 			++iMissMsk;
@@ -530,8 +527,7 @@ void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstB
 			}
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[begByte + binLocusSize_ - 1] = binByte;
 		}
 		float aaCount = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
@@ -540,14 +536,12 @@ void GenoTableBin::bed2binBlk_(const vector<char> &bedData, const size_t &firstB
 				const size_t biBL = begByte + iBL;
 				// mutex may have a performance hit sometimes
 				// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-				mutex mtx;
-				lock_guard<mutex> lk(mtx);
+				lock_guard<mutex> lk(mtx_);
 				binGenotypes_[biBL] = (~binGenotypes_[biBL]) & (~missMasks[iBL]);
 			}
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		}
 		begByte     += binLocusSize_;
@@ -591,8 +585,7 @@ void GenoTableBin::mac2binBlk_(const vector<int> &macData, const size_t &startLo
 			}
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[iByte] = binByte;
 			++i0Byte;
 			++iRB;
@@ -615,8 +608,7 @@ void GenoTableBin::mac2binBlk_(const vector<int> &macData, const size_t &startLo
 		{
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[begByte + binLocusSize_ - 1] = lastBinByte;
 		}
 		float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
@@ -625,15 +617,13 @@ void GenoTableBin::mac2binBlk_(const vector<int> &macData, const size_t &startLo
 			for (size_t i = begByte; i < begByte + binLocusSize_; ++i){
 				// mutex may have a performance hit sometimes
 				// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-				mutex mtx;
-				lock_guard<mutex> lk(mtx);
+				lock_guard<mutex> lk(mtx_);
 				binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
 				++i0Byte;
 			}
 			// mutex may have a performance hit sometimes
 			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		}
 	}
@@ -662,8 +652,7 @@ void GenoTableBin::jaccardBlock_(const size_t &blockStartVec, const size_t &bloc
 		const uint32_t isect = countSetBits(locus);
 		// mutex may have a performance hit sometimes
 		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		mutex mtx;
-		lock_guard<mutex> lk(mtx);
+		lock_guard<mutex> lk(mtx_);
 		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect);
 		++curJacMatInd;
 	}
@@ -687,6 +676,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
 		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string( ") is too big to make a square relationship matrix in ") + string(__FUNCTION__);
+	}
+	if (kSketches_ < 3){
+		throw string("ERROR: sketch size must be at least three in ") + string(__FUNCTION__);
 	}
 	sketchSize_ = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize_ >= emptyBinToken_){
@@ -760,6 +752,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 				);
 				locusInd += nLociPerThread;
 			}
+			for (const auto &th : tasks){
+				th.wait();
+			}
 			locusInd += excessLoci;
 		}
 	} else {
@@ -774,6 +769,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 						})
 				);
 				++locusInd;
+			}
+			for (const auto &th : tasks){
+				th.wait();
 			}
 		}
 	}
@@ -800,6 +798,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 				);
 				locusInd += nLociPerThread;
 			}
+			for (const auto &th : tasks){
+				th.wait();
+			}
 			locusInd += excessLoci;
 		} else {
 			vector< future<void> > tasks;
@@ -811,6 +812,9 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 						})
 				);
 				++locusInd;
+			}
+			for (const auto &th : tasks){
+				th.wait();
 			}
 		}
 	}
@@ -827,6 +831,9 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	}
 	if ( maCounts.empty() ){
 		throw string("ERROR: empty vector of minor allele counts in ") + string(__FUNCTION__);
+	}
+	if (kSketches_ < 3){
+		throw string("ERROR: sketch size must be at least three in ") + string(__FUNCTION__);
 	}
 	if (nThreads_ == 0){
 		nThreads_ = 1;
@@ -865,6 +872,9 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 					mac2ophBlk_(maCounts, tr.first, tr.second, ranVecSize, ranInts, seeds);
 				})
 			);
+		}
+		for (const auto &th : tasks){
+			th.wait();
 		}
 	} else {
 		mac2ophBlk_(maCounts, 0, nLoci_, ranVecSize, ranInts, seeds);
@@ -1205,8 +1215,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 		if ( (iByte < colEnd) && (firstSetBitPos < sketchSize_) ){
 			filledIndexes.push_back(iSketch);
 			{
-				mutex mtx;
-				lock_guard<mutex> lk(mtx);
+				lock_guard<mutex> lk(mtx_);
 				sketches_[sketchBeg + iSketch] = firstSetBitPos;
 			}
 
@@ -1220,8 +1229,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 	}
 	if (filledIndexes.size() == 1){
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);
+			lock_guard<mutex> lk(mtx_);
 			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
 		}
 	} else if (filledIndexes.size() != kSketches_){
@@ -1232,8 +1240,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 		while (emptyCount){
 			for (const auto &f : filledIndexes){
 				uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
-				mutex mtx;
-				lock_guard<mutex> lk(mtx);
+				lock_guard<mutex> lk(mtx_);
 				if ( sketches_[newIdx] == emptyBinToken_ ){
 					sketches_[newIdx] = sketches_[f + sketchBeg];
 					--emptyCount;
@@ -1241,8 +1248,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 				}
 			}
 			++iSeed;
-			mutex mtx;
-			lock_guard<mutex> lk(mtx);      // lock before measuring to ensure that the size is valid
+			lock_guard<mutex> lk(mtx_);      // lock before measuring to ensure that the size is valid
 			if ( iSeed == seeds.size() ){
 				seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 			}
@@ -1554,8 +1560,7 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		}
 		// mutex may have a performance hit sometimes
 		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		mutex mtx;
-		lock_guard<mutex> lk(mtx);
+		lock_guard<mutex> lk(mtx_);
 		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
 		++curJacMatInd;
 	}
