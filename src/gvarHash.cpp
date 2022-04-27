@@ -120,7 +120,7 @@ size_t BayesicSpace::getAvailableRAM() {
 		string freeMemStr;
 		memLineStream >> freeMemStr;
 		memLineStream >> freeMemStr;
-		return static_cast<size_t>(stoi(freeMemStr) * 1024); // memory is in kB in the file
+		return static_cast<size_t>( stoi(freeMemStr) ) * 1024; // memory is in kB in the file
 	} else {
 		return 2147483648UL;
 	}
@@ -1194,8 +1194,8 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &perm
 	// Will test later
 	for (size_t iSketch = 0; iSketch < kSketches_; ++iSketch){
 		uint16_t firstSetBitPos = 0;
-		while ( ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
-				(firstSetBitPos < sketchSize_) && (iByte != colEnd) ){
+		while ( (iByte != colEnd) && ( ( (oneBit_ << iInByte) & binLocus[iByte] ) == 0 ) &&
+				(firstSetBitPos < sketchSize_) ){
 			++iInByte;
 			// these are instead of an if statement
 			iByte  += iInByte == byteSize_;
