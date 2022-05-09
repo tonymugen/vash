@@ -43,8 +43,6 @@
 #include <chrono>
 #include <cmath>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 
 using std::vector;

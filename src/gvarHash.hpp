@@ -122,6 +122,7 @@ namespace BayesicSpace {
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
 		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
@@ -133,6 +134,7 @@ namespace BayesicSpace {
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
 		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
 		 * The number of threads requested is maximum to be used, depending on available system resources.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
@@ -168,7 +170,7 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from Jaccard similarities.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
 		 * \param[in] ldFileName name of the output file
 		 * \return lower triangle of the LD matrix
@@ -264,6 +266,7 @@ namespace BayesicSpace {
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
+		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
 		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
 		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
@@ -279,6 +282,7 @@ namespace BayesicSpace {
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
 		 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
+		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
 		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
 		 * Bits are permuted using the Fisher-Yates-Durstenfeld algorithm.
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
@@ -326,7 +330,7 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Expected similarities (\f$p_i \times p_j\f$) are subtracted from OPH similarities.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
 		 * \param[in] ldFileName name of file to save the results
 		 */

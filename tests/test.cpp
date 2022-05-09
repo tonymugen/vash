@@ -84,7 +84,7 @@ int main(){
 			}
 		}
 		*/
-		const size_t Ngeno = 2000;
+		const size_t Ngeno = 3750;
 		const size_t Nindv = 2000;
 		const size_t k     = 200;
 		//const string bedFile("sim1test.bed");
@@ -92,6 +92,7 @@ int main(){
 		//testTab.makeIndividualOPH(k);
 		//
 		// This is a basic and incomplete tped parser just for testing binarization
+		/*
 		const string tpedFileName("sim1.tped");
 		string inputLine;
 		vector<int> genoCodes;
@@ -129,6 +130,51 @@ int main(){
 			}
 		}
 		input.close();
+		*/
+		// 1/0 ped file for testing Jaccard correctness; not a complete parser
+		const string pedFileName("sim1.ped");
+		string inputLine;
+		vector<int> genoCodes(Nindv * Ngeno, 0);
+		fstream input;
+		input.open(pedFileName.c_str(), ios::in);
+		size_t iIndiv = 0;
+		while ( getline(input, inputLine) ){
+			stringstream lineSS(inputLine);
+			string field;
+			// metadata
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+			lineSS >> field;
+
+			size_t iGeno  = 0;
+			while ( (lineSS >> field) && (iGeno < Ngeno) ){
+				string secondField;
+				lineSS >> secondField;
+				if (field == "0"){
+					if (secondField == "0"){
+						genoCodes[iGeno * Nindv + iIndiv] = 0;
+					} else {
+						genoCodes[iGeno * Nindv + iIndiv] = 1;
+					}
+				} else {
+					if (secondField == "0"){
+						genoCodes[iGeno * Nindv + iIndiv] = 1;
+					} else {
+						genoCodes[iGeno * Nindv + iIndiv] = 2;
+					}
+				}
+				++iGeno;
+			}
+			++iIndiv;
+		}
+		input.close();
+		for (size_t iGeno = 0; iGeno < Nindv; ++iGeno){
+			std::cout << genoCodes[iGeno] << " ";
+		}
+		std::cout << "\n";
 		/*
 		for (size_t jG = 0; jG < Ngeno; jG++) {
 			uint16_t inByte = 0;
@@ -146,10 +192,10 @@ int main(){
 		}
 		*/
 		//GenoTableHash testTab(genoCodes, Nindv, k);
-		//GenoTableBin testTab(genoCodes, Nindv);
-		const string bedFile("sim1.bed");
+		GenoTableBin testTab(genoCodes, Nindv);
+		//const string bedFile("sim1.bed");
 		//const string bedFile("sim1_1997.bed");
-		GenoTableHash testBed(bedFile, Nindv, k);
+		//GenoTableHash testBed(bedFile, Nindv, k);
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;
@@ -158,7 +204,7 @@ int main(){
 		//testBed.allJaccardLD(string("sim1ophMT.txt"));
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
-		testBed.allHashLD(string("sim1ophMT.txt"));
+		//testBed.allHashLD(string("sim1ophMT.txt"));
 		/*
 		string outFileName("sim1ophMT.txt");
 		fstream output;
