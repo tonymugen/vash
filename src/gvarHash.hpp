@@ -355,19 +355,20 @@ namespace BayesicSpace {
 		/** \brief Group loci by linkage disequilibrium (LD)
 		 *
 		 * Group loci by LD along the genome. The algorithm is
-		 * Start by using simHash on the first `kSketches` of the first locus OPH. Proceed along the genome, for each locus
-		 *  - simHash `kSketches` of the OPH
+		 * Start by using simHash on the first `kSketchSubset` of the first locus OPH. Proceed along the genome, for each locus
+		 *  - simHash `kSketchSubset` of the OPH
 		 *  - compare to the latest group simHash
 		 *  - if the Hamming distance from the latest group is less than `hammingCutoff`, add the locus index to the group
 		 *  - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
 		 *  - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
 		 *
 		 *  \param[in] hammingCutoff the maximum Hamming distance for group inclusion
-		 *  \param[in] kSketches number of OPH sketches to use for simHash
+		 *  \param[in] kSketchSubset number of OPH sketches to use for simHash
 		 *  \param[in] lookBackNumber number of previous groups to consider
+		 *  \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
 		 *  \param[in] outFileName name of the output file
 		 */
-		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketches, const size_t &lookBackNumber, const string &outFileName) const;
+		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *
@@ -513,7 +514,9 @@ namespace BayesicSpace {
 		void hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
-		 * Pairwise hash-estimated Jaccard similarity estimates among loci marked by indexes in the provided vector.
+		 * Pairwise hash-estimated Jaccard similarity among loci marked by indexes in the provided vector.
+		 * The vector indexes a vectorized by column lower triangle of a similarity matrix.
+		 * The function uses the portion of the index vector delineated by `blockStartVec` and `blockEndVec`.
 		 *
 		 * \param[in] blockStartVec index of the block start in `hashJacVec`
 		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
