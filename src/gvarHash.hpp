@@ -369,6 +369,7 @@ namespace BayesicSpace {
 		 *  \param[in] outFileName name of the output file
 		 */
 		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
+		void testDiscBlockHJ(const size_t &beg, const size_t &end, const vector<size_t> &idxVec, const string &testFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *
@@ -514,9 +515,8 @@ namespace BayesicSpace {
 		void hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
-		 * Pairwise hash-estimated Jaccard similarity among loci marked by indexes in the provided vector.
-		 * The vector indexes a vectorized by column lower triangle of a similarity matrix.
-		 * The function uses the portion of the index vector delineated by `blockStartVec` and `blockEndVec`.
+		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
+		 * The range of indexes refers to a vectorized by column lower triangle of a similarity matrix.
 		 *
 		 * \param[in] blockStartVec index of the block start in `hashJacVec`
 		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
@@ -524,6 +524,17 @@ namespace BayesicSpace {
 		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
 		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &hashJacVec) const;
+		/** \brief Hash-based similarity among indexed loci
+		 *
+		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector.
+		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
+		 *
+		 * \param[in] blockStartVec index of the block start in `hashJacVec`
+		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
+		 * \param[in] idxVector vector of locus indexes
+		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
+		 */
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.

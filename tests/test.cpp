@@ -132,6 +132,7 @@ int main(){
 		input.close();
 		*/
 		// 1/0 ped file for testing Jaccard correctness; not a complete parser
+		/*
 		const string pedFileName("sim1.ped");
 		string inputLine;
 		vector<int> genoCodes(Nindv * Ngeno, 0);
@@ -175,6 +176,7 @@ int main(){
 			std::cout << genoCodes[iGeno] << " ";
 		}
 		std::cout << "\n";
+		*/
 		/*
 		for (size_t jG = 0; jG < Ngeno; jG++) {
 			uint16_t inByte = 0;
@@ -192,10 +194,13 @@ int main(){
 		}
 		*/
 		//GenoTableHash testTab(genoCodes, Nindv, k);
-		GenoTableBin testTab(genoCodes, Nindv);
-		//const string bedFile("sim1.bed");
+		//GenoTableBin testTab(genoCodes, Nindv);
+		const string bedFile("sim1.bed");
 		//const string bedFile("sim1_1997.bed");
-		//GenoTableHash testBed(bedFile, Nindv, k);
+		vector<size_t> idxSample{100, 101, 127, 133, 144, 151, 156, 191, 205, 206, 218, 227, 230, 239, 248, 251, 258, 265, 270, 283};
+		GenoTableHash testBed(bedFile, Nindv, k);
+		testBed.allHashLD( string("sim1Full.txt") );
+		testBed.testDiscBlockHJ( 0, 190, idxSample, string("sim1Sample.txt") );
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;

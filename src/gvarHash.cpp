@@ -1153,6 +1153,22 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 	out.close();
 }
 
+void GenoTableHash::testDiscBlockHJ(const size_t &beg, const size_t &end, const vector<size_t> &idxVec, const string &testFileName) const {
+	vector<float> outBLD(idxVec.size() * (idxVec.size() - 1) / 2, 0.0);
+	hashJacBlock_(beg, end, idxVec, outBLD);
+	fstream out;
+	out.open(testFileName.c_str(), ios::out | ios::trunc);
+	out << "locus1\tlocus2\tr\n";
+	for (size_t iPair = beg; iPair < end; ++iPair){
+		const size_t kp    = outBLD.size() - iPair;
+		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
+		const size_t row   = idxVec.size() - 2 - p;
+		const size_t col   = idxVec.size() - (kp - p * (p + 1) / 2) - 1;
+		out << idxVec[row] << "\t" << idxVec[col] << "\t" << outBLD[iPair] << "\n";
+	}
+	out.close();
+}
+
 void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
 	// Start with a permutation to make OPH
 	size_t iIndiv = nIndividuals_ - 1UL; // safe b/c nIndividuals_ > 1 is checked at construction
@@ -1532,13 +1548,13 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
 		// compute row and column indexes from the vectorized by column lower triangle index
 		// got these expressions by combining various web sources and verifying
-		const size_t kp     = nnLoci - curJacMatInd;
-		const size_t p      = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
-		const size_t row    = nLoci_ - 2 - p;
-		const size_t col    = nLoci_ - (kp - p * (p + 1) / 2) - 1;
-		const size_t rowSk  = row * kSketches_;
-		const size_t colSk  = col * kSketches_;
-		float simVal        = 0.0;
+		const size_t kp    = nnLoci - curJacMatInd;
+		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
+		const size_t row   = nLoci_ - 2 - p;
+		const size_t col   = nLoci_ - (kp - p * (p + 1) / 2) - 1;
+		const size_t rowSk = row * kSketches_;
+		const size_t colSk = col * kSketches_;
+		float simVal       = 0.0;
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
 			simVal += static_cast<float>(sketches_[rowSk + iSk] == sketches_[colSk + iSk]);
 		}
@@ -1549,3 +1565,27 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		++curJacMatInd;
 	}
 }
+
+void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
+	const size_t nnBlockLoci = hashJacVec.size();
+	const size_t nBlockLoci  = idxVector.size();
+	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
+		// compute row and column indexes from the vectorized by column lower triangle index
+		// got these expressions by combining various web sources and verifying
+		const size_t kp    = nnBlockLoci - blockStartVec;
+		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
+		const size_t row   = nBlockLoci - 2 - p;
+		const size_t col   = nBlockLoci - (kp - p * (p + 1) / 2) - 1;
+		const size_t rowSk = idxVector[row] * kSketches_;
+		const size_t colSk = idxVector[col] * kSketches_;
+		float simVal       = 0.0;
+		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
+			simVal += static_cast<float>(sketches_[rowSk + iSk] == sketches_[colSk + iSk]);
+		}
+		// mutex may have a performance hit sometimes
+		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
+		lock_guard<mutex> lk(mtx_);
+		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
+	}
+}
+
