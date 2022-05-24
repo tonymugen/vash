@@ -369,7 +369,6 @@ namespace BayesicSpace {
 		 *  \param[in] outFileName name of the output file
 		 */
 		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
-		void testDiscBlockHJ(const size_t &beg, const size_t &end, const vector<size_t> &idxVec, const string &testFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *

@@ -1125,8 +1125,6 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 		}
 	}
 	// estimate Jaccard similarities within groups
-	//vector< future<void> > tasks;
-	//tasks.reserve( ldGroup.size() );
 	vector< vector<float> > hashJacGroups;
 	const float fNind = 1.0 / static_cast<float>(kSketches_);
 	for (const auto &ldg : ldGroup){
@@ -1149,22 +1147,6 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			}
 			++iValidLDG;
 		}
-	}
-	out.close();
-}
-
-void GenoTableHash::testDiscBlockHJ(const size_t &beg, const size_t &end, const vector<size_t> &idxVec, const string &testFileName) const {
-	vector<float> outBLD(idxVec.size() * (idxVec.size() - 1) / 2, 0.0);
-	hashJacBlock_(beg, end, idxVec, outBLD);
-	fstream out;
-	out.open(testFileName.c_str(), ios::out | ios::trunc);
-	out << "locus1\tlocus2\tr\n";
-	for (size_t iPair = beg; iPair < end; ++iPair){
-		const size_t kp    = outBLD.size() - iPair;
-		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
-		const size_t row   = idxVec.size() - 2 - p;
-		const size_t col   = idxVec.size() - (kp - p * (p + 1) / 2) - 1;
-		out << idxVec[row] << "\t" << idxVec[col] << "\t" << outBLD[iPair] << "\n";
 	}
 	out.close();
 }
@@ -1567,12 +1549,12 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 }
 
 void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
-	const size_t nnBlockLoci = hashJacVec.size();
+	const size_t nnBlockLoci = hashJacVec.size() - 1;
 	const size_t nBlockLoci  = idxVector.size();
 	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
 		// compute row and column indexes from the vectorized by column lower triangle index
 		// got these expressions by combining various web sources and verifying
-		const size_t kp    = nnBlockLoci - blockStartVec;
+		const size_t kp    = nnBlockLoci - iVecInd;
 		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
 		const size_t row   = nBlockLoci - 2 - p;
 		const size_t col   = nBlockLoci - (kp - p * (p + 1) / 2) - 1;
