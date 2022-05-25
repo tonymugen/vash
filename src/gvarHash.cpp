@@ -35,6 +35,7 @@
 #include <utility>  // for std::pair
 #include <iterator>
 #include <algorithm>
+#include <numeric> // for std::accumulate
 #include <limits>
 #include <fstream>
 #include <future>
@@ -46,6 +47,7 @@ using std::vector;
 using std::array;
 using std::pair;
 using std::distance;
+using std::accumulate;
 using std::string;
 using std::to_string;
 using std::stringstream;
@@ -1060,11 +1062,11 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 	// initialize with the first locus
 	activeHashes.back() = simHash_(0, kSketchSubset, seed);
 	auto latestHashIt   = activeHashes.rbegin();                   // points to the latest hash under consideration
-	size_t locusInd     = kSketches_;                              // current locus index (starts from the second locus)
+	size_t locusInd     = 1;                                       // current locus index (starts from the second locus)
 	ldGroup.emplace_back(vector<size_t>{0});
 	// loop through loci until buffer is full or no more loci left
-	while ( ( latestHashIt != activeHashes.rend() ) && ( locusInd < sketches_.size() ) ){
-		const uint16_t curHash = simHash_(locusInd, kSketchSubset, seed);
+	while ( ( latestHashIt != activeHashes.rend() ) && (locusInd < nLoci_) ){
+		const uint16_t curHash = simHash_(locusInd * kSketches_, kSketchSubset, seed);
 		auto fwdHashIt         = activeHashes.cbegin() + distance( latestHashIt, activeHashes.rend() ) - 1;
 		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
 		bool noCollision       = true;
@@ -1084,22 +1086,22 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			++latestHashIt;
 			if ( latestHashIt == activeHashes.rend() ){
 				ldGroup.emplace_back(vector<size_t>{locusInd});
-				locusInd       += kSketches_;
 				activeHashes[0] = curHash;
+				++locusInd;
 				break;
 			} else {
 				*latestHashIt = curHash;
 				ldGroup.emplace_back(vector<size_t>{locusInd});
-				locusInd += kSketches_;
+				++locusInd;
 			}
 		} else {
 			ldgIt->push_back(locusInd);
-			locusInd += kSketches_;
+			++locusInd;
 		}
 	}
 	// If there are loci left after filling the buffer, continue.
-	while ( locusInd < sketches_.size() ){
-		const uint16_t curHash = simHash_(locusInd, kSketchSubset, seed);
+	while (locusInd < nLoci_){
+		const uint16_t curHash = simHash_(locusInd * kSketches_, kSketchSubset, seed);
 		size_t latestHashInd   = 0;
 		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
 		bool noCollision       = true;
@@ -1118,34 +1120,46 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			++latestHashInd;
 			latestHashInd %= lookBackNumber;
 			ldGroup.emplace_back(vector<size_t>{locusInd});
-			locusInd += kSketches_;
+			++locusInd;
 		} else {
 			ldgIt->push_back(locusInd);
-			locusInd += kSketches_;
+			++locusInd;
+		}
+	}
+	vector<size_t> grpSizes;
+	size_t totNpairs = 0;
+	for (const auto &ldg : ldGroup){
+		if (ldg.size() >= smallestGrpSize){
+			grpSizes.push_back(ldg.size() * ( ldg.size() - 1 ) / 2);
+			if ( totNpairs >= numeric_limits<size_t>::max() - grpSizes.back() ){
+				throw string("ERROR: Number of locus pairs exceeds 64-bit unsigned integer limit in ") + string(__FUNCTION__);
+			}
+			totNpairs += grpSizes.back();
 		}
 	}
 	// estimate Jaccard similarities within groups
-	vector< vector<float> > hashJacGroups;
-	const float fNind = 1.0 / static_cast<float>(kSketches_);
+	vector<float> hashJacGroups(totNpairs, 0.0);
+	size_t ldBlockStart = 0;
+	size_t iGrpSize     = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
-			//hashJacGroups.emplace_back( hashJacBlock_(ldg, totSketches, fNind) );
+			hashJacBlock_(ldBlockStart, ldg, hashJacGroups);
+			ldBlockStart += grpSizes[iGrpSize];
+			++iGrpSize;
 		}
 	}
 	// Save the results
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::trunc);
-	size_t iValidLDG = 0;
+	size_t iValidLDind = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
-			size_t ldValInd = 0;
 			for (size_t iRow = 0; iRow < ldg.size() - 1; ++iRow) {
 				for (size_t jCol = iRow + 1; jCol < ldg.size(); ++jCol){
-					out << ldg[iRow] / kSketches_ + 1 << "\t" << ldg[jCol] / kSketches_ + 1 << "\t" << hashJacGroups[iValidLDG][ldValInd] << "\n";
-					++ldValInd;
+					out << ldg[iRow] + 1 << "\t" << ldg[jCol] + 1 << "\t" << hashJacGroups[iValidLDind] << "\n";
+					++iValidLDind;
 				}
 			}
-			++iValidLDG;
 		}
 	}
 	out.close();
@@ -1548,9 +1562,10 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	}
 }
 
-void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
-	const size_t nnBlockLoci = hashJacVec.size() - 1;
+void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
 	const size_t nBlockLoci  = idxVector.size();
+	const size_t nnBlockLoci = (nBlockLoci * (nBlockLoci - 1) / 2) - 1;
+	const size_t blockEndVec = blockStartVec + nnBlockLoci + 1;
 	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
 		// compute row and column indexes from the vectorized by column lower triangle index
 		// got these expressions by combining various web sources and verifying

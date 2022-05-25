@@ -529,11 +529,10 @@ namespace BayesicSpace {
 		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
 		 *
 		 * \param[in] blockStartVec index of the block start in `hashJacVec`
-		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
 		 * \param[in] idxVector vector of locus indexes
 		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const;
+		void hashJacBlock_(const size_t &blockStartVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.
