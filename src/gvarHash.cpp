@@ -35,7 +35,6 @@
 #include <utility>  // for std::pair
 #include <iterator>
 #include <algorithm>
-#include <numeric> // for std::accumulate
 #include <limits>
 #include <fstream>
 #include <future>
@@ -47,7 +46,6 @@ using std::vector;
 using std::array;
 using std::pair;
 using std::distance;
-using std::accumulate;
 using std::string;
 using std::to_string;
 using std::stringstream;
@@ -1151,6 +1149,7 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 	// Save the results
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::trunc);
+	out << "locus1\tlocus2\tjaccLD\n";
 	size_t iValidLDind = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
@@ -1563,26 +1562,19 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 }
 
 void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
-	const size_t nBlockLoci  = idxVector.size();
-	const size_t nnBlockLoci = (nBlockLoci * (nBlockLoci - 1) / 2) - 1;
-	const size_t blockEndVec = blockStartVec + nnBlockLoci + 1;
-	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
-		// compute row and column indexes from the vectorized by column lower triangle index
-		// got these expressions by combining various web sources and verifying
-		const size_t kp    = nnBlockLoci - iVecInd;
-		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
-		const size_t row   = nBlockLoci - 2 - p;
-		const size_t col   = nBlockLoci - (kp - p * (p + 1) / 2) - 1;
-		const size_t rowSk = idxVector[row] * kSketches_;
-		const size_t colSk = idxVector[col] * kSketches_;
-		float simVal       = 0.0;
-		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
-			simVal += static_cast<float>(sketches_[rowSk + iSk] == sketches_[colSk + iSk]);
+	size_t blockLTind = blockStartVec;
+	for (size_t iLocus = 0; iLocus < idxVector.size() - 1; ++iLocus){
+		for (size_t jLocus = iLocus + 1; jLocus < idxVector.size(); ++jLocus){
+			float simVal       = 0.0;
+			for (size_t iSk = 0; iSk < kSketches_; ++iSk){
+				simVal += static_cast<float>(sketches_[idxVector[iLocus] * kSketches_ + iSk] == sketches_[idxVector[jLocus] * kSketches_ + iSk]);
+			}
+			// mutex may have a performance hit sometimes
+			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
+			lock_guard<mutex> lk(mtx_);
+			hashJacVec[blockLTind] = simVal / static_cast<float>(kSketches_);
+			++blockLTind;
 		}
-		// mutex may have a performance hit sometimes
-		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		lock_guard<mutex> lk(mtx_);
-		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
 	}
 }
 
