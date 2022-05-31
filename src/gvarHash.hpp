@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <vector>
 #include <array>
+#include <utility>  // for std::pair
 #include <string>
 #include <thread>
 #include <mutex>
@@ -41,6 +42,7 @@
 
 using std::vector;
 using std::array;
+using std::pair;
 using std::string;
 using std::thread;
 using std::mutex;
@@ -492,26 +494,6 @@ namespace BayesicSpace {
 		 * \return hash value
 		 */
 		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
-		/** \brief Hash-based similarity in a continuous block of loci
-		 *
-		 * \param[in] iLocus first locus index
-		 * \param[in] blockInd index (in `jaccardVec`) of the first element in the block
-		 * \param[in] kSketches number of sketches
-		 * \param[in] invK 1/K (where K is the number of sketches)
-		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
-		 */
-		void hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
-		/** \brief Hash-based similarity between a locus and a (possibly discontinuous) block of loci
-		 *
-		 * Pairwise Jaccard similarity estimates between a locus and loci that come after it in the provided index vector.
-		 *
-		 * \param[in] iLocus index of the `jLocus` element to use as the first locus
-		 * \param[in] jLocus vector of second locus indexes
-		 * \param[in] kSketches number of sketches
-		 * \param[in] invK 1/K (where K is the number of sketches)
-		 * \param[out] hashJacVec vector of hash-estimated Jaccard similarities
-		 */
-		void hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
@@ -525,14 +507,16 @@ namespace BayesicSpace {
 		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity among indexed loci
 		 *
-		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector.
+		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
 		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
+		 * The index vector contains indexes of locus pairs included in LD calculations.
 		 *
-		 * \param[in] blockStartVec index of the block start in `hashJacVec`
-		 * \param[in] idxVector vector of locus indexes
-		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
+		 * \param[in] blockStartVec index of the block start in `idxVector` and `hashJacVec`
+		 * \param[in] blockEndVec index of the block end in `idxVector` and `hashJacVec`
+		 * \param[in] idxVector vector of locus pair indexes
+		 * \param[out] hashJacVec vectorized blocked lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector< pair<size_t, size_t> > &idxVector, vector<float> &hashJacVec) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.

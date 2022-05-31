@@ -42,6 +42,8 @@
 
 #include "gvarHash.hpp"
 
+#include <iostream>
+
 using std::vector;
 using std::array;
 using std::pair;
@@ -1124,42 +1126,72 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			++locusInd;
 		}
 	}
-	vector<size_t> grpSizes;
 	size_t totNpairs = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
-			grpSizes.push_back(ldg.size() * ( ldg.size() - 1 ) / 2);
-			if ( totNpairs >= numeric_limits<size_t>::max() - grpSizes.back() ){
+			size_t nLowTri = ldg.size() * ( ldg.size() - 1 ) / 2;
+			if (totNpairs >= numeric_limits<size_t>::max() - nLowTri){
 				throw string("ERROR: Number of locus pairs exceeds 64-bit unsigned integer limit in ") + string(__FUNCTION__);
 			}
-			totNpairs += grpSizes.back();
+			totNpairs += nLowTri;
 		}
 	}
 	// estimate Jaccard similarities within groups
 	vector<float> hashJacGroups(totNpairs, 0.0);
-	size_t ldBlockStart = 0;
-	size_t iGrpSize     = 0;
-	for (const auto &ldg : ldGroup){
+	vector< pair<size_t, size_t> > idxPairs;
+	idxPairs.reserve(totNpairs);
+	for (auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
-			hashJacBlock_(ldBlockStart, ldg, hashJacGroups);
-			ldBlockStart += grpSizes[iGrpSize];
-			++iGrpSize;
+			for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
+				for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
+					idxPairs.emplace_back(pair<size_t, size_t>{ldg[iLocus], ldg[jLocus]});
+				}
+			}
+			ldg.clear();
+		}
+	}
+	const size_t nPairsPerThread = totNpairs / nThreads_;
+	if (nPairsPerThread){
+		vector< pair<size_t, size_t> > threadRanges;
+		threadRanges.reserve(nThreads_);
+		size_t pairInd = 0;
+		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+			threadRanges.emplace_back(pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
+			pairInd += nPairsPerThread;
+		}
+		threadRanges.back().second = totNpairs;
+		vector< future<void> > tasks;
+		tasks.reserve(nThreads_);
+		for (const auto &tr : threadRanges){
+			tasks.emplace_back(
+				async([this, &tr, &idxPairs, &hashJacGroups]{
+					hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+				})
+			);
+		}
+		for (const auto &th : tasks){
+			th.wait();
+		}
+	} else {
+		vector< future<void> > tasks;
+		tasks.reserve(totNpairs);
+		for (size_t iPair = 0; iPair < totNpairs; ++iPair){
+			tasks.emplace_back(
+				async([this, iPair, &idxPairs, &hashJacGroups]{
+					hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+				})
+			);
+		}
+		for (const auto &th : tasks){
+			th.wait();
 		}
 	}
 	// Save the results
 	fstream out;
 	out.open(outFileName.c_str(), ios::out | ios::trunc);
 	out << "locus1\tlocus2\tjaccLD\n";
-	size_t iValidLDind = 0;
-	for (const auto &ldg : ldGroup){
-		if (ldg.size() >= smallestGrpSize){
-			for (size_t iRow = 0; iRow < ldg.size() - 1; ++iRow) {
-				for (size_t jCol = iRow + 1; jCol < ldg.size(); ++jCol){
-					out << ldg[iRow] + 1 << "\t" << ldg[jCol] + 1 << "\t" << hashJacGroups[iValidLDind] << "\n";
-					++iValidLDind;
-				}
-			}
-		}
+	for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
+		out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
 	}
 	out.close();
 }
@@ -1507,36 +1539,6 @@ uint16_t GenoTableHash::simHash_(const size_t &startInd, const size_t &kSketches
 	return hash;
 }
 
-void GenoTableHash::hashJacBlock_(const size_t &iLocus, const size_t &blockInd, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
-	size_t ind = blockInd;
-	for (size_t jCol = iLocus + 1; jCol < nLoci_; ++jCol){
-		float simVal = 0.0;
-		size_t sketchRowInd = iLocus * kSketches;
-		size_t sketchColInd = jCol * kSketches;
-		for (size_t iSk = 0; iSk < kSketches; ++iSk){
-			if (sketches_[sketchRowInd + iSk] == sketches_[sketchColInd + iSk]){
-				simVal += 1.0;
-			}
-		}
-		simVal *= invK;
-		hashJacVec[ind] = simVal;
-		++ind;
-	}
-}
-
-void GenoTableHash::hashJacBlock_(const size_t &iLocus, const vector<size_t> &jLocus, const size_t &kSketches, const float &invK, vector<float> &hashJacVec) const {
-	for (size_t jCol = iLocus + 1; jCol < jLocus.size(); ++jCol){
-		float simVal = 0.0;
-		for (size_t iSk = 0; iSk < kSketches; ++iSk){
-			if (sketches_[jLocus[iLocus] + iSk] == sketches_[jLocus[jCol] + iSk]){
-				simVal += 1.0;
-			}
-		}
-		simVal *= invK;
-		hashJacVec.push_back(simVal);
-	}
-}
-
 void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &hashJacVec) const {
 	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	size_t curJacMatInd = blockStartAll;
@@ -1561,20 +1563,16 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	}
 }
 
-void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const vector<size_t> &idxVector, vector<float> &hashJacVec) const {
-	size_t blockLTind = blockStartVec;
-	for (size_t iLocus = 0; iLocus < idxVector.size() - 1; ++iLocus){
-		for (size_t jLocus = iLocus + 1; jLocus < idxVector.size(); ++jLocus){
-			float simVal       = 0.0;
-			for (size_t iSk = 0; iSk < kSketches_; ++iSk){
-				simVal += static_cast<float>(sketches_[idxVector[iLocus] * kSketches_ + iSk] == sketches_[idxVector[jLocus] * kSketches_ + iSk]);
-			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			lock_guard<mutex> lk(mtx_);
-			hashJacVec[blockLTind] = simVal / static_cast<float>(kSketches_);
-			++blockLTind;
+void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector< pair<size_t, size_t> > &idxVector, vector<float> &hashJacVec) const {
+	for (size_t iBlock = blockStartVec; iBlock < blockEndVec; ++iBlock){
+		float simVal = 0.0;
+		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
+			simVal += static_cast<float>(sketches_[idxVector[iBlock].first * kSketches_ + iSk] == sketches_[idxVector[iBlock].second * kSketches_ + iSk]);
 		}
+		// mutex may have a performance hit sometimes
+		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
+		lock_guard<mutex> lk(mtx_);
+		hashJacVec[iBlock] = simVal / static_cast<float>(kSketches_);
 	}
 }
 
