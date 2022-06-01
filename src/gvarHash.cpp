@@ -42,8 +42,6 @@
 
 #include "gvarHash.hpp"
 
-#include <iostream>
-
 using std::vector;
 using std::array;
 using std::pair;
@@ -1013,33 +1011,31 @@ void GenoTableHash::allHashLD(const string &ldFileName) const {
 }
 
 vector<uint16_t> GenoTableHash::assignGroups(const size_t &nElements) const {
-	const size_t kSketches = sketches_.size() / nLoci_;
-	if (kSketches == 0){
+	if (kSketches_ == 0){
 		throw string("ERROR: Number of sketches must be non-zero in ") + string(__FUNCTION__);
 	}
-	if (nElements > kSketches){
+	if (nElements > kSketches_){
 		throw string("ERROR: Number of elements to consider (") + to_string(nElements) + string(") is greater than the number of sketches (") 
-						+ to_string(kSketches) + string( ") in ") + string(__FUNCTION__);
+						+ to_string(kSketches_) + string( ") in ") + string(__FUNCTION__);
 	}
 	vector<uint16_t> grpID;
 	grpID.reserve(nLoci_);
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
+	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches_){
 		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
 	}
 	return grpID;
 }
 
 vector<uint16_t> GenoTableHash::assignGroups() const {
-	const size_t kSketches = sketches_.size() / nLoci_;
-	if (kSketches == 0){
+	if (kSketches_ == 0){
 		throw string("ERROR: Number of sketches must be non-zero in ") + string(__FUNCTION__);
 	}
 	vector<uint16_t> grpID;
 	grpID.reserve(nLoci_);
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches){
-		grpID.push_back( simHash_(locusBeg, kSketches, seed) );
+	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches_){
+		grpID.push_back( simHash_(locusBeg, kSketches_, seed) );
 	}
 	return grpID;
 }
@@ -1136,64 +1132,214 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			totNpairs += nLowTri;
 		}
 	}
-	// estimate Jaccard similarities within groups
-	vector<float> hashJacGroups(totNpairs, 0.0);
-	vector< pair<size_t, size_t> > idxPairs;
-	idxPairs.reserve(totNpairs);
-	for (auto &ldg : ldGroup){
-		if (ldg.size() >= smallestGrpSize){
-			for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
-				for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
-					idxPairs.emplace_back(pair<size_t, size_t>{ldg[iLocus], ldg[jLocus]});
+	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(pair<size_t, size_t>) ) );      // use half to leave resources for other operations
+	if (totNpairs > maxPairsInRAM){
+		const size_t nRAMchunks      = totNpairs / maxPairsInRAM;
+		const size_t nRemainingPairs = totNpairs % maxPairsInRAM;
+		size_t iGroup                = 0;
+		size_t iLocus                = 0;
+		size_t jLocus                = 1;
+
+		fstream out;
+		out.open(outFileName.c_str(), ios::out | ios::trunc);
+		out << "locus1\tlocus2\tjaccLD\n";
+
+		for (size_t iChunk = 0; iChunk < nRAMchunks; ++iChunk){
+			vector<float> hashJacGroups(maxPairsInRAM, 0.0);
+			vector< pair<size_t, size_t> > idxPairs;
+			idxPairs.reserve(maxPairsInRAM);
+			size_t iPair = 0;
+			for (; iGroup < ldGroup.size(); ++iGroup) {
+				if (ldGroup[iGroup].size() >= smallestGrpSize){
+					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
+						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
+							idxPairs.emplace_back(pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
+							++iPair;
+							if (iPair == maxPairsInRAM){
+								++jLocus;
+								if ( jLocus == ldGroup[iGroup].size() ){
+									if (iLocus < ldGroup[iGroup].size() - 1){
+										++iLocus;
+										jLocus = iLocus + 1;
+									} else {
+										++iGroup;
+										iLocus = 0;
+										jLocus = 1;
+									}
+								}
+								goto stopAllLoops;
+							}
+						}
+						jLocus = iLocus + 2;
+					}
+					iLocus = 0;
+					jLocus = 1;
 				}
 			}
-			ldg.clear();
+		stopAllLoops:
+			const size_t nPairsPerThread = maxPairsInRAM / nThreads_;
+			if (nPairsPerThread){
+				vector< pair<size_t, size_t> > threadRanges;
+				threadRanges.reserve(nThreads_);
+				size_t pairInd = 0;
+				for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+					threadRanges.emplace_back(pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
+					pairInd += nPairsPerThread;
+				}
+				threadRanges.back().second = maxPairsInRAM;
+				vector< future<void> > tasks;
+				tasks.reserve(nThreads_);
+				for (const auto &tr : threadRanges){
+					tasks.emplace_back(
+						async([this, &tr, &idxPairs, &hashJacGroups]{
+							hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+						})
+					);
+				}
+				for (const auto &th : tasks){
+					th.wait();
+				}
+			} else {
+				vector< future<void> > tasks;
+				tasks.reserve(maxPairsInRAM);
+				for (size_t iPair = 0; iPair < maxPairsInRAM; ++iPair){
+					tasks.emplace_back(
+						async([this, iPair, &idxPairs, &hashJacGroups]{
+							hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+						})
+					);
+				}
+				for (const auto &th : tasks){
+					th.wait();
+				}
+			}
+			// Save the results
+			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
+				out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+			}
 		}
-	}
-	const size_t nPairsPerThread = totNpairs / nThreads_;
-	if (nPairsPerThread){
-		vector< pair<size_t, size_t> > threadRanges;
-		threadRanges.reserve(nThreads_);
-		size_t pairInd = 0;
-		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-			threadRanges.emplace_back(pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
-			pairInd += nPairsPerThread;
+		if (nRemainingPairs){
+			vector<float> hashJacGroups(nRemainingPairs, 0.0);
+			vector< pair<size_t, size_t> > idxPairs;
+			idxPairs.reserve(nRemainingPairs);
+			for (; iGroup < ldGroup.size(); ++iGroup) {
+				if (ldGroup[iGroup].size() >= smallestGrpSize){
+					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
+						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
+							idxPairs.emplace_back(pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
+						}
+						jLocus = iLocus + 2;
+					}
+					iLocus = 0;
+					jLocus = 1;
+				}
+			}
+			if (idxPairs.size() != nRemainingPairs){
+				out.close();
+				throw string("ERROR: number of remaining pairs not the same as actually saved in ") + string(__FUNCTION__);
+			}
+			const size_t nPairsPerThread = nRemainingPairs / nThreads_;
+			if (nPairsPerThread){
+				vector< pair<size_t, size_t> > threadRanges;
+				threadRanges.reserve(nThreads_);
+				size_t pairInd = 0;
+				for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+					threadRanges.emplace_back(pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
+					pairInd += nPairsPerThread;
+				}
+				threadRanges.back().second = nRemainingPairs;
+				vector< future<void> > tasks;
+				tasks.reserve(nThreads_);
+				for (const auto &tr : threadRanges){
+					tasks.emplace_back(
+						async([this, &tr, &idxPairs, &hashJacGroups]{
+							hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+						})
+					);
+				}
+				for (const auto &th : tasks){
+					th.wait();
+				}
+			} else {
+				vector< future<void> > tasks;
+				tasks.reserve(nRemainingPairs);
+				for (size_t iPair = 0; iPair < nRemainingPairs; ++iPair){
+					tasks.emplace_back(
+						async([this, iPair, &idxPairs, &hashJacGroups]{
+							hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+						})
+					);
+				}
+				for (const auto &th : tasks){
+					th.wait();
+				}
+			}
+			// Save the results
+			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
+				out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+			}
 		}
-		threadRanges.back().second = totNpairs;
-		vector< future<void> > tasks;
-		tasks.reserve(nThreads_);
-		for (const auto &tr : threadRanges){
-			tasks.emplace_back(
-				async([this, &tr, &idxPairs, &hashJacGroups]{
-					hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
-				})
-			);
-		}
-		for (const auto &th : tasks){
-			th.wait();
-		}
+		out.close();
 	} else {
-		vector< future<void> > tasks;
-		tasks.reserve(totNpairs);
-		for (size_t iPair = 0; iPair < totNpairs; ++iPair){
-			tasks.emplace_back(
-				async([this, iPair, &idxPairs, &hashJacGroups]{
-					hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
-				})
-			);
+		// estimate Jaccard similarities within groups
+		vector<float> hashJacGroups(totNpairs, 0.0);
+		vector< pair<size_t, size_t> > idxPairs;
+		idxPairs.reserve(totNpairs);
+		for (auto &ldg : ldGroup){
+			if (ldg.size() >= smallestGrpSize){
+				for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
+					for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
+						idxPairs.emplace_back(pair<size_t, size_t>{ldg[iLocus], ldg[jLocus]});
+					}
+				}
+				ldg.clear();
+			}
 		}
-		for (const auto &th : tasks){
-			th.wait();
+		const size_t nPairsPerThread = totNpairs / nThreads_;
+		if (nPairsPerThread){
+			vector< pair<size_t, size_t> > threadRanges;
+			threadRanges.reserve(nThreads_);
+			size_t pairInd = 0;
+			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
+				threadRanges.emplace_back(pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
+				pairInd += nPairsPerThread;
+			}
+			threadRanges.back().second = totNpairs;
+			vector< future<void> > tasks;
+			tasks.reserve(nThreads_);
+			for (const auto &tr : threadRanges){
+				tasks.emplace_back(
+					async([this, &tr, &idxPairs, &hashJacGroups]{
+						hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+					})
+				);
+			}
+			for (const auto &th : tasks){
+				th.wait();
+			}
+		} else {
+			vector< future<void> > tasks;
+			tasks.reserve(totNpairs);
+			for (size_t iPair = 0; iPair < totNpairs; ++iPair){
+				tasks.emplace_back(
+					async([this, iPair, &idxPairs, &hashJacGroups]{
+						hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+					})
+				);
+			}
+			for (const auto &th : tasks){
+				th.wait();
+			}
 		}
+		// Save the results
+		fstream out;
+		out.open(outFileName.c_str(), ios::out | ios::trunc);
+		out << "locus1\tlocus2\tjaccLD\n";
+		for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
+			out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+		}
+		out.close();
 	}
-	// Save the results
-	fstream out;
-	out.open(outFileName.c_str(), ios::out | ios::trunc);
-	out << "locus1\tlocus2\tjaccLD\n";
-	for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-		out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
-	}
-	out.close();
 }
 
 void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
