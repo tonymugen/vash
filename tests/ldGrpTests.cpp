@@ -32,29 +32,41 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
+#include <chrono>
+#include <cmath>
 
 #include "../src/gvarHash.hpp"
 
 int main(int argc, char *argv[]){
 	const string inFileName(argv[1]);
-	const int Nindv = atoi(argv[2]);
+	const size_t Nindv = static_cast<size_t>( atoi(argv[2]) );
 	if (Nindv <= 1){
 		std::cerr << "Number of individuals (is " << Nindv << ") must be greater than 1\n";
 		exit(1);
 	}
-	const int kSketches = atoi(argv[3]); // number of OPH sketches to make
-	const int nElements = atoi(argv[4]); // number of OPH sketches to consider for similarity
+	const size_t kSketches = static_cast<size_t>( atoi(argv[3]) ); // number of OPH sketches to make
+	const size_t nElements = static_cast<size_t>( atoi(argv[4]) ); // number of OPH sketches to consider for similarity
 	if (nElements > kSketches){
 		std::cerr << "Number of sketches to consider (" << nElements << ") cannot be bigger than number of sketches made (" << kSketches << ")\n";
 		exit(2);
 	}
-	const int hammingCutoff  = atoi(argv[5]);
-	const int lookBackNumber = atoi(argv[6]);
+	const size_t hammingCutoff  = static_cast<size_t>( atoi(argv[5]) );
+	const size_t lookBackNumber = static_cast<size_t>( atoi(argv[6]) );
+	const size_t nThreads       = static_cast<size_t>( atoi(argv[7]) );
 	try {
-		const std::string outFileName(argv[7]);
-		BayesicSpace::GenoTable grpTst(inFileName, Nindv);
-		grpTst.makeIndividualOPH(kSketches);
-		grpTst.groupByLD(hammingCutoff, kSketches, lookBackNumber, outFileName);
+		const std::string outFileName(argv[8]);
+		const std::string outTimeFileName(argv[9]);
+		const size_t smallestGrpSize = 5;
+		BayesicSpace::GenoTableHash ldgTest(inFileName, Nindv, kSketches, nThreads);
+		auto time1 = std::chrono::high_resolution_clock::now();
+		ldgTest.groupByLD(hammingCutoff, nElements, lookBackNumber, smallestGrpSize, outFileName);
+		auto time2 = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<float, std::milli> loadTime = time2 - time1;
+		std::fstream output;
+		output.open(outTimeFileName.c_str(), std::ios::out | std::ios::trunc);
+		// output times in milliseconds
+		output << loadTime.count();
+		output.close();
 	} catch (std::string problem) {
 		std::cerr << problem << "\n";
 		exit(3);
