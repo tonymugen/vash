@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2021 Anthony J. Greenberg
- * \version 0.1
+ * \version 0.5
  *
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
