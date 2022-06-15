@@ -199,7 +199,7 @@ int main(){
 		//const string bedFile("sim1_1997.bed");
 		GenoTableHash testBed(bedFile, Nindv, k);
 		testBed.allHashLD( string("sim1Full.txt") );
-		testBed.groupByLD(2, 60, 3, 5, string("sim1LDgroup.txt") );
+		testBed.ldInGroups(2, 60, 3, 5, string("sim1LDgroup.txt") );
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;

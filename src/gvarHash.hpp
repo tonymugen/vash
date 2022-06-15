@@ -337,40 +337,35 @@ namespace BayesicSpace {
 		 * \param[in] ldFileName name of file to save the results
 		 */
 		void allHashLD(const string &ldFileName) const;
-		/** \brief Assign groups from OPH portions
-		 *
-		 * Use sketch portions to assign loci to groups.
-		 * The number of elements to use must be smaller than the number of sketches (or an exception is thrown).
-		 * If element number is odd, the next smallest even number is used.
-		 *
-		 * \param[in] nElements number of OPH elements to use
-		 * \return vector of group IDs for each locus
-		 */
-		vector<uint16_t> assignGroups(const size_t &nElements) const;
-		/** \brief Assign groups from simHashing OPH
-		 *
-		 * Use a 16 bit simHash of the whole OPH to assign loci to groups.
-		 *
-		 * \return group IDs for each locus
-		 */
-		vector<uint16_t> assignGroups() const;
-		/** \brief Group loci by linkage disequilibrium (LD)
+		/** \brief Assign groups by local linkage disequilibrium (LD)
 		 *
 		 * Group loci by LD along the genome. The algorithm is
 		 * Start by using simHash on the first `kSketchSubset` of the first locus OPH. Proceed along the genome, for each locus
-		 *  - simHash `kSketchSubset` of the OPH
-		 *  - compare to the latest group simHash
-		 *  - if the Hamming distance from the latest group is less than `hammingCutoff`, add the locus index to the group
-		 *  - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
-		 *  - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
+		 * - simHash `kSketchSubset` of the OPH
+		 * - compare to the latest group simHash
+		 * - if the Hamming distance from the latest group is less than `hammingCutoff`, add the locus index to the group
+		 * - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
+		 * - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
 		 *
-		 *  \param[in] hammingCutoff the maximum Hamming distance for group inclusion
-		 *  \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 *  \param[in] lookBackNumber number of previous groups to consider
-		 *  \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
-		 *  \param[in] outFileName name of the output file
+		 * \param[in] hammingCutoff the maximum Hamming distance for group inclusion
+		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
+		 * \param[in] lookBackNumber number of previous groups to consider
+		 *
+		 * \return group IDs for each locus
 		 */
-		void groupByLD(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
+		vector< vector<size_t> > makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const;
+		/** \brief Calculates linkage disequilibrium (LD) in local groups
+		 *
+		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * All hash values are used for similarity calculations, even if only a subset is considered for similarity grouping.
+		 *
+		 * \param[in] hammingCutoff the maximum Hamming distance for group inclusion
+		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
+		 * \param[in] lookBackNumber number of previous groups to consider
+		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
+		 * \param[in] outFileName name of the output file
+		 */
+		void ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *

@@ -1009,38 +1009,7 @@ void GenoTableHash::allHashLD(const string &ldFileName) const {
 		output.close();
 	}
 }
-
-vector<uint16_t> GenoTableHash::assignGroups(const size_t &nElements) const {
-	if (kSketches_ == 0){
-		throw string("ERROR: Number of sketches must be non-zero in ") + string(__FUNCTION__);
-	}
-	if (nElements > kSketches_){
-		throw string("ERROR: Number of elements to consider (") + to_string(nElements) + string(") is greater than the number of sketches (") 
-						+ to_string(kSketches_) + string( ") in ") + string(__FUNCTION__);
-	}
-	vector<uint16_t> grpID;
-	grpID.reserve(nLoci_);
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches_){
-		grpID.push_back( murMurHash_(locusBeg, nElements, seed) );
-	}
-	return grpID;
-}
-
-vector<uint16_t> GenoTableHash::assignGroups() const {
-	if (kSketches_ == 0){
-		throw string("ERROR: Number of sketches must be non-zero in ") + string(__FUNCTION__);
-	}
-	vector<uint16_t> grpID;
-	grpID.reserve(nLoci_);
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	for (size_t locusBeg = 0; locusBeg < sketches_.size(); locusBeg += kSketches_){
-		grpID.push_back( simHash_(locusBeg, kSketches_, seed) );
-	}
-	return grpID;
-}
-
-void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const {
+vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const {
 	if ( sketches_.empty() ){
 		throw string("ERROR: no OPH sketches generated before calling in ") + string(__FUNCTION__);
 	}
@@ -1122,6 +1091,12 @@ void GenoTableHash::groupByLD(const uint16_t &hammingCutoff, const size_t &kSket
 			++locusInd;
 		}
 	}
+
+	return ldGroup;
+}
+
+void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const {
+	vector< vector<size_t> > ldGroup = this->makeLDgroups(hammingCutoff, kSketchSubset, lookBackNumber);
 	size_t totNpairs = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
