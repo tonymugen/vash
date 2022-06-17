@@ -261,8 +261,9 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches number of sketches per locus
 		 * \param[in] nThreds maximal number of threads to use
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads);
+		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -276,8 +277,9 @@ namespace BayesicSpace {
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches) : GenoTableHash( inputFileName, nIndividuals, kSketches, thread::hardware_concurrency() ) {};
+		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const string &logFileName) : GenoTableHash(inputFileName, nIndividuals, kSketches, thread::hardware_concurrency(), logFileName) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -294,8 +296,9 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] nThreds maximal number of threads to use
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads);
+		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -309,8 +312,9 @@ namespace BayesicSpace {
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches) : GenoTableHash( maCounts, nIndividuals, kSketches, thread::hardware_concurrency() ) {};
+		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const string &logFileName) : GenoTableHash(maCounts, nIndividuals, kSketches, thread::hardware_concurrency(), logFileName) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &in) = delete;
@@ -366,6 +370,11 @@ namespace BayesicSpace {
 		 * \param[in] outFileName name of the output file
 		 */
 		void ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
+		/** \brief Save the log to a file
+		 *
+		 * Log file name provided at construction.
+		 */
+		void saveLogFile() const;
 	protected:
 		/** \brief Vector of sketches
 		 *
@@ -384,12 +393,16 @@ namespace BayesicSpace {
 		size_t locusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Maximum number of loci for all by all LD */
-		static const size_t maxNlocusPairs_;
+		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
+		static const size_t maxPairs_;
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief The mutex */
 		mutable mutex mtx_;
+		/** \brief Log messages */
+		mutable string logMessages_;
+		/** \brief Log file name */
+		string logFileName_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */

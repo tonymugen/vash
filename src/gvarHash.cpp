@@ -30,15 +30,17 @@
 #include <cstring>
 #include <string>
 #include <sstream>
+#include <fstream>
 #include <vector>
 #include <array>
 #include <utility>  // for std::pair
 #include <iterator>
 #include <algorithm>
 #include <limits>
-#include <fstream>
 #include <future>
 #include <thread>
+#include <ctime>
+#include <iomanip>
 
 #include "gvarHash.hpp"
 
@@ -49,16 +51,19 @@ using std::distance;
 using std::string;
 using std::to_string;
 using std::stringstream;
-using std::move;
-using std::numeric_limits;
 using std::fstream;
 using std::ifstream;
 using std::ios;
 using std::streampos;
+using std::move;
+using std::numeric_limits;
 using std::future;
 using std::async;
 using std::lock_guard;
 using std::thread;
+using std::time;
+using std::put_time;
+using std::localtime;
 
 using namespace BayesicSpace;
 // External functions
@@ -652,7 +657,7 @@ constexpr array<char, 3> GenoTableHash::magicBytes_ = {0x6c, 0x1b, 0x01};       
 constexpr uint8_t  GenoTableHash::oneBit_           = 0b00000001;                      // One set bit for masking 
 constexpr uint8_t  GenoTableHash::byteSize_         = 8;                               // Size of one byte in bits 
 constexpr uint8_t  GenoTableHash::llWordSize_       = 8;                               // 64 bit word size in bytes 
-constexpr size_t   GenoTableHash::maxNlocusPairs_   = 6074000999UL;                    // approximate number of loci that does not overflow with n*(n-1)/2
+constexpr size_t   GenoTableHash::maxPairs_         = 6074000999UL;                    // approximate maximum number that does not overflow with n*(n-1)/2
 constexpr size_t   GenoTableHash::nblocks_          = sizeof(size_t) / 4;              // MurMurHash number of blocks 
 constexpr uint32_t GenoTableHash::mmhKeyLen_        = sizeof(size_t);                  // MurMurHash key length 
 constexpr uint16_t GenoTableHash::emptyBinToken_    = numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
@@ -660,17 +665,35 @@ constexpr uint32_t GenoTableHash::c1_               = 0xcc9e2d51;               
 constexpr uint32_t GenoTableHash::c2_               = 0x1b873593;                      // MurMurHash c2 constant 
 
 // Constructors
-GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads} {
+GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{logFileName} {
+	stringstream logStream;
+	const time_t t = time(nullptr);
+	logStream << put_time(localtime(&t), "%b_%e_%H:%M_%Z");
+	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
+	logStream.clear();
 	if (nIndividuals <= 1){
+		logMessages_ += "ERROR: the number of individuals (" + to_string(nIndividuals) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
-	} else if (nIndividuals > numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
-		throw string("ERROR: the number of individuals (") + to_string(nIndividuals) + string( ") is too big to make a square relationship matrix in ") + string(__FUNCTION__);
 	}
 	if (kSketches_ < 3){
+		logMessages_ += "ERROR: sketch size (" + to_string(kSketches_) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: sketch size must be at least three in ") + string(__FUNCTION__);
 	}
 	sketchSize_ = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
 	if (sketchSize_ >= emptyBinToken_){
+		logMessages_ += "ERROR: sketch size (" + to_string(sketchSize_) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: Number of sketches (") + to_string(kSketches_) + string(") implies sketch size (") +
 			to_string(sketchSize_) + string(") that is larger than ") + to_string(emptyBinToken_) +
 			string( ", the largest allowed value in ") + string(__FUNCTION__);
@@ -681,12 +704,15 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	} else if ( nThreads_ > thread::hardware_concurrency() ){
 		nThreads_ = thread::hardware_concurrency();
 	}
+	logMessages_ += "Number of threads used: " + to_string(nThreads_) + "\n";
 	fstream inStr;
 	// Start by measuring file size
 	inStr.open(inputFileName.c_str(), ios::in | ios::binary | ios::ate);
 	const size_t N = static_cast<uint64_t>( inStr.tellg() ) - magicBytes_.size();
 	inStr.close();
 	nLoci_ = N / nBedBytes;
+	logMessages_ += "Number of individuals: " + to_string(nIndividuals_) + "\n";
+	logMessages_ += "Number of loci: " + to_string(nLoci_) + "\n";
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
@@ -694,12 +720,32 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	char magicBuf[magicBytes_.size()]{};
 	inStr.read( magicBuf, magicBytes_.size() );
 	if ( inStr.eof() ){
+		logMessages_ += "ERROR: no loci in the input .bed file " + inputFileName + "; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: No loci in the input .bed file ") + inputFileName + string(" in ") + string(__FUNCTION__);
 	} else if (magicBuf[0] != magicBytes_[0]){
+		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: first magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	} else if (magicBuf[1] != magicBytes_[1]){
+		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: second magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	} else if (magicBuf[2] != magicBytes_[2]){
+		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: third magic byte in input .bed file is not the expected value in ") + string(__FUNCTION__);
 	}
 	// Generate the binary genotype table while reading the .bed file
@@ -714,7 +760,8 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	const size_t nBedBytesToRead   = nBedLociToRead * nBedBytesPerLocus;
 	size_t nLociPerThread          = nBedLociToRead / nThreads_;
 	vector<char> bedChunkToRead(nBedBytesToRead, 0);
-
+	logMessages_ += "RAM available for reading the .bed file: " + to_string(ramSize) + " bytes\n";
+	logMessages_ += ".bed file will be read in " + to_string(nChunks) + " chunks\n";
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts{rng_.shuffleUint(nIndividuals_)};
 	vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
@@ -810,18 +857,43 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals} {
+GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, logFileName_{logFileName} {
+	stringstream logStream;
+	const time_t t = time(nullptr);
+	logStream << put_time(localtime(&t), "%b_%e_%H:%M_%Z");
+	logMessages_ = "Genotype hashing from a minor allele count vector started on " + logStream.str() + "\n";
+	logStream.clear();
 	if (nIndividuals <= 1){
+		logMessages_ += "ERROR: the number of individuals (" + to_string(nIndividuals) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: number of individuals must be greater than 1 in ") + string(__FUNCTION__);
 	}
 	if (maCounts.size() % nIndividuals){
+		logMessages_ += "ERROR: minor allele vector size (" + to_string( maCounts.size() ) + ") is not evenly divisible by the number of individuals (" + to_string(nIndividuals_) + "); aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: length of allele count vector (") + to_string( maCounts.size() ) + string(" is not divisible by the provided number of individuals (") +
 			to_string(nIndividuals) + string( ") in ") + string(__FUNCTION__);
 	}
 	if ( maCounts.empty() ){
+		logMessages_ += "ERROR: minor allele count vector is empty; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: empty vector of minor allele counts in ") + string(__FUNCTION__);
 	}
 	if (kSketches_ < 3){
+		logMessages_ += "ERROR: sketch size (" + to_string(kSketches_) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: sketch size must be at least three in ") + string(__FUNCTION__);
 	}
 	if (nThreads_ == 0){
@@ -831,6 +903,11 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	}
 	sketchSize_ = nIndividuals_ / kSketches_ + static_cast<bool>(nIndividuals_ % kSketches_);
 	if (sketchSize_ >= emptyBinToken_){
+		logMessages_ += "ERROR: sketch size (" + to_string(sketchSize_) + ") is too small; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: Number of sketches (") + to_string(kSketches_) + string(") implies sketch size (") +
 			to_string(sketchSize_) + string(") that is larger than ") + to_string(emptyBinToken_) +
 			string( ", the largest allowed value in ") + string(__FUNCTION__);
@@ -843,6 +920,10 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	vector<size_t> ranInts{rng_.shuffleUint(nIndividuals_)};
 	vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
 	seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
+	logMessages_ += "Number of threads used: " + to_string(nThreads_) + "\n";
+	logMessages_ += "Number of individuals: " + to_string(nIndividuals_) + "\n";
+	logMessages_ += "Number of loci: " + to_string(nLoci_) + "\n";
+	logMessages_ += "Hash size: " + to_string(kSketches_) + "\n";
 
 	vector< pair<size_t, size_t> > threadRanges;
 	const size_t nLociPerThread = nLoci_ / nThreads_;
@@ -876,6 +957,8 @@ GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept : kSketches_{in.kSketc
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
 		sketchSize_   = in.sketchSize_;
+		logFileName_  = move(in.logFileName_);
+		logMessages_  = move(in.logMessages_);
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
@@ -891,16 +974,21 @@ GenoTableHash& GenoTableHash::operator=(GenoTableHash &&in) noexcept {
 }
 
 void GenoTableHash::allHashLD(const string &ldFileName) const {
-	if ( sketches_.empty() ){
-		throw string("ERROR: Cannot calculate hash-based LD on empty sketches in ") + string(__FUNCTION__);
-	}
-	if (nLoci_ > maxNlocusPairs_){
+	if (nLoci_ > maxPairs_){
+		logMessages_ += "ERROR: too many loci (" + to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: Too many loci (") + to_string(nLoci_) + string(") to do all pairwise LD. Maximum supported is ") +
-			 to_string(maxNlocusPairs_) + string(" in ") + string(__FUNCTION__);
+			 to_string(maxPairs_) + string(" in ") + string(__FUNCTION__);
 	}
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(float) );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
+	logMessages_         += "Calculating all pairwise LD\n";
+	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + to_string(maxInRAM) + "; ";
 	if (nPairs > maxInRAM){
+		logMessages_ += "calculating in chunks\n";
 		// too many loci to fit the LD matrix in RAM
 		// will work on chunks and save as we go
 		const size_t nChunks        = nPairs / maxInRAM;
@@ -979,6 +1067,7 @@ void GenoTableHash::allHashLD(const string &ldFileName) const {
 		}
 		output.close();
 	} else {
+		logMessages_ += "calculating in one go\n";
 		vector<float> LDmat(nPairs, 0.0);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
 		if (nLocusPairsPerThread){
@@ -1010,14 +1099,27 @@ void GenoTableHash::allHashLD(const string &ldFileName) const {
 	}
 }
 vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const {
-	if ( sketches_.empty() ){
-		throw string("ERROR: no OPH sketches generated before calling in ") + string(__FUNCTION__);
-	}
 	if (kSketchSubset == 0){
+		logMessages_ += "ERROR: cannot have zero sketches to simHash; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: number of OPH sketches to simHash cannot be 0 in ") + string(__FUNCTION__);
 	} else if (kSketchSubset > kSketches_){
+		logMessages_ += "ERROR: subset of sketches (" + to_string(kSketchSubset) + ") larger than the total; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches per locus in ") + string(__FUNCTION__);
 	}
+
+	logMessages_ += "Grouping loci\n";
+	logMessages_ += "Hamming distance cut-off: " + to_string(hammingCutoff) + "\n";
+	logMessages_ += "OPH suset size: " + to_string(kSketchSubset) + "\n";
+	logMessages_ += "Number of preceding groups to consider: " + to_string(lookBackNumber) + "\n";
+
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
 	vector< vector<size_t> > ldGroup;                              // each element is a vector of indexes into sketches_
 	vector<uint16_t> activeHashes(lookBackNumber, 0);              // hashes that are under consideration in a simplified ring buffer
@@ -1036,10 +1138,6 @@ vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCuto
 		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
 		bool noCollision       = true;
 		while ( fwdHashIt != activeHashes.cend() ){
-			if ( ldgIt == ldGroup.rend() ){
-				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) + string(" while filling in the buffer") +
-					string("\n This should never happen. Please report this as a bug to github.com/tonymugen");
-			}
 			if (hammingDistance_(*fwdHashIt, curHash) <= hammingCutoff){
 				noCollision = false;
 				break;
@@ -1071,10 +1169,6 @@ vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCuto
 		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
 		bool noCollision       = true;
 		for (size_t iTestHash = 0; iTestHash < lookBackNumber; ++iTestHash){
-			if ( ldgIt == ldGroup.rend() ){
-				throw string("ERROR: got past the first group in ") + string(__FUNCTION__) +
-					string("\n This should never happen. Please report this as a bug to github.com/tonymugen");
-			}
 			if (hammingDistance_(activeHashes[(latestHashInd + iTestHash) % lookBackNumber], curHash) <= hammingCutoff){
 				noCollision = false;
 				break;
@@ -1102,13 +1196,23 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 		if (ldg.size() >= smallestGrpSize){
 			size_t nLowTri = ldg.size() * ( ldg.size() - 1 ) / 2;
 			if (totNpairs >= numeric_limits<size_t>::max() - nLowTri){
+				logMessages_ += "ERROR: number of locus pairs in grouped LD exceeds the 64-bit unsigned integer limit; aborting\n";
+				fstream outLog;
+				outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+				outLog << logMessages_;
+				outLog.close();
 				throw string("ERROR: Number of locus pairs exceeds 64-bit unsigned integer limit in ") + string(__FUNCTION__);
 			}
 			totNpairs += nLowTri;
 		}
 	}
 	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(pair<size_t, size_t>) ) );      // use half to leave resources for other operations
+
+	logMessages_ += "Estimating LD in groups\n";
+	logMessages_ += "Number of pairs considered: " + to_string(totNpairs) + "\n";
+	logMessages_ += "Maximum number fitting in RAM: " + to_string(maxPairsInRAM) + "; ";
 	if (totNpairs > maxPairsInRAM){
+		logMessages_                += "calculating in chunks\n";
 		const size_t nRAMchunks      = totNpairs / maxPairsInRAM;
 		const size_t nRemainingPairs = totNpairs % maxPairsInRAM;
 		size_t iGroup                = 0;
@@ -1209,10 +1313,6 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 					jLocus = 1;
 				}
 			}
-			if (idxPairs.size() != nRemainingPairs){
-				out.close();
-				throw string("ERROR: number of remaining pairs not the same as actually saved in ") + string(__FUNCTION__);
-			}
 			const size_t nPairsPerThread = nRemainingPairs / nThreads_;
 			if (nPairsPerThread){
 				vector< pair<size_t, size_t> > threadRanges;
@@ -1256,6 +1356,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 		}
 		out.close();
 	} else {
+		logMessages_ += "calculating in one go\n";
 		// estimate Jaccard similarities within groups
 		vector<float> hashJacGroups(totNpairs, 0.0);
 		vector< pair<size_t, size_t> > idxPairs;
@@ -1315,6 +1416,13 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 		}
 		out.close();
 	}
+}
+
+void GenoTableHash::saveLogFile() const {
+	fstream outLog;
+	outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+	outLog << logMessages_;
+	outLog.close();
 }
 
 void GenoTableHash::locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus){
