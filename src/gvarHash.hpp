@@ -393,8 +393,6 @@ namespace BayesicSpace {
 		size_t locusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
-		static const size_t maxPairs_;
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief The mutex */
@@ -403,6 +401,8 @@ namespace BayesicSpace {
 		mutable string logMessages_;
 		/** \brief Log file name */
 		string logFileName_;
+		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
+		static const size_t maxPairs_;
 		/** \brief Leading bytes for .bed files */
 		static const array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */

@@ -6,6 +6,7 @@ Doxyfile
 *.swp
 *.o
 *.so
+*.a
 src/.clangd/*
 src/.cache/*
 src/compile_commands.json

@@ -80,7 +80,8 @@ int main(int argc, char *argv[]){
 			duration<float, milli> hashTime;
 			duration<float, milli> runTime;
 			auto time1 = high_resolution_clock::now();
-			GenoTableHash hashTest(inFileName, Nindv, kSketches, nThreads);
+			const string logFileName("lgroups.log");
+			GenoTableHash hashTest(inFileName, Nindv, kSketches, nThreads, logFileName);
 			auto time2 = high_resolution_clock::now();
 			hashTime = time2 - time1;
 			time1 = high_resolution_clock::now();

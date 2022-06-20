@@ -42,6 +42,8 @@
 #include <ctime>
 #include <iomanip>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -957,18 +959,36 @@ GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept : kSketches_{in.kSketc
 		nIndividuals_ = in.nIndividuals_;
 		nLoci_        = in.nLoci_;
 		sketchSize_   = in.sketchSize_;
+		nThreads_     = in.nThreads_;
+		locusSize_    = in.locusSize_;
 		logFileName_  = move(in.logFileName_);
 		logMessages_  = move(in.logMessages_);
 
 		in.nIndividuals_ = 0;
 		in.nLoci_        = 0;
 		in.sketchSize_   = 0;
+		in.nThreads_     = 0;
+		in.locusSize_    = 0;
 	}
 }
 
 GenoTableHash& GenoTableHash::operator=(GenoTableHash &&in) noexcept {
 	if (this != &in){
-		*this = move(in);
+		sketches_     = move(in.sketches_);
+		nIndividuals_ = in.nIndividuals_;
+		nLoci_        = in.nLoci_;
+		sketchSize_   = in.sketchSize_;
+		nThreads_     = in.nThreads_;
+		locusSize_    = in.locusSize_;
+		logFileName_  = move(in.logFileName_);
+		logMessages_  = move(in.logMessages_);
+
+		in.nIndividuals_ = 0;
+		in.nLoci_        = 0;
+		in.sketchSize_   = 0;
+		in.nThreads_     = 0;
+		in.locusSize_    = 0;
+		//*this = move(in);
 	}
 	return *this;
 }
@@ -1113,6 +1133,13 @@ vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCuto
 		outLog << logMessages_;
 		outLog.close();
 		throw string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches per locus in ") + string(__FUNCTION__);
+	} else if (lookBackNumber == 0){
+		logMessages_ += "ERROR: look back number must not be zero; aborting\n";
+		fstream outLog;
+		outLog.open(logFileName_.c_str(), ios::out | ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw string("ERROR: zero look back number in ") + string(__FUNCTION__);
 	}
 
 	logMessages_ += "Grouping loci\n";

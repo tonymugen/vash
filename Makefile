@@ -9,19 +9,25 @@ SRCDIR = src
 TSTDIR = tests
 RANDIR = $(SRCDIR)/bayesicUtilities
 # library
-LIBOUT = vash.a
+LIBOUT = libvash.a
+# LD blocks binary
+LDBLK = ldblocks
 
-CXXFLAGS = -O3 -march=native -std=gnu++11 -pthread
+CXXFLAGS = -O3 -march=native -std=gnu++14 -pthread
 VASHOBJ = gvarHash.o random.o
 
-all : $(LIBOUT)
+all :  $(LDBLK) $(LIBOUT)
 .PHONY : all
 
 install : $(LIBOUT)
-	-cp -v $(LIBOUT) $(INSTALLDIR)/lib
-	-cp -v $(SRCDIR)/*.hpp $(INSTALLDIR)/include
-	-cp -v $(RANDIR)/random.hpp $(INSTALLDIR)/include
+	-cp $(LIBOUT) $(INSTALLDIR)/lib
+	-cp $(SRCDIR)/*.hpp $(INSTALLDIR)/include
+	-cp $(RANDIR)/random.hpp $(INSTALLDIR)/include
+	-cp $(LDBLK) $(INSTALLDIR)/bin
 .PHONY : install
+
+$(LDBLK) : ldblocks.cpp $(VASHOBJ)
+	$(CXX) ldblocks.cpp $(VASHOBJ) -o $(LDBLK) $(CXXFLAGS)
 
 $(LIBOUT) : $(VASHOBJ)
 	ar crv $(LIBOUT) $(VASHOBJ)
@@ -34,5 +40,5 @@ gvarHash.o : $(SRCDIR)/gvarHash.hpp $(SRCDIR)/gvarHash.cpp random.o
 
 .PHONY : clean
 clean :
-	-rm *.o $(LIBOUT)
+	-rm *.o $(LIBOUT) $(LDBLK)
 
