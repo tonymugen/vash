@@ -384,7 +384,7 @@ namespace BayesicSpace {
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of sketches */
-		const size_t kSketches_;
+		size_t kSketches_;
 		/** \brief Sketch size */
 		size_t sketchSize_;
 		/** \brief Number of loci */

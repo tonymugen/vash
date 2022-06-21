@@ -42,8 +42,6 @@
 #include <ctime>
 #include <iomanip>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 
 using std::vector;
@@ -293,6 +291,10 @@ GenoTableBin::GenoTableBin(const vector<int> &maCounts, const size_t &nIndividua
 }
 
 GenoTableBin::GenoTableBin(GenoTableBin &&in) noexcept {
+	*this = move(in);
+}
+
+GenoTableBin& GenoTableBin::operator=(GenoTableBin &&in) noexcept {
 	if (this != &in){
 		binGenotypes_ = move(in.binGenotypes_);
 		nIndividuals_ = in.nIndividuals_;
@@ -304,12 +306,6 @@ GenoTableBin::GenoTableBin(GenoTableBin &&in) noexcept {
 		in.nLoci_        = 0;
 		in.binLocusSize_ = 0;
 		in.nThreads_     = 0;
-	}
-}
-
-GenoTableBin& GenoTableBin::operator=(GenoTableBin &&in) noexcept {
-	if (this != &in){
-		*this = move(in);
 	}
 	return *this;
 }
@@ -670,7 +666,7 @@ constexpr uint32_t GenoTableHash::c2_               = 0x1b873593;               
 GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{logFileName} {
 	stringstream logStream;
 	const time_t t = time(nullptr);
-	logStream << put_time(localtime(&t), "%b_%e_%H:%M_%Z");
+	logStream << put_time(localtime(&t), "%b %e %H:%M %Z");
 	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
 	logStream.clear();
 	if (nIndividuals <= 1){
@@ -763,7 +759,7 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	size_t nLociPerThread          = nBedLociToRead / nThreads_;
 	vector<char> bedChunkToRead(nBedBytesToRead, 0);
 	logMessages_ += "RAM available for reading the .bed file: " + to_string(ramSize) + " bytes\n";
-	logMessages_ += ".bed file will be read in " + to_string(nChunks) + " chunks\n";
+	logMessages_ += ".bed file will be read in " + to_string(nChunks) + " chunk(s)\n";
 	// generate the sequence of random integers; each column must be permuted the same
 	vector<size_t> ranInts{rng_.shuffleUint(nIndividuals_)};
 	vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
@@ -862,7 +858,7 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, logFileName_{logFileName} {
 	stringstream logStream;
 	const time_t t = time(nullptr);
-	logStream << put_time(localtime(&t), "%b_%e_%H:%M_%Z");
+	logStream << put_time(localtime(&t), "%b %e %H:%M %Z");
 	logMessages_ = "Genotype hashing from a minor allele count vector started on " + logStream.str() + "\n";
 	logStream.clear();
 	if (nIndividuals <= 1){
@@ -953,29 +949,15 @@ GenoTableHash::GenoTableHash(const vector<int> &maCounts, const size_t &nIndivid
 	}
 }
 
-GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept : kSketches_{in.kSketches_} {
-	if (this != &in){
-		sketches_     = move(in.sketches_);
-		nIndividuals_ = in.nIndividuals_;
-		nLoci_        = in.nLoci_;
-		sketchSize_   = in.sketchSize_;
-		nThreads_     = in.nThreads_;
-		locusSize_    = in.locusSize_;
-		logFileName_  = move(in.logFileName_);
-		logMessages_  = move(in.logMessages_);
-
-		in.nIndividuals_ = 0;
-		in.nLoci_        = 0;
-		in.sketchSize_   = 0;
-		in.nThreads_     = 0;
-		in.locusSize_    = 0;
-	}
+GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept {
+	*this = move(in);
 }
 
 GenoTableHash& GenoTableHash::operator=(GenoTableHash &&in) noexcept {
 	if (this != &in){
 		sketches_     = move(in.sketches_);
 		nIndividuals_ = in.nIndividuals_;
+		kSketches_    = in.kSketches_;
 		nLoci_        = in.nLoci_;
 		sketchSize_   = in.sketchSize_;
 		nThreads_     = in.nThreads_;
@@ -984,11 +966,11 @@ GenoTableHash& GenoTableHash::operator=(GenoTableHash &&in) noexcept {
 		logMessages_  = move(in.logMessages_);
 
 		in.nIndividuals_ = 0;
+		in.kSketches_    = 0;
 		in.nLoci_        = 0;
 		in.sketchSize_   = 0;
 		in.nThreads_     = 0;
 		in.locusSize_    = 0;
-		//*this = move(in);
 	}
 	return *this;
 }
