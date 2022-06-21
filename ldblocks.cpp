@@ -34,6 +34,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cmath>
+#include <stdexcept>
 
 #include "src/gvarHash.hpp"
 
@@ -123,7 +124,12 @@ int main(int argc, char *argv[]){
 		std::cerr << cliHelp;
 		exit(2);
 	} else {
-		Nindv = stoi(clIter->second);
+		try {
+			Nindv = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided number of individuals is not an integer\n";
+			exit(2);
+		}
 	}
 	if (Nindv < 3){
 		std::cerr << "ERROR: must have at least 3 individuals\n";
@@ -134,7 +140,12 @@ int main(int argc, char *argv[]){
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		inputKsketches = 60;
 	} else {
-		inputKsketches = stoi(clIter->second);
+		try {
+			inputKsketches = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided hash size is not an integer\n";
+			exit(2);
+		}
 	}
 	if (inputKsketches <= 3){
 		std::cerr << "ERROR: hash length must be 3 or more\n";
@@ -145,7 +156,12 @@ int main(int argc, char *argv[]){
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		range = 5;
 	} else {
-		range = stoi(clIter->second);
+		try {
+			range = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided range size is not an integer\n";
+			exit(2);
+		}
 	}
 	if (range < 0){
 		std::cerr << "ERROR: LD range must be non-negative\n";
@@ -156,7 +172,12 @@ int main(int argc, char *argv[]){
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		minGroupSize = 5;
 	} else {
-		minGroupSize = stoi(clIter->second);
+		try {
+			minGroupSize = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided minimal group size is not an integer\n";
+			exit(2);
+		}
 	}
 	if (minGroupSize < 0){
 		std::cerr << "ERROR: minimal group size must be non-negative\n";
@@ -167,7 +188,12 @@ int main(int argc, char *argv[]){
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		groupPrecision = inputKsketches;
 	} else {
-		groupPrecision = stoi(clIter->second);
+		try {
+			groupPrecision = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided group precision is not an integer\n";
+			exit(2);
+		}
 	}
 	if (groupPrecision < 3){
 		std::cerr << "ERROR: must have at least 3 sketches for locus grouping\n";
@@ -178,7 +204,12 @@ int main(int argc, char *argv[]){
 	if ( clIter == clInfo.end() ){ // if not there, set to negative value (will be changed to default later)
 		inputThreads = -1;
 	} else {
-		inputThreads = stoi(clIter->second);
+		try {
+			inputThreads = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided number of threads is not an integer\n";
+			exit(2);
+		}
 	}
 
 	clIter = clInfo.find('l');
