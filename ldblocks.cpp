@@ -92,7 +92,7 @@ int main(int argc, char *argv[]){
 	int groupPrecision{0};
 
 	// set usage message
-	std::string cliHelp = "Command line flags (in any order):\n  -f file_name (input file name; required)\n  -s sparsity_type (can be hard, soft, or none; default is hard; none results in all by all estimates)\n  -i number_of_individuals (must be 3 or more; required)\n  -k hash_size (default is 60)\n  -g LD range (how many blocks back to examine; default is 5; 0 means only the current group is considered)\n  -m min_group_size (disregard groups smaller than this; default 5)\n  -p hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n  -t number_of_threads (maximal number of threads to use; defaults to maximal available)\n  -l log_file_name (log file name; default is ldblocks.log)\n  -o output_file_name (output name file; default ldblocksOut.tsv)\n";
+	std::string cliHelp = "Command line flags (in any order):\n  -f file_name (input file name; required)\n  -s sparsity_type (can be hard, soft, or none; default is hard; none results in all by all estimates)\n  -i number_of_individuals (must be 3 or more; required)\n  -k hash_size (default is 60)\n  -g LD range (how many blocks back to examine; default is 5; 0 means only the current group is considered)\n  -m min_group_size (disregard groups smaller than this; default 5)\n  -p hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n  -t number_of_threads (maximal number of threads to use; defaults to maximal available)\n  -l log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n  -o output_file_name (output name file; default ldblocksOut.tsv)\n";
 	std::unordered_map <char, std::string> clInfo;
 	parseCL(argc, argv, clInfo);
 	if ( clInfo.empty() ){
@@ -246,14 +246,18 @@ int main(int argc, char *argv[]){
 			const size_t lkBackN     = static_cast<size_t>(range);
 			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
 			groupLD.ldInGroups(hammingCt, kSubs, lkBackN, smGrpSize, outFileName);
-			groupLD.saveLogFile();
+			if (logFileName != "none"){
+				groupLD.saveLogFile();
+			}
 		} else if (sparsityType == "soft"){
 			const uint16_t hammingCt = 1;
 			const size_t kSubs       = static_cast<size_t>(groupPrecision);
 			const size_t lkBackN     = static_cast<size_t>(range);
 			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
 			groupLD.ldInGroups(hammingCt, kSubs, lkBackN, smGrpSize, outFileName);
-			groupLD.saveLogFile();
+			if (logFileName != "none"){
+				groupLD.saveLogFile();
+			}
 		} else {
 			std::cerr << "ERROR: unknown sparsity parameter " << sparsityType << "; must be 'hard', 'soft', or 'none'\n";
 			exit(3);

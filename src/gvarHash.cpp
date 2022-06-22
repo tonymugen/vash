@@ -1126,7 +1126,7 @@ vector< vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCuto
 
 	logMessages_ += "Grouping loci\n";
 	logMessages_ += "Hamming distance cut-off: " + to_string(hammingCutoff) + "\n";
-	logMessages_ += "OPH suset size: " + to_string(kSketchSubset) + "\n";
+	logMessages_ += "OPH subset size: " + to_string(kSketchSubset) + "\n";
 	logMessages_ += "Number of preceding groups to consider: " + to_string(lookBackNumber) + "\n";
 
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
@@ -1218,6 +1218,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(pair<size_t, size_t>) ) );      // use half to leave resources for other operations
 
 	logMessages_ += "Estimating LD in groups\n";
+	logMessages_ += "Smallest group size: " + to_string(smallestGrpSize) + "\n";
 	logMessages_ += "Number of pairs considered: " + to_string(totNpairs) + "\n";
 	logMessages_ += "Maximum number fitting in RAM: " + to_string(maxPairsInRAM) + "; ";
 	if (totNpairs > maxPairsInRAM){
