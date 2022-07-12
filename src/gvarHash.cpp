@@ -711,6 +711,7 @@ GenoTableHash::GenoTableHash(const string &inputFileName, const size_t &nIndivid
 	nLoci_ = N / nBedBytes;
 	logMessages_ += "Number of individuals: " + to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: " + to_string(nLoci_) + "\n";
+	logMessages_ += "Hash size: " + to_string(kSketches_) + "\n";
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	locusSize_ = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
@@ -1215,7 +1216,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 			totNpairs += nLowTri;
 		}
 	}
-	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(pair<size_t, size_t>) ) );      // use half to leave resources for other operations
+	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(pair<size_t, size_t>) + sizeof(size_t) ) );      // use half to leave resources for other operations
 
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "Smallest group size: " + to_string(smallestGrpSize) + "\n";
@@ -1231,11 +1232,13 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 
 		fstream out;
 		out.open(outFileName.c_str(), ios::out | ios::trunc);
-		out << "locus1\tlocus2\tjaccLD\n";
+		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
+		size_t iKeptGroup = 0;
 
 		for (size_t iChunk = 0; iChunk < nRAMchunks; ++iChunk){
 			vector<float> hashJacGroups(maxPairsInRAM, 0.0);
 			vector< pair<size_t, size_t> > idxPairs;
+			vector<size_t> groupID;
 			idxPairs.reserve(maxPairsInRAM);
 			size_t iPair = 0;
 			for (; iGroup < ldGroup.size(); ++iGroup) {
@@ -1243,6 +1246,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
 						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
 							idxPairs.emplace_back(pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
+							groupID.push_back(iKeptGroup);
 							++iPair;
 							if (iPair == maxPairsInRAM){
 								++jLocus;
@@ -1252,6 +1256,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 										jLocus = iLocus + 1;
 									} else {
 										++iGroup;
+										++iKeptGroup;
 										iLocus = 0;
 										jLocus = 1;
 									}
@@ -1261,6 +1266,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 						}
 						jLocus = iLocus + 2;
 					}
+					++iKeptGroup;
 					iLocus = 0;
 					jLocus = 1;
 				}
@@ -1304,21 +1310,24 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 			}
 			// Save the results
 			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-				out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+				out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
 			}
 		}
 		if (nRemainingPairs){
 			vector<float> hashJacGroups(nRemainingPairs, 0.0);
 			vector< pair<size_t, size_t> > idxPairs;
+			vector<size_t> groupID;
 			idxPairs.reserve(nRemainingPairs);
 			for (; iGroup < ldGroup.size(); ++iGroup) {
 				if (ldGroup[iGroup].size() >= smallestGrpSize){
 					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
 						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
 							idxPairs.emplace_back(pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
+							groupID.push_back(iKeptGroup);
 						}
 						jLocus = iLocus + 2;
 					}
+					++iKeptGroup;
 					iLocus = 0;
 					jLocus = 1;
 				}
@@ -1361,7 +1370,7 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 			}
 			// Save the results
 			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-				out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+				out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
 			}
 		}
 		out.close();
@@ -1370,14 +1379,18 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 		// estimate Jaccard similarities within groups
 		vector<float> hashJacGroups(totNpairs, 0.0);
 		vector< pair<size_t, size_t> > idxPairs;
+		vector<size_t> groupID;
 		idxPairs.reserve(totNpairs);
+		size_t iKeptGroup = 0;
 		for (auto &ldg : ldGroup){
 			if (ldg.size() >= smallestGrpSize){
 				for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
 					for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
 						idxPairs.emplace_back(pair<size_t, size_t>{ldg[iLocus], ldg[jLocus]});
+						groupID.push_back(iKeptGroup);
 					}
 				}
+				++iKeptGroup;
 				ldg.clear();
 			}
 		}
@@ -1420,9 +1433,9 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 		// Save the results
 		fstream out;
 		out.open(outFileName.c_str(), ios::out | ios::trunc);
-		out << "locus1\tlocus2\tjaccLD\n";
+		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
 		for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-			out << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+			out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
 		}
 		out.close();
 	}
