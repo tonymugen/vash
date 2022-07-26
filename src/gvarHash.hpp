@@ -40,13 +40,6 @@
 
 #include "bayesicUtilities/random.hpp"
 
-using std::vector;
-using std::array;
-using std::pair;
-using std::string;
-using std::thread;
-using std::mutex;
-
 namespace BayesicSpace {
 	class GenoTableBinCPP;
 	class GenoTableBin;
@@ -67,7 +60,7 @@ namespace BayesicSpace {
 	 * \param[in] inVec input vector
 	 * \return number of bits set
 	 */
-	uint32_t countSetBits(const vector<uint8_t> &inVec);
+	uint32_t countSetBits(const std::vector<uint8_t> &inVec);
 	/** \brief Count set bits in a range within a vector
 	 *
 	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
@@ -77,7 +70,7 @@ namespace BayesicSpace {
 	 * \param[in] length number of bytes to process
 	 * \return number of bits set
 	 */
-	uint32_t countSetBits(const vector<uint8_t> &inVec, const size_t &start, const size_t &length);
+	uint32_t countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length);
 	/** \brief Get available RAM
 	 *
 	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.
@@ -105,7 +98,7 @@ namespace BayesicSpace {
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
 		 */
-		GenoTableBin(const string &inputFileName, const size_t &nIndividuals) : GenoTableBin( inputFileName, nIndividuals, thread::hardware_concurrency() ){};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals) : GenoTableBin( inputFileName, nIndividuals, std::thread::hardware_concurrency() ){};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -129,7 +122,7 @@ namespace BayesicSpace {
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
 		 */
-		GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals) : GenoTableBin( maCounts, nIndividuals, thread::hardware_concurrency() ){};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals) : GenoTableBin( maCounts, nIndividuals, std::thread::hardware_concurrency() ){};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -143,7 +136,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &nThreads);
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &nThreads);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &in) = delete;
@@ -167,7 +160,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] outFileName output file name
 		 */
-		void saveGenoBinary(const string &outFileName) const;
+		void saveGenoBinary(const std::string &outFileName) const;
 		/** \brief All by all Jaccad similarity LD
 		 *
 		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
@@ -177,13 +170,13 @@ namespace BayesicSpace {
 		 * \param[in] ldFileName name of the output file
 		 * \return lower triangle of the LD matrix
 		 */
-		void allJaccardLD(const string &ldFileName) const;
+		void allJaccardLD(const std::string &ldFileName) const;
 	protected:
 		/** \brief Binarized genotype table
 		 *
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
 		 */
-		vector<uint8_t> binGenotypes_;
+		std::vector<uint8_t> binGenotypes_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of loci */
@@ -195,9 +188,9 @@ namespace BayesicSpace {
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief The mutex */
-		mutable mutex mtx_;
+		mutable std::mutex mtx_;
 		/** \brief Leading bytes for .bed files */
-		static const array<char, 3> magicBytes_;
+		static const std::array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
@@ -217,7 +210,7 @@ namespace BayesicSpace {
 		 * \param[in] bedLocusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void bed2binBlk_(const vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
+		void bed2binBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -227,7 +220,7 @@ namespace BayesicSpace {
 		 * \param[in] endLocusInd one past the last locus index
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void mac2binBlk_(const vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen);
+		void mac2binBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] blockStartVec index of the block start in `jaccardVec`
@@ -235,7 +228,7 @@ namespace BayesicSpace {
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
 		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
 		 */
-		void jaccardBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &jaccardVec) const;
+		void jaccardBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
@@ -263,7 +256,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
+		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -279,7 +272,7 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const string &logFileName) : GenoTableHash(inputFileName, nIndividuals, kSketches, thread::hardware_concurrency(), logFileName) {};
+		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) : GenoTableHash(inputFileName, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -298,7 +291,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -314,7 +307,7 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const string &logFileName) : GenoTableHash(maCounts, nIndividuals, kSketches, thread::hardware_concurrency(), logFileName) {};
+		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) : GenoTableHash(maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &in) = delete;
@@ -340,7 +333,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] ldFileName name of file to save the results
 		 */
-		void allHashLD(const string &ldFileName) const;
+		void allHashLD(const std::string &ldFileName) const;
 		/** \brief Assign groups by local linkage disequilibrium (LD)
 		 *
 		 * Group loci by LD along the genome. The algorithm is
@@ -357,7 +350,7 @@ namespace BayesicSpace {
 		 *
 		 * \return group IDs for each locus
 		 */
-		vector< vector<size_t> > makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const;
+		std::vector< std::vector<size_t> > makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const;
 		/** \brief Calculates linkage disequilibrium (LD) in local groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
@@ -369,18 +362,19 @@ namespace BayesicSpace {
 		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const string &outFileName) const;
+		void ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
 		 */
 		void saveLogFile() const;
+		void testSimHash(const size_t &kSketchSubset, const std::string &outFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
 		 */
-		vector<uint16_t> sketches_;
+		std::vector<uint16_t> sketches_;
 		/** \brief Number of individuals */
 		size_t nIndividuals_;
 		/** \brief Number of sketches */
@@ -396,15 +390,15 @@ namespace BayesicSpace {
 		/** \brief Random number generator */
 		RanDraw rng_;
 		/** \brief The mutex */
-		mutable mutex mtx_;
+		mutable std::mutex mtx_;
 		/** \brief Log messages */
-		mutable string logMessages_;
+		mutable std::string logMessages_;
 		/** \brief Log file name */
 		string logFileName_;
 		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
 		static const size_t maxPairs_;
 		/** \brief Leading bytes for .bed files */
-		static const array<char, 3> magicBytes_;
+		static const std::array<char, 3> magicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
@@ -431,7 +425,7 @@ namespace BayesicSpace {
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
-		void locusOPH_(const size_t &locusInd, const vector<size_t> &permutation, vector<uint32_t> &seeds, vector<uint8_t> &binLocus);
+		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds, std::vector<uint8_t> &binLocus);
 		/** \brief OPH from _.bed_ file input
 		 *
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
@@ -445,8 +439,8 @@ namespace BayesicSpace {
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2ophBlk_(const vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void bed2ophBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd,
+							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -459,7 +453,7 @@ namespace BayesicSpace {
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2ophBlk_(const vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const vector<size_t> &permutation, vector<uint32_t> &seeds);
+		void mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
 		/** \brief MurMurHash to fill in empty bins
 		 *
 		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
@@ -501,7 +495,7 @@ namespace BayesicSpace {
 		 * \param[in] seed seed value to use with murMurHash on each sketch element
 		 * \return hash value
 		 */
-		uint16_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
+		uint32_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
@@ -512,7 +506,7 @@ namespace BayesicSpace {
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
 		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, vector<float> &hashJacVec) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity among indexed loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
@@ -524,7 +518,7 @@ namespace BayesicSpace {
 		 * \param[in] idxVector vector of locus pair indexes
 		 * \param[out] hashJacVec vectorized blocked lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const vector< pair<size_t, size_t> > &idxVector, vector<float> &hashJacVec) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const std::vector< std::pair<size_t, size_t> > &idxVector, std::vector<float> &hashJacVec) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.
