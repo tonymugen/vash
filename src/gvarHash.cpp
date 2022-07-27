@@ -1095,23 +1095,8 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		output.close();
 	}
 }
-void GenoTableHash::testSimHash(const size_t &kSketchSubset, const std::string &outFileName) const {
-	std::fstream output;
-	output.open(outFileName, std::ios::trunc | std::ios::out);
-	for (size_t iSketch = 0; iSketch < kSketches_; ++iSketch){
-		for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-			output << sketches_[iLocus * kSketches_ + iSketch] << " ";
-		}
-		output << "\n";
-	}
 
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		output << simHash_(iLocus * kSketches_, kSketches_, seed) << "\n";
-	}
-
-}
-std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const {
+std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSketchSubset, const size_t &maxGroupNumber) const {
 	if (kSketchSubset == 0){
 		logMessages_ += "ERROR: cannot have zero sketches to simHash; aborting\n";
 		std::fstream outLog;
@@ -1126,91 +1111,46 @@ std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const uint16_t &h
 		outLog << logMessages_;
 		outLog.close();
 		throw std::string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches per locus in ") + std::string(__FUNCTION__);
-	} else if (lookBackNumber == 0){
-		logMessages_ += "ERROR: look back number must not be zero; aborting\n";
+	} else if (maxGroupNumber == 0){
+		logMessages_ += "ERROR: maximal group number must not be zero; aborting\n";
 		std::fstream outLog;
 		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
 		outLog << logMessages_;
 		outLog.close();
-		throw std::string("ERROR: zero look back number in ") + std::string(__FUNCTION__);
+		throw std::string("ERROR: zero groups in ") + std::string(__FUNCTION__);
+	} else if ( maxGroupNumber > std::numeric_limits<uint32_t>::max() ){
+		logMessages_ += std::string("ERROR: maximal group number (") + std::to_string(maxGroupNumber) + std::string(") exceeds 32-bit unsigned integer limit; aborting\n");
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: maximal number of groups exceeds unsigned 32-bit integer limit in ") + std::string(__FUNCTION__);
+	} else if (maxGroupNumber > nLoci_){
+		logMessages_ += std::string("ERROR: maximal group number (") + std::to_string(maxGroupNumber) + std::string(") exceeds the number of loci (") + std::to_string(nLoci_) + std::string("); aborting\n");
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: maximal number of groups exceeds the number of loci in ") + std::string(__FUNCTION__);
 	}
 
 	logMessages_ += "Grouping loci\n";
-	logMessages_ += "Hamming distance cut-off: " + std::to_string(hammingCutoff) + "\n";
 	logMessages_ += "OPH subset size: " + std::to_string(kSketchSubset) + "\n";
-	logMessages_ += "Number of preceding groups to consider: " + std::to_string(lookBackNumber) + "\n";
+	logMessages_ += "Maximal group number: " + std::to_string(maxGroupNumber) + "\n";
 
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	std::vector< std::vector<size_t> > ldGroup;                         // each element is a vector of indexes into sketches_
-	std::vector<uint16_t> activeHashes(lookBackNumber, 0);              // hashes that are under consideration in a simplified ring buffer
+	std::vector< std::vector<size_t> > ldGroup(maxGroupNumber);     // the hash table
 
-	// Start by filling the active hash buffer
-	//
-	// initialize with the first locus
-	activeHashes.back() = simHash_(0, kSketchSubset, seed);
-	auto latestHashIt   = activeHashes.rbegin();                   // points to the latest hash under consideration
-	size_t locusInd     = 1;                                       // current locus index (starts from the second locus)
-	ldGroup.emplace_back(std::vector<size_t>{0});
-	// loop through loci until buffer is full or no more loci left
-	while ( ( latestHashIt != activeHashes.rend() ) && (locusInd < nLoci_) ){
-		const uint16_t curHash = simHash_(locusInd * kSketches_, kSketchSubset, seed);
-		auto fwdHashIt         = activeHashes.cbegin() + distance( latestHashIt, activeHashes.rend() ) - 1;
-		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
-		bool noCollision       = true;
-		while ( fwdHashIt != activeHashes.cend() ){
-			if (hammingDistance_(*fwdHashIt, curHash) <= hammingCutoff){
-				noCollision = false;
-				break;
-			}
-			++fwdHashIt;
-			++ldgIt;
-		}
-		if (noCollision){
-			++latestHashIt;
-			if ( latestHashIt == activeHashes.rend() ){
-				ldGroup.emplace_back(std::vector<size_t>{locusInd});
-				activeHashes[0] = curHash;
-				++locusInd;
-				break;
-			} else {
-				*latestHashIt = curHash;
-				ldGroup.emplace_back(std::vector<size_t>{locusInd});
-				++locusInd;
-			}
-		} else {
-			ldgIt->push_back(locusInd);
-			++locusInd;
-		}
-	}
-	// If there are loci left after filling the buffer, continue.
-	while (locusInd < nLoci_){
-		const uint16_t curHash = simHash_(locusInd * kSketches_, kSketchSubset, seed);
-		size_t latestHashInd   = 0;
-		auto ldgIt             = ldGroup.rbegin();   // latest group is at the end
-		bool noCollision       = true;
-		for (size_t iTestHash = 0; iTestHash < lookBackNumber; ++iTestHash){
-			if (hammingDistance_(activeHashes[(latestHashInd + iTestHash) % lookBackNumber], curHash) <= hammingCutoff){
-				noCollision = false;
-				break;
-			}
-			++ldgIt;
-		}
-		if (noCollision){
-			++latestHashInd;
-			latestHashInd %= lookBackNumber;
-			ldGroup.emplace_back(std::vector<size_t>{locusInd});
-			++locusInd;
-		} else {
-			ldgIt->push_back(locusInd);
-			++locusInd;
-		}
+	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
+		const uint32_t groupInd = simHash_(iLocus * kSketches_, kSketchSubset, seed) % maxGroupNumber;
+		ldGroup[groupInd].push_back(iLocus);
 	}
 
 	return ldGroup;
 }
 
-void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const std::string &outFileName) const {
-	std::vector< std::vector<size_t> > ldGroup = this->makeLDgroups(hammingCutoff, kSketchSubset, lookBackNumber);
+void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const {
+	std::vector< std::vector<size_t> > ldGroup = this->makeLDgroups(kSketchSubset, maxGroupNumber);
 	size_t totNpairs = 0;
 	for (const auto &ldg : ldGroup){
 		if (ldg.size() >= smallestGrpSize){
@@ -1387,7 +1327,8 @@ void GenoTableHash::ldInGroups(const uint16_t &hammingCutoff, const size_t &kSke
 	} else {
 		logMessages_ += "calculating in one go\n";
 		// estimate Jaccard similarities within groups
-		std::vector<float> hashJacGroups(totNpairs, 0.0);
+		std::vector<IndexedPairSimilarity> hashJacGroups;
+		hashJacGroups.reserve(totNpairs);
 		std::vector< std::pair<size_t, size_t> > idxPairs;
 		std::vector<size_t> groupID;
 		idxPairs.reserve(totNpairs);

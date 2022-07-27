@@ -41,6 +41,7 @@
 #include "bayesicUtilities/random.hpp"
 
 namespace BayesicSpace {
+	struct IndexedPairSimilarity; 
 	class GenoTableBinCPP;
 	class GenoTableBin;
 	class GenoTableHash;
@@ -78,6 +79,17 @@ namespace BayesicSpace {
 	 * \return estimated available RAM in bytes
 	 */
 	size_t getAvailableRAM();
+
+	/** \brief Jaccard value with indexes
+	 *
+	 * Groups a Jaccard similarity value of two loci with their indexes and the ID of the group they belong to.
+	 */
+	struct IndexedPairSimilarity {
+		float simiarityValue;
+		size_t locus1ind;
+		size_t locus2ind;
+		uint32_t groupID;
+	};
 
 	/** \brief Class to store binary compressed genotype tables
 	 *
@@ -334,41 +346,34 @@ namespace BayesicSpace {
 		 * \param[in] ldFileName name of file to save the results
 		 */
 		void allHashLD(const std::string &ldFileName) const;
-		/** \brief Assign groups by local linkage disequilibrium (LD)
+		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
-		 * Group loci by LD along the genome. The algorithm is
-		 * Start by using simHash on the first `kSketchSubset` of the first locus OPH. Proceed along the genome, for each locus
-		 * - simHash `kSketchSubset` of the OPH
-		 * - compare to the latest group simHash
-		 * - if the Hamming distance from the latest group is less than `hammingCutoff`, add the locus index to the group
-		 * - if not, compare to up to `lookBackNumber` of groups back along the genome, adding to the first group that meets the cut-off
-		 * - if none of the previous groups are close enough, start a new group, labeling it with the current simHash.
+		 * Builds a hash table of locus indexes. The hash table is implemented as a vector of vectors.
+		 * The outer vector is as long as the maximum number of groups, the indexes are simHash values modulo maximal number of groups.
+		 * Each group is a vector of indexes of loci with the same simHash value (again, modulo maximal group number).
 		 *
-		 * \param[in] hammingCutoff the maximum Hamming distance for group inclusion
 		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 * \param[in] lookBackNumber number of previous groups to consider
+		 * \param[in] maxGroupNumber maximum number of groups (some may end up empty)
 		 *
-		 * \return group IDs for each locus
+		 * \return locus index hash table
 		 */
-		std::vector< std::vector<size_t> > makeLDgroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber) const;
-		/** \brief Calculates linkage disequilibrium (LD) in local groups
+		std::vector< std::vector<size_t> > makeLDgroups(const size_t &kSketchSubset, const size_t &maxGroupNumber) const;
+		/** \brief Calculates linkage disequilibrium (LD) in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
 		 * All hash values are used for similarity calculations, even if only a subset is considered for similarity grouping.
 		 *
-		 * \param[in] hammingCutoff the maximum Hamming distance for group inclusion
 		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 * \param[in] lookBackNumber number of previous groups to consider
+		 * \param[in] maxGroupNumber maximum number of groups
 		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const uint16_t &hammingCutoff, const size_t &kSketchSubset, const size_t &lookBackNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
+		void ldInGroups(const size_t &kSketchSubset, const size_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
 		 */
 		void saveLogFile() const;
-		void testSimHash(const size_t &kSketchSubset, const std::string &outFileName) const;
 	protected:
 		/** \brief Vector of sketches
 		 *

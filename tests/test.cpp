@@ -84,9 +84,10 @@ int main(){
 			}
 		}
 		*/
-		const size_t Ngeno = 3750;
+		//const size_t Ngeno = 3750;
+		const size_t Ngeno = 4;
 		const size_t Nindv = 2000;
-		const size_t k     = 200;
+		const size_t k     = 80;
 		//const string bedFile("sim1test.bed");
 		//GenoTable testTab(bedFile, Nindv);
 		//testTab.makeIndividualOPH(k);
@@ -195,11 +196,12 @@ int main(){
 		*/
 		//GenoTableHash testTab(genoCodes, Nindv, k);
 		//GenoTableBin testTab(genoCodes, Nindv);
-		const string bedFile("sim1.bed");
+		const string bedFile("testSimNew.bed");
 		//const string bedFile("sim1_1997.bed");
-		GenoTableHash testBed(bedFile, Nindv, k);
-		testBed.allHashLD( string("sim1Full.txt") );
-		testBed.ldInGroups(2, 60, 3, 5, string("sim1LDgroup.txt") );
+		GenoTableHash testBed(bedFile, Nindv, k, "testLog.log");
+		testBed.testSimHash(k, "testSimOut.txt");
+		//testBed.allHashLD( string("sim1Full.txt") );
+		//testBed.ldInGroups(2, 60, 3, 5, string("sim1LDgroup.txt") );
 		//auto time1 = high_resolution_clock::now();
 		//auto time2 = high_resolution_clock::now();
 		//duration<float, milli> execTimeCPP = time2 - time1;
