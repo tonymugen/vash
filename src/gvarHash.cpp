@@ -1096,7 +1096,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 	}
 }
 
-std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSketchSubset, const size_t &maxGroupNumber) const {
+std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber) const {
 	if (kSketchSubset == 0){
 		logMessages_ += "ERROR: cannot have zero sketches to simHash; aborting\n";
 		std::fstream outLog;
@@ -1118,13 +1118,6 @@ std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSk
 		outLog << logMessages_;
 		outLog.close();
 		throw std::string("ERROR: zero groups in ") + std::string(__FUNCTION__);
-	} else if ( maxGroupNumber > std::numeric_limits<uint32_t>::max() ){
-		logMessages_ += std::string("ERROR: maximal group number (") + std::to_string(maxGroupNumber) + std::string(") exceeds 32-bit unsigned integer limit; aborting\n");
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: maximal number of groups exceeds unsigned 32-bit integer limit in ") + std::string(__FUNCTION__);
 	} else if (maxGroupNumber > nLoci_){
 		logMessages_ += std::string("ERROR: maximal group number (") + std::to_string(maxGroupNumber) + std::string(") exceeds the number of loci (") + std::to_string(nLoci_) + std::string("); aborting\n");
 		std::fstream outLog;
@@ -1149,7 +1142,7 @@ std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSk
 	return ldGroup;
 }
 
-void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const {
+void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const {
 	std::vector< std::vector<size_t> > ldGroup = this->makeLDgroups(kSketchSubset, maxGroupNumber);
 	size_t totNpairs = 0;
 	for (const auto &ldg : ldGroup){
@@ -1166,11 +1159,12 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 			totNpairs += nLowTri;
 		}
 	}
-	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * ( sizeof(float) + sizeof(std::pair<size_t, size_t>) + sizeof(size_t) ) );      // use half to leave resources for other operations
+	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
 
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "Smallest group size: " + std::to_string(smallestGrpSize) + "\n";
 	logMessages_ += "Number of pairs considered: " + std::to_string(totNpairs) + "\n";
+	logMessages_ += "Maximal number of non-empty groups: " + std::to_string(maxGroupNumber) + "\n";
 	logMessages_ += "Maximum number fitting in RAM: " + std::to_string(maxPairsInRAM) + "; ";
 	if (totNpairs > maxPairsInRAM){
 		logMessages_                += "calculating in chunks\n";
@@ -1183,20 +1177,17 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 		std::fstream out;
 		out.open(outFileName, std::ios::out | std::ios::trunc);
 		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		size_t iKeptGroup = 0;
+		uint32_t iKeptGroup = 0;
 
 		for (size_t iChunk = 0; iChunk < nRAMchunks; ++iChunk){
-			std::vector<float> hashJacGroups(maxPairsInRAM, 0.0);
-			std::vector< std::pair<size_t, size_t> > idxPairs;
-			std::vector<size_t> groupID;
-			idxPairs.reserve(maxPairsInRAM);
+			std::vector<IndexedPairSimilarity> hashJacGroups;
+			hashJacGroups.reserve(maxPairsInRAM);
 			size_t iPair = 0;
 			for (; iGroup < ldGroup.size(); ++iGroup) {
 				if (ldGroup[iGroup].size() >= smallestGrpSize){
 					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
 						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
-							idxPairs.emplace_back(std::pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
-							groupID.push_back(iKeptGroup);
+							hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus], iKeptGroup});
 							++iPair;
 							if (iPair == maxPairsInRAM){
 								++jLocus;
@@ -1236,8 +1227,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				tasks.reserve(nThreads_);
 				for (const auto &tr : threadRanges){
 					tasks.emplace_back(
-						std::async([this, &tr, &idxPairs, &hashJacGroups]{
-							hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+						std::async([this, &tr, &hashJacGroups]{
+							hashJacBlock_(tr.first, tr.second, hashJacGroups);
 						})
 					);
 				}
@@ -1249,8 +1240,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				tasks.reserve(maxPairsInRAM);
 				for (size_t iPair = 0; iPair < maxPairsInRAM; ++iPair){
 					tasks.emplace_back(
-						std::async([this, iPair, &idxPairs, &hashJacGroups]{
-							hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+						std::async([this, iPair, &hashJacGroups]{
+							hashJacBlock_(iPair, iPair + 1, hashJacGroups);
 						})
 					);
 				}
@@ -1259,21 +1250,18 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				}
 			}
 			// Save the results
-			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-				out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+			for (const auto idxRes : hashJacGroups){
+				out << idxRes.groupID + 1 << "\t" << idxRes.locus1ind + 1 << "\t" << idxRes.locus2ind + 1 << "\t" << idxRes.simiarityValue << "\n";
 			}
 		}
 		if (nRemainingPairs){
-			std::vector<float> hashJacGroups(nRemainingPairs, 0.0);
-			std::vector< std::pair<size_t, size_t> > idxPairs;
-			std::vector<size_t> groupID;
-			idxPairs.reserve(nRemainingPairs);
+			std::vector<IndexedPairSimilarity> hashJacGroups;
+			hashJacGroups.reserve(nRemainingPairs);
 			for (; iGroup < ldGroup.size(); ++iGroup) {
 				if (ldGroup[iGroup].size() >= smallestGrpSize){
 					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
 						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
-							idxPairs.emplace_back(std::pair<size_t, size_t>{ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus]});
-							groupID.push_back(iKeptGroup);
+							hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus], iKeptGroup});
 						}
 						jLocus = iLocus + 2;
 					}
@@ -1296,8 +1284,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				tasks.reserve(nThreads_);
 				for (const auto &tr : threadRanges){
 					tasks.emplace_back(
-						std::async([this, &tr, &idxPairs, &hashJacGroups]{
-							hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+						std::async([this, &tr, &hashJacGroups]{
+							hashJacBlock_(tr.first, tr.second, hashJacGroups);
 						})
 					);
 				}
@@ -1309,8 +1297,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				tasks.reserve(nRemainingPairs);
 				for (size_t iPair = 0; iPair < nRemainingPairs; ++iPair){
 					tasks.emplace_back(
-						std::async([this, iPair, &idxPairs, &hashJacGroups]{
-							hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+						std::async([this, iPair, &hashJacGroups]{
+							hashJacBlock_(iPair, iPair + 1, hashJacGroups);
 						})
 					);
 				}
@@ -1319,8 +1307,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 				}
 			}
 			// Save the results
-			for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-				out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+			for (const auto idxRes : hashJacGroups){
+				out << idxRes.groupID + 1 << "\t" << idxRes.locus1ind + 1 << "\t" << idxRes.locus2ind + 1 << "\t" << idxRes.simiarityValue << "\n";
 			}
 		}
 		out.close();
@@ -1329,16 +1317,12 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 		// estimate Jaccard similarities within groups
 		std::vector<IndexedPairSimilarity> hashJacGroups;
 		hashJacGroups.reserve(totNpairs);
-		std::vector< std::pair<size_t, size_t> > idxPairs;
-		std::vector<size_t> groupID;
-		idxPairs.reserve(totNpairs);
-		size_t iKeptGroup = 0;
+		uint32_t iKeptGroup = 0;
 		for (auto &ldg : ldGroup){
 			if (ldg.size() >= smallestGrpSize){
 				for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
 					for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
-						idxPairs.emplace_back(std::pair<size_t, size_t>{ldg[iLocus], ldg[jLocus]});
-						groupID.push_back(iKeptGroup);
+						hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldg[iLocus], ldg[jLocus], iKeptGroup});
 					}
 				}
 				++iKeptGroup;
@@ -1359,8 +1343,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 			tasks.reserve(nThreads_);
 			for (const auto &tr : threadRanges){
 				tasks.emplace_back(
-					std::async([this, &tr, &idxPairs, &hashJacGroups]{
-						hashJacBlock_(tr.first, tr.second, idxPairs, hashJacGroups);
+					std::async([this, &tr, &hashJacGroups]{
+						hashJacBlock_(tr.first, tr.second, hashJacGroups);
 					})
 				);
 			}
@@ -1372,8 +1356,8 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 			tasks.reserve(totNpairs);
 			for (size_t iPair = 0; iPair < totNpairs; ++iPair){
 				tasks.emplace_back(
-					std::async([this, iPair, &idxPairs, &hashJacGroups]{
-						hashJacBlock_(iPair, iPair + 1, idxPairs, hashJacGroups);
+					std::async([this, iPair, &hashJacGroups]{
+						hashJacBlock_(iPair, iPair + 1, hashJacGroups);
 					})
 				);
 			}
@@ -1385,10 +1369,35 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const size_t &maxGro
 		std::fstream out;
 		out.open(outFileName, std::ios::out | std::ios::trunc);
 		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		for (size_t iPair = 0; iPair < idxPairs.size(); ++iPair){
-			out << groupID[iPair] + 1 << "\t" << idxPairs[iPair].first + 1 << "\t" << idxPairs[iPair].second + 1 << "\t" << hashJacGroups[iPair] << "\n";
+		for (const auto idxRes : hashJacGroups){
+			out << idxRes.groupID + 1 << "\t" << idxRes.locus1ind + 1 << "\t" << idxRes.locus2ind + 1 << "\t" << idxRes.simiarityValue << "\n";
 		}
 		out.close();
+	}
+}
+
+void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const float &sparsity, const size_t &smallestGrpSize, const std::string &outFileName) const {
+	if (sparsity < 0.0){
+		logMessages_ += "ERROR: negative sparsity parameter; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: negative sparsity parameter in ") + std::string(__FUNCTION__);
+	} else if (sparsity > 1.0){
+		logMessages_ += "ERROR: sparsity parameter greater than 1.0; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: sparsity parameter greater than 1.0 in ") + std::string(__FUNCTION__);
+	}
+	const size_t nGroupsLg = static_cast<size_t> (sparsity * nLoci_);
+	const uint32_t nGroups = (nGroupsLg > std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max() : static_cast<uint32_t> (nGroupsLg));
+	if (nGroups == 0){
+		this->allHashLD(outFileName);
+	} else {
+		this->ldInGroups(kSketchSubset, nGroups, smallestGrpSize, outFileName);
 	}
 }
 
@@ -1766,16 +1775,16 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	}
 }
 
-void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const std::vector< std::pair<size_t, size_t> > &idxVector, std::vector<float> &hashJacVec) const {
+void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &hashJacVec) const {
 	for (size_t iBlock = blockStartVec; iBlock < blockEndVec; ++iBlock){
 		float simVal = 0.0;
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
-			simVal += static_cast<float>(sketches_[idxVector[iBlock].first * kSketches_ + iSk] == sketches_[idxVector[iBlock].second * kSketches_ + iSk]);
+			simVal += static_cast<float>(sketches_[hashJacVec[iBlock].locus1ind * kSketches_ + iSk] == sketches_[hashJacVec[iBlock].locus2ind * kSketches_ + iSk]);
 		}
 		// mutex may have a performance hit sometimes
 		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
 		std::lock_guard<std::mutex> lk(mtx_);
-		hashJacVec[iBlock] = simVal / static_cast<float>(kSketches_);
+		hashJacVec[iBlock].simiarityValue = simVal / static_cast<float>(kSketches_);
 	}
 }
 

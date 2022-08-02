@@ -357,7 +357,7 @@ namespace BayesicSpace {
 		 *
 		 * \return locus index hash table
 		 */
-		std::vector< std::vector<size_t> > makeLDgroups(const size_t &kSketchSubset, const size_t &maxGroupNumber) const;
+		std::vector< std::vector<size_t> > makeLDgroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber) const;
 		/** \brief Calculates linkage disequilibrium (LD) in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
@@ -368,7 +368,18 @@ namespace BayesicSpace {
 		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const size_t &kSketchSubset, const size_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
+		void ldInGroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
+		/** \brief Calculates linkage disequilibrium (LD) in groups
+		 *
+		 * The sparsity parameter must be between 0.0 and 1.0. If it is 0.0, all pairwise LD is calculated using `allHashLD`.
+		 * Otherwise, group-wise LD is calculated using `ldInGroups` with `maxGroupNumber` set to `sparsity * nLoci_`.
+		 *
+		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
+		 * \param[in] sparsity the ratio of the number of groups to the number of loci
+		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
+		 * \param[in] outFileName name of the output file
+		 */
+		void ldInGroups(const size_t &kSketchSubset, const float &sparsity, const size_t &smallestGrpSize, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -518,12 +529,11 @@ namespace BayesicSpace {
 		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
 		 * The index vector contains indexes of locus pairs included in LD calculations.
 		 *
-		 * \param[in] blockStartVec index of the block start in `idxVector` and `hashJacVec`
-		 * \param[in] blockEndVec index of the block end in `idxVector` and `hashJacVec`
-		 * \param[in] idxVector vector of locus pair indexes
-		 * \param[out] hashJacVec vectorized blocked lower triangle of the hash-estimated Jaccard similarity matrix
+		 * \param[in] blockStartVec index of the block start
+		 * \param[in] blockEndVec index of the block end
+		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const std::vector< std::pair<size_t, size_t> > &idxVector, std::vector<float> &hashJacVec) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector< IndexedPairSimilarity > &indexedJacc) const;
 		/** \brief Hamming distance
 		 *
 		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.

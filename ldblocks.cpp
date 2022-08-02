@@ -38,33 +38,33 @@
 
 #include "src/gvarHash.hpp"
 
-void parseCL(int&, char**, std::unordered_map<char, std::string> &);
+void parseCL(int&, char**, std::unordered_map<string, string> &);
 
 /** \brief Command line parser
  *
- * Maps flags to values. Flags assumed to be of the form -x.
+ * Maps flags to values. Flags assumed to be of the form `--flag-name value`.
  *
  * \param[in] argc size of the `argv` array
  * \param[in] argv command line input array
  * \param[out] cli map of tags to values
  */
-void parseCL(int &argc, char **argv, std::unordered_map<char, std::string> &cli){
-	// set to true after encountering a flag token (the character after the dash)
+void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
+	// set to true after encountering a flag token (the characters after the dash)
 	bool val = false;
 	// store the token value here
-	char curFlag;
+	string curFlag;
 
 	for (int iArg = 1; iArg < argc; iArg++) {
 		const char *pchar = argv[iArg];
 
-		if (pchar[0] == '-') { // encountered the dash, look for the token after it
-			if (!pchar[1]) {
+		if ( (pchar[0] == '-') && (pchar[1] == '-') ) { // encountered the double dash, look for the token after it
+			if (!pchar[2]) {
 				std::cerr << "WARNING: forgot character after dash. Ignoring.\n";
 				continue;
 			}
 			// what follows the dash?
 			val     = true;
-			curFlag = pchar[1];
+			curFlag = pchar + 2;
 
 		} else {
 			if (val) {
@@ -80,21 +80,21 @@ void parseCL(int &argc, char **argv, std::unordered_map<char, std::string> &cli)
 }
 
 int main(int argc, char *argv[]){
-	std::string inFileName;
-	std::string logFileName;
-	std::string outFileName;
-	std::string sparsityType; // can be hard, soft, or none
+	string inFileName;
+	string logFileName;
+	string outFileName;
+	float sparsity;
 	int inputKsketches{0};
-	int range{0};
 	int inputThreads{-1};
 	int Nindv{0};
 	int minGroupSize{0};
-	int groupPrecision{0};
+	int groupingHashSize{0};
 
 	// set usage message
-	std::string cliHelp = "Command line flags (in any order):\n  -f file_name (input file name; required)\n  -s sparsity_type (can be hard, soft, or none; default is hard; none results in all by all estimates)\n  -i number_of_individuals (must be 3 or more; required)\n  -k hash_size (default is 60)\n  -g LD range (how many blocks back to examine; default is 5; 0 means only the current group is considered)\n  -m min_group_size (disregard groups smaller than this; default 5)\n  -p hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n  -t number_of_threads (maximal number of threads to use; defaults to maximal available)\n  -l log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n  -o output_file_name (output name file; default ldblocksOut.tsv)\n";
-	std::unordered_map <char, std::string> clInfo;
+	std::string cliHelp = "Command line flags (in any order):\n  --input-bed file_name (input file name; required)\n  --sparsity sparsity from 0.0 (all by all) to 1.0 (small expected group size, sparse LD matrix)\n  --n-individuals number_of_individuals (must be 3 or more; required)\n  --hash-size hash_size default is 60\n  --min-group-size min_group_size (disregard groups smaller than this; default 5)\n  --grouping-hash-size hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n  --threads number_of_threads (maximal number of threads to use; defaults to maximal available)\n  --log-file log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n  --out-file output_file_name (output name file; default ldblocksOut.tsv)\n";
+	std::unordered_map <string, string> clInfo;
 	parseCL(argc, argv, clInfo);
+
 	if ( clInfo.empty() ){
 		std::cerr << "Available command line flags:\n";
 		std::cerr << cliHelp;
@@ -102,7 +102,7 @@ int main(int argc, char *argv[]){
 	}
 	auto clIter = clInfo.begin(); // iterator of the command line flags
 
-	clIter = clInfo.find('f');
+	clIter = clInfo.find("input-bed");
 	if ( clIter == clInfo.end() ){ // if not there, complain
 		std::cerr << "ERROR: specification of the input file name is required\n";
 		std::cerr << cliHelp;
@@ -111,14 +111,18 @@ int main(int argc, char *argv[]){
 		inFileName = clIter->second;
 	}
 
-	clIter = clInfo.find('s');
+	clIter = clInfo.find("sparsity");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
-		sparsityType = "hard";
+		sparsity = 0.0;
 	} else {
-		sparsityType = clIter->second;
+		sparsity = std::stof(clIter->second);
+	}
+	if ( (sparsity < 0.0) || (sparsity > 1.0) ){
+		std::cerr << "ERROR: sparsity must be between 0.0 and 1.0\n";
+		exit(2);
 	}
 
-	clIter = clInfo.find('i');
+	clIter = clInfo.find("n-individuals");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		std::cerr << "ERROR: specification of the number of individuals is required\n";
 		std::cerr << cliHelp;
@@ -136,7 +140,7 @@ int main(int argc, char *argv[]){
 		exit(2);
 	}
 
-	clIter = clInfo.find('k');
+	clIter = clInfo.find("hash-size");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		inputKsketches = 60;
 	} else {
@@ -152,23 +156,7 @@ int main(int argc, char *argv[]){
 		exit(2);
 	}
 
-	clIter = clInfo.find('g');
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		range = 5;
-	} else {
-		try {
-			range = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
-			std::cerr << "ERROR: Provided range size is not an integer\n";
-			exit(2);
-		}
-	}
-	if (range < 0){
-		std::cerr << "ERROR: LD range must be non-negative\n";
-		exit(2);
-	}
-
-	clIter = clInfo.find('m');
+	clIter = clInfo.find("min-group-size");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		minGroupSize = 5;
 	} else {
@@ -184,23 +172,23 @@ int main(int argc, char *argv[]){
 		exit(2);
 	}
 
-	clIter = clInfo.find('p');
+	clIter = clInfo.find("grouping-hash-size");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
-		groupPrecision = inputKsketches;
+		groupingHashSize = inputKsketches;
 	} else {
 		try {
-			groupPrecision = stoi(clIter->second);
+			groupingHashSize = stoi(clIter->second);
 		} catch(const std::invalid_argument& ia){
 			std::cerr << "ERROR: Provided group precision is not an integer\n";
 			exit(2);
 		}
 	}
-	if (groupPrecision < 3){
+	if (groupingHashSize < 3){
 		std::cerr << "ERROR: must have at least 3 sketches for locus grouping\n";
 		exit(2);
 	}
 
-	clIter = clInfo.find('t');
+	clIter = clInfo.find("threads");
 	if ( clIter == clInfo.end() ){ // if not there, set to negative value (will be changed to default later)
 		inputThreads = -1;
 	} else {
@@ -212,20 +200,19 @@ int main(int argc, char *argv[]){
 		}
 	}
 
-	clIter = clInfo.find('l');
+	clIter = clInfo.find("log-file");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		logFileName = "ldblocks.log";
 	} else {
 		logFileName = clIter->second;
 	}
 
-	clIter = clInfo.find('o');
+	clIter = clInfo.find("out-file");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
 		outFileName = "ldblocksOut.tsv";
 	} else {
 		outFileName = clIter->second;
 	}
-
 	// Proceed to actual analysis
 	try {
 		const size_t kSketches = static_cast<size_t>(inputKsketches);
@@ -237,30 +224,16 @@ int main(int argc, char *argv[]){
 			const size_t nThreads = static_cast<size_t>(inputThreads);
 			groupLD               = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
 		}
-		if (sparsityType == "none"){
+		if (sparsity == 0.0){
 			groupLD.allHashLD(outFileName);
 			groupLD.saveLogFile();
-		} else if (sparsityType == "hard"){
-			const uint16_t hammingCt = 0;
-			const size_t kSubs       = static_cast<size_t>(groupPrecision);
-			const size_t lkBackN     = static_cast<size_t>(range);
-			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
-			groupLD.ldInGroups(hammingCt, kSubs, lkBackN, smGrpSize, outFileName);
-			if (logFileName != "none"){
-				groupLD.saveLogFile();
-			}
-		} else if (sparsityType == "soft"){
-			const uint16_t hammingCt = 1;
-			const size_t kSubs       = static_cast<size_t>(groupPrecision);
-			const size_t lkBackN     = static_cast<size_t>(range);
-			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
-			groupLD.ldInGroups(hammingCt, kSubs, lkBackN, smGrpSize, outFileName);
-			if (logFileName != "none"){
-				groupLD.saveLogFile();
-			}
 		} else {
-			std::cerr << "ERROR: unknown sparsity parameter " << sparsityType << "; must be 'hard', 'soft', or 'none'\n";
-			exit(3);
+			const size_t kSubs       = static_cast<size_t>(groupingHashSize);
+			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
+			groupLD.ldInGroups(kSubs, sparsity, smGrpSize, outFileName);
+			if (logFileName != "none"){
+				groupLD.saveLogFile();
+			}
 		}
 	} catch(std::string problem){
 		std::cerr << problem << "\n";
