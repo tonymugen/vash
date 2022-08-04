@@ -56,7 +56,6 @@ void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
 
 	for (int iArg = 1; iArg < argc; iArg++) {
 		const char *pchar = argv[iArg];
-
 		if ( (pchar[0] == '-') && (pchar[1] == '-') ) { // encountered the double dash, look for the token after it
 			if (!pchar[2]) {
 				std::cerr << "WARNING: forgot character after dash. Ignoring.\n";
@@ -65,7 +64,6 @@ void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
 			// what follows the dash?
 			val     = true;
 			curFlag = pchar + 2;
-
 		} else {
 			if (val) {
 				val = false;
@@ -73,9 +71,7 @@ void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
 			} else {
 				std::cerr << "WARNING: command line value " << pchar << " ignored because it is not preceded by a flag.\n";
 			}
-
 		}
-
 	}
 }
 
@@ -91,7 +87,16 @@ int main(int argc, char *argv[]){
 	int groupingHashSize{0};
 
 	// set usage message
-	std::string cliHelp = "Command line flags (in any order):\n  --input-bed file_name (input file name; required)\n  --sparsity sparsity from 0.0 (all by all) to 1.0 (small expected group size, sparse LD matrix)\n  --n-individuals number_of_individuals (must be 3 or more; required)\n  --hash-size hash_size default is 60\n  --min-group-size min_group_size (disregard groups smaller than this; default 5)\n  --grouping-hash-size hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n  --threads number_of_threads (maximal number of threads to use; defaults to maximal available)\n  --log-file log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n  --out-file output_file_name (output name file; default ldblocksOut.tsv)\n";
+	std::string cliHelp = "Command line flags (in any order):\n" 
+		"  --input-bed          file_name (input file name; required)\n"
+		"  --sparsity           from 0.0 (all by all) to 1.0 (small expected group size, sparse LD matrix); default 0.5\n"
+		"  --n-individuals      number_of_individuals (must be 3 or more; required)\n"
+		"  --hash-size          hash_size; default 60\n"
+		"  --min-group-size     min_group_size (disregard groups smaller than this; default 5)\n"
+		"  --grouping-hash-size hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n"
+		"  --threads            number_of_threads (maximal number of threads to use; defaults to maximal available)\n"
+		"  --log-file           log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n"
+		"  --out-file           output_file_name (output name file; default ldblocksOut.tsv)\n";
 	std::unordered_map <string, string> clInfo;
 	parseCL(argc, argv, clInfo);
 
@@ -113,7 +118,7 @@ int main(int argc, char *argv[]){
 
 	clIter = clInfo.find("sparsity");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
-		sparsity = 0.0;
+		sparsity = 0.5;
 	} else {
 		sparsity = std::stof(clIter->second);
 	}
@@ -228,8 +233,8 @@ int main(int argc, char *argv[]){
 			groupLD.allHashLD(outFileName);
 			groupLD.saveLogFile();
 		} else {
-			const size_t kSubs       = static_cast<size_t>(groupingHashSize);
-			const size_t smGrpSize   = static_cast<size_t>(minGroupSize);
+			const size_t kSubs     = static_cast<size_t>(groupingHashSize);
+			const size_t smGrpSize = static_cast<size_t>(minGroupSize);
 			groupLD.ldInGroups(kSubs, sparsity, smGrpSize, outFileName);
 			if (logFileName != "none"){
 				groupLD.saveLogFile();

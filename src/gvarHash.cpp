@@ -650,7 +650,7 @@ constexpr uint32_t GenoTableHash::c2_                    = 0x1b873593;          
 GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{logFileName} {
 	std::stringstream logStream;
 	const time_t t = time(nullptr);
-	logStream << std::put_time(localtime(&t), "%b %e %H:%M %Z");
+	logStream << std::put_time(localtime(&t), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
 	logStream.clear();
 	if (nIndividuals <= 1){
@@ -1164,7 +1164,6 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const uint32_t &maxG
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "Smallest group size: " + std::to_string(smallestGrpSize) + "\n";
 	logMessages_ += "Number of pairs considered: " + std::to_string(totNpairs) + "\n";
-	logMessages_ += "Maximal number of non-empty groups: " + std::to_string(maxGroupNumber) + "\n";
 	logMessages_ += "Maximum number fitting in RAM: " + std::to_string(maxPairsInRAM) + "; ";
 	if (totNpairs > maxPairsInRAM){
 		logMessages_                += "calculating in chunks\n";
