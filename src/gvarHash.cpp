@@ -1674,14 +1674,10 @@ uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) con
 
 uint16_t GenoTableHash::murMurHash_(const uint16_t &key, const uint32_t &seed) const {
 	uint32_t hash = seed;
-
-	// body
-	uint32_t block = static_cast<uint32_t>(key);
-
-	uint32_t k1 = block;
+	uint32_t k1   = static_cast<uint32_t>(key);
 
 	k1 *= c1_;
-	k1 = (k1 << 15) | (k1 >> 17);
+	k1  = (k1 << 15) | (k1 >> 17);
 	k1 *= c2_;
 
 	hash ^= k1;
@@ -1705,7 +1701,6 @@ uint16_t GenoTableHash::murMurHash_(const uint16_t &key, const uint32_t &seed) c
 uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const {
 	uint32_t hash = seed;
 
-	// body
 	auto blocks    = reinterpret_cast<const uint32_t *>(sketches_.data() + startInd);
 	size_t nBlocks = nElements / 2; // each sketch is 16 bits; this implies that only even number of sketches is considered
 
@@ -1734,17 +1729,17 @@ uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nEleme
 }
 
 uint32_t GenoTableHash::simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const {
-	uint32_t hash        = 0;
-	const uint32_t one   = 1;
-	const size_t twoByte = 2 * byteSize_;
-	std::array<int32_t, twoByte> v{};
+	uint32_t hash         = 0;
+	const uint32_t one    = 1;
+	const size_t fourByte = 4 * byteSize_;
+	std::array<int32_t, fourByte> v{};
 	for (size_t iSketch = startInd; iSketch < startInd + kSketches; ++iSketch){
 		const uint32_t skHash = murMurHash_(sketches_[iSketch], seed);
-		for (uint32_t j = 0; j < twoByte; ++j){
+		for (uint32_t j = 0; j < fourByte; ++j){
 			v[j] += -1 + 2 * static_cast<int32_t>( one & (skHash >> j) );
 		}
 	}
-	for (uint32_t i = 0; i < twoByte; ++i){
+	for (uint32_t i = 0; i < fourByte; ++i){
 		hash |= (static_cast<uint32_t>(v[i] > 0) << i);
 	}
 	return hash;
