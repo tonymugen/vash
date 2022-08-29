@@ -23,21 +23,12 @@
 #include <sstream>
 #include <iostream>
 #include <vector>
+#include <unordered_map>
 #include <chrono>
 #include <cmath>
 
 #include "../src/gvarHash.hpp"
 
-using std::string;
-using std::fstream;
-using std::stringstream;
-using std::ios;
-using std::cerr;
-
-using std::chrono::high_resolution_clock;
-using std::chrono::duration;
-using std::chrono::milliseconds;
-using std::milli;
 using namespace BayesicSpace;
 
 int main(){
@@ -84,8 +75,8 @@ int main(){
 			}
 		}
 		*/
-		//const size_t Ngeno = 3750;
-		const size_t Ngeno = 4;
+		const size_t Ngeno = 3750;
+		//const size_t Ngeno = 4;
 		const size_t Nindv = 2000;
 		const size_t k     = 80;
 		//const string bedFile("sim1test.bed");
@@ -196,10 +187,11 @@ int main(){
 		*/
 		//GenoTableHash testTab(genoCodes, Nindv, k);
 		//GenoTableBin testTab(genoCodes, Nindv);
-		const string bedFile("testSimNew.bed");
+		//const string bedFile("testSimNew.bed");
 		//const string bedFile("sim1_1997.bed");
+		const string bedFile("sim1.bed");
 		GenoTableHash testBed(bedFile, Nindv, k, "testLog.log");
-		testBed.testSimHash(k, "testSimOut.txt");
+		//testBed.testSimHash(k, "testSimOut.txt");
 		//testBed.allHashLD( string("sim1Full.txt") );
 		//testBed.ldInGroups(2, 60, 3, 5, string("sim1LDgroup.txt") );
 		//auto time1 = high_resolution_clock::now();
@@ -211,17 +203,19 @@ int main(){
 		//outLD = testTab.allJaccardLD();
 		//outLD = testTab.allHashLD();
 		//testBed.allHashLD(string("sim1ophMT.txt"));
-		/*
-		string outFileName("sim1ophMT.txt");
-		fstream output;
-		output.open(outFileName.c_str(), ios::trunc | ios::out);
-		for (const auto &o : outLD){
-			output << o << " ";
+		const size_t r = 10;
+		const std::unordered_map< uint32_t, std::vector<size_t> > ldGroups{testBed.makeLDgroups(r)};
+		string outFileName("sim1LSHgroup.txt");
+		std::fstream output;
+		output.open(outFileName.c_str(), std::ios::trunc | std::ios::out);
+		for (const auto &o : ldGroups){
+			for (const auto l : o.second){
+				output << o.first << " " << l << "\n";
+			}
 		}
 		output.close();
-		*/
 	} catch(string problem){
-		cerr << problem << "\n";
+		std::cerr << problem << "\n";
 		exit(1);
 	}
 }

@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <vector>
 #include <array>
+#include <unordered_map>
 #include <utility>  // for std::pair
 #include <string>
 #include <thread>
@@ -348,38 +349,32 @@ namespace BayesicSpace {
 		void allHashLD(const std::string &ldFileName) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
-		 * Builds a hash table of locus indexes. The hash table is implemented as a vector of vectors.
-		 * The outer vector is as long as the maximum number of groups, the indexes are simHash values modulo maximal number of groups.
-		 * Each group is a vector of indexes of loci with the same simHash value (again, modulo maximal group number).
+		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 of greater).
+		 * Locus pairs are included in the pair hash table if all rows in at least one band match.
+		 * The resulting hash table has groups with at least two loci per group (indexed by a hash of OPH sketches within bands).
 		 *
-		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 * \param[in] maxGroupNumber maximum number of groups (some may end up empty)
+		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 *
 		 * \return locus index hash table
 		 */
-		std::vector< std::vector<size_t> > makeLDgroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber) const;
-		/** \brief Calculates linkage disequilibrium (LD) in groups
+		std::unordered_map< uint32_t, std::vector<size_t> > makeLDgroups(const size_t &nRowsPerBand) const;
+		/** \brief Linkage disequilibrium (LD) in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
-		 * All hash values are used for similarity calculations, even if only a subset is considered for similarity grouping.
 		 *
-		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 * \param[in] maxGroupNumber maximum number of groups
-		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
+		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const;
-		/** \brief Calculates linkage disequilibrium (LD) in groups
+		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
+		/** \brief Linkage disequilibrium (LD) in groups
 		 *
-		 * The sparsity parameter must be between 0.0 and 1.0. If it is 0.0, all pairwise LD is calculated using `allHashLD`.
-		 * Otherwise, group-wise LD is calculated using `ldInGroups` with `maxGroupNumber` set to `sparsity * nLoci_`.
+		 * Group loci with Jaccard similarity exceeding the provided cut-off.
+		 * The cut-off is approximate. Some false positives and false negatives will occur.
 		 *
-		 * \param[in] kSketchSubset number of OPH sketches to use for simHash
-		 * \param[in] sparsity the ratio of the number of groups to the number of loci
-		 * \param[in] smallestGrpSize groups with fewer loci than this will be discarded from LD calculations
+		 * \param[in] similarityCutoff Jaccard similarity cut-off for group inclusion
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const size_t &kSketchSubset, const float &sparsity, const size_t &smallestGrpSize, const std::string &outFileName) const;
+		void ldInGroups(const float &similarityCutoff, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -480,20 +475,9 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
-		/** \brief 16 bit MurMurHash
-		 *
-		 * Generates a 16-bit hash of a 16 bit value using the MurMurHash3 algorithm.
-		 *
-		 * \param[in] key the key to be hashed
-		 * \param[in] seed the seed
-		 *
-		 * \return the hash value
-		 */
-		uint16_t murMurHash_(const uint16_t &key, const uint32_t &seed) const;
 		/** \brief MurMurHash of a sketch portion
 		 *
 		 * Generates a 32-bit hash of a portion of an OPH sketch using the MurMurHash3 algorithm.
-		 * If the number of elements provided is odd, it is rounded down to the next even number.
 		 *
 		 * \param[in] startInd index of the first sketch element (to the `sketches_` vector)
 		 * \param[in] nElements number of elements to hash
@@ -509,9 +493,11 @@ namespace BayesicSpace {
 		 * \param[in] startInd index of the first sketch in the `sketches_` vector
 		 * \param[in] kSketches number of sketches to hash
 		 * \param[in] seed seed value to use with murMurHash on each sketch element
+		 * \param[in] maxGrpSize maximal number of groups
+		 * \param[in] firstSetBit firs possible set bit in the hash (depends on group size)
 		 * \return hash value
 		 */
-		uint32_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const;
+		uint32_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed, const size_t &maxGrpSize, const uint32_t &firstSetBit) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.

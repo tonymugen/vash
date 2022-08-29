@@ -32,6 +32,7 @@
 #include <sstream>
 #include <fstream>
 #include <vector>
+#include <unordered_map>
 #include <array>
 #include <utility>  // for std::pair
 #include <iterator>
@@ -662,16 +663,16 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string(__FUNCTION__);
 	}
 	if (kSketches_ < 3){
-		logMessages_ += "ERROR: sketch size (" + std::to_string(kSketches_) + ") is too small; aborting\n";
+		logMessages_ += "ERROR: number of sketches (" + std::to_string(kSketches_) + ") is too small; aborting\n";
 		std::fstream outLog;
 		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
 		outLog << logMessages_;
 		outLog.close();
-		throw std::string("ERROR: sketch size must be at least three in ") + std::string(__FUNCTION__);
+		throw std::string("ERROR: sketch number must be at least three in ") + std::string(__FUNCTION__);
 	}
-	sketchSize_ = nIndividuals_ / kSketches + static_cast<bool>(nIndividuals_ % kSketches);
+	sketchSize_ = nIndividuals_ / kSketches_ + static_cast<bool>(nIndividuals_ % kSketches_);
 	if (sketchSize_ >= emptyBinToken_){
-		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too small; aborting\n";
+		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too big; aborting\n";
 		std::fstream outLog;
 		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
 		outLog << logMessages_;
@@ -1096,75 +1097,68 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 	}
 }
 
-std::vector< std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber) const {
-	if (kSketchSubset == 0){
-		logMessages_ += "ERROR: cannot have zero sketches to simHash; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: number of OPH sketches to simHash cannot be 0 in ") + std::string(__FUNCTION__);
-	} else if (kSketchSubset > kSketches_){
-		logMessages_ += "ERROR: subset of sketches (" + std::to_string(kSketchSubset) + ") larger than the total; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: number of OPH sketches to simHash cannot exceed the total number of sketches per locus in ") + std::string(__FUNCTION__);
-	} else if (maxGroupNumber == 0){
-		logMessages_ += "ERROR: maximal group number must not be zero; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: zero groups in ") + std::string(__FUNCTION__);
-	} else if (maxGroupNumber > nLoci_){
-		logMessages_ += std::string("ERROR: maximal group number (") + std::to_string(maxGroupNumber) + std::string(") exceeds the number of loci (") + std::to_string(nLoci_) + std::string("); aborting\n");
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: maximal number of groups exceeds the number of loci in ") + std::string(__FUNCTION__);
-	}
+std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
+	// TODO: add an assert() for nRowsPerBand != 0 and nRowsPerBand < kSketches_
+	const size_t nBands    = kSketches_ / nRowsPerBand;
+	const size_t remainder = kSketches_ % nRowsPerBand;
 
 	logMessages_ += "Grouping loci\n";
-	logMessages_ += "OPH subset size: " + std::to_string(kSketchSubset) + "\n";
-	logMessages_ += "Maximal group number: " + std::to_string(maxGroupNumber) + "\n";
+	logMessages_ += "Number of rows per band: " + std::to_string(nRowsPerBand) + "\n";
+	logMessages_ += "Number of bands: " + std::to_string( nBands + static_cast<bool>(remainder) ) + "\n";
 
 	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	std::vector< std::vector<size_t> > ldGroup(maxGroupNumber);     // the hash table
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;     // the hash table
 
+	size_t iSketch = 0;
 	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		const uint32_t groupInd = simHash_(iLocus * kSketches_, kSketchSubset, seed) % maxGroupNumber;
-		ldGroup[groupInd].push_back(iLocus);
+		 for (size_t iBand = 0; iBand < nBands; ++iBand){
+		 	const uint32_t hash = murMurHash_(iSketch, nRowsPerBand, seed);
+			if ( ldGroup[hash].empty() || (ldGroup[hash].back() != iLocus) ) {
+				ldGroup[hash].push_back(iLocus);
+			}
+			iSketch += nRowsPerBand;
+		 }
+		 if (remainder) {
+			 const uint32_t hash = murMurHash_(iSketch, remainder, seed);
+			if ( ldGroup[hash].empty() || (ldGroup[hash].back() != iLocus) ) {
+				ldGroup[hash].push_back(iLocus);
+			}
+			iSketch += remainder;
+		 }
 	}
-
+	// remove groups with one locus
+	auto ldgIt = ldGroup.begin();
+	while ( ldgIt != ldGroup.end() ) {
+		if (ldgIt->second.size() < 2) {
+			ldgIt = ldGroup.erase(ldgIt);
+		} else {
+			++ldgIt;
+		}
+	}
 	return ldGroup;
 }
 
-void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const uint32_t &maxGroupNumber, const size_t &smallestGrpSize, const std::string &outFileName) const {
-	std::vector< std::vector<size_t> > ldGroup = this->makeLDgroups(kSketchSubset, maxGroupNumber);
+void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup = this->makeLDgroups(nRowsPerBand);
 	size_t totNpairs = 0;
 	for (const auto &ldg : ldGroup){
-		if (ldg.size() >= smallestGrpSize){
-			size_t nLowTri = ldg.size() * ( ldg.size() - 1 ) / 2;
-			if (totNpairs >= std::numeric_limits<size_t>::max() - nLowTri){
-				logMessages_ += "ERROR: number of locus pairs in grouped LD exceeds the 64-bit unsigned integer limit; aborting\n";
-				std::fstream outLog;
-				outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-				outLog << logMessages_;
-				outLog.close();
-				throw std::string("ERROR: Number of locus pairs exceeds 64-bit unsigned integer limit in ") + std::string(__FUNCTION__);
-			}
-			totNpairs += nLowTri;
+		size_t nLowTri = ldg.second.size() * ( ldg.second.size() - 1 ) / 2;
+		if (totNpairs >= std::numeric_limits<size_t>::max() - nLowTri){
+			logMessages_ += "ERROR: number of locus pairs in grouped LD exceeds the 64-bit unsigned integer limit; aborting\n";
+			std::fstream outLog;
+			outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+			outLog << logMessages_;
+			outLog.close();
+			throw std::string("ERROR: Number of locus pairs exceeds 64-bit unsigned integer limit in ") + std::string(__FUNCTION__);
 		}
+		totNpairs += nLowTri;
 	}
 	const size_t maxPairsInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
 
 	logMessages_ += "Estimating LD in groups\n";
-	logMessages_ += "Smallest group size: " + std::to_string(smallestGrpSize) + "\n";
 	logMessages_ += "Number of pairs considered: " + std::to_string(totNpairs) + "\n";
 	logMessages_ += "Maximum number fitting in RAM: " + std::to_string(maxPairsInRAM) + "; ";
+	/*
 	if (totNpairs > maxPairsInRAM){
 		logMessages_                += "calculating in chunks\n";
 		const size_t nRAMchunks      = totNpairs / maxPairsInRAM;
@@ -1373,31 +1367,11 @@ void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const uint32_t &maxG
 		}
 		out.close();
 	}
+*/
 }
 
-void GenoTableHash::ldInGroups(const size_t &kSketchSubset, const float &sparsity, const size_t &smallestGrpSize, const std::string &outFileName) const {
-	if (sparsity < 0.0){
-		logMessages_ += "ERROR: negative sparsity parameter; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: negative sparsity parameter in ") + std::string(__FUNCTION__);
-	} else if (sparsity > 1.0){
-		logMessages_ += "ERROR: sparsity parameter greater than 1.0; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: sparsity parameter greater than 1.0 in ") + std::string(__FUNCTION__);
-	}
-	const size_t nGroupsLg = static_cast<size_t> (sparsity * nLoci_);
-	const uint32_t nGroups = (nGroupsLg > std::numeric_limits<uint32_t>::max() ? std::numeric_limits<uint32_t>::max() : static_cast<uint32_t> (nGroupsLg));
-	if (nGroups == 0){
-		this->allHashLD(outFileName);
-	} else {
-		this->ldInGroups(kSketchSubset, nGroups, smallestGrpSize, outFileName);
-	}
+void GenoTableHash::ldInGroups(const float &similarityCutoff, const std::string &outFileName) const {
+	// TODO: add assert() for similarityCutoff < float epsilon and similarityCutoff > 1.0
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1648,7 +1622,7 @@ uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) con
 	// body
 	auto blocks = reinterpret_cast<const uint32_t *>(&key);
 
-	for(size_t i = 0; i < nblocks_; ++i){
+	for (size_t i = 0; i < nblocks_; ++i){
 		uint32_t k1 = blocks[i];
 
 		k1 *= c1_;
@@ -1672,43 +1646,18 @@ uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) con
 	return hash;
 }
 
-uint16_t GenoTableHash::murMurHash_(const uint16_t &key, const uint32_t &seed) const {
-	uint32_t hash = seed;
-	uint32_t k1   = static_cast<uint32_t>(key);
-
-	k1 *= c1_;
-	k1  = (k1 << 15) | (k1 >> 17);
-	k1 *= c2_;
-
-	hash ^= k1;
-	hash  = (hash << 13) | (hash >> 19);
-	hash  = hash * 5 + 0xe6546b64;
-
-	// there is no tail since the input is fixed (at eight bytes typically)
-	// finalize
-	hash ^= mmhKeyLen_;
-	hash ^= hash >> 16;
-	hash *= 0x85ebca6b;
-	hash ^= hash >> 13;
-	hash *= 0xc2b2ae35;
-	hash ^= hash >> 16;
-	
-	auto hashV = reinterpret_cast<const uint16_t *>(&hash);
-
-	return hashV[0] ^ hashV[1];
-}
-
 uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const {
-	uint32_t hash = seed;
-
+	// TODO: add an assert() on nElements != 0 and startInd < sketches_.size()
+	uint32_t hash  = seed;
 	auto blocks    = reinterpret_cast<const uint32_t *>(sketches_.data() + startInd);
-	size_t nBlocks = nElements / 2; // each sketch is 16 bits; this implies that only even number of sketches is considered
+	size_t nBlocks = nElements / 2; // each sketch is 16 bits
 
-	for(size_t i = 0; i < nBlocks; ++i){
-		uint32_t k1 = blocks[i];
+	// body
+	for (size_t iBlock = 0; iBlock < nBlocks; ++iBlock){
+		uint32_t k1 = blocks[iBlock];
 
 		k1 *= c1_;
-		k1 = (k1 << 15) | (k1 >> 17);
+		k1  = (k1 << 15) | (k1 >> 17);
 		k1 *= c2_;
 
 		hash ^= k1;
@@ -1716,7 +1665,19 @@ uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nEleme
 		hash  = hash * 5 + 0xe6546b64;
 	}
 
-	// there is no tail since the input is fixed (at eight bytes typically)
+	// tail, if exists
+	if (nElements % 2){
+		uint32_t k1 = static_cast<uint32_t>(sketches_[startInd + nElements - 1]);
+
+		k1 *= c1_;
+		k1  = (k1 << 15) | (k1 >> 17);
+		k1 *= c2_;
+
+		hash ^= k1;
+		hash  = (hash << 13) | (hash >> 19);
+		hash  = hash * 5 + 0xe6546b64;
+	}
+
 	// finalize
 	hash ^= mmhKeyLen_;
 	hash ^= hash >> 16;
@@ -1728,18 +1689,19 @@ uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nEleme
 	return hash;
 }
 
-uint32_t GenoTableHash::simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed) const {
+uint32_t GenoTableHash::simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed, const size_t &maxGrpSize, const uint32_t &firstSetBit) const {
+	//TODO: set an assert for firstSetBit < 32
 	uint32_t hash         = 0;
 	const uint32_t one    = 1;
 	const size_t fourByte = 4 * byteSize_;
-	std::array<int32_t, fourByte> v{};
+	std::array<int32_t, fourByte> v{};    // may not be using the whole array, but likely worth it to declare on the stack
 	for (size_t iSketch = startInd; iSketch < startInd + kSketches; ++iSketch){
-		const uint32_t skHash = murMurHash_(sketches_[iSketch], seed);
-		for (uint32_t j = 0; j < fourByte; ++j){
+		const uint32_t skHash = murMurHash_(sketches_[iSketch], seed) % maxGrpSize;
+		for (uint32_t j = firstSetBit; j < fourByte; ++j){
 			v[j] += -1 + 2 * static_cast<int32_t>( one & (skHash >> j) );
 		}
 	}
-	for (uint32_t i = 0; i < fourByte; ++i){
+	for (uint32_t i = firstSetBit; i < fourByte; ++i){
 		hash |= (static_cast<uint32_t>(v[i] > 0) << i);
 	}
 	return hash;
