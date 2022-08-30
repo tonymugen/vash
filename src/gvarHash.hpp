@@ -486,18 +486,6 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const;
-		/** \brief SimHash of OPH sketches
-		 *
-		 * Takes the collection of OPH sketches for each locus and returns a simHash.
-		 *
-		 * \param[in] startInd index of the first sketch in the `sketches_` vector
-		 * \param[in] kSketches number of sketches to hash
-		 * \param[in] seed seed value to use with murMurHash on each sketch element
-		 * \param[in] maxGrpSize maximal number of groups
-		 * \param[in] firstSetBit firs possible set bit in the hash (depends on group size)
-		 * \return hash value
-		 */
-		uint32_t simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed, const size_t &maxGrpSize, const uint32_t &firstSetBit) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.

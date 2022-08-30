@@ -79,24 +79,20 @@ int main(int argc, char *argv[]){
 	string inFileName;
 	string logFileName;
 	string outFileName;
-	float sparsity;
+	int nRowsPerBand{0};
 	int inputKsketches{0};
 	int inputThreads{-1};
 	int Nindv{0};
-	int minGroupSize{0};
-	int groupingHashSize{0};
 
 	// set usage message
 	std::string cliHelp = "Command line flags (in any order):\n" 
-		"  --input-bed          file_name (input file name; required)\n"
-		"  --sparsity           from 0.0 (all by all) to 1.0 (small expected group size, sparse LD matrix); default 0.5\n"
-		"  --n-individuals      number_of_individuals (must be 3 or more; required)\n"
-		"  --hash-size          hash_size; default 60\n"
-		"  --min-group-size     min_group_size (disregard groups smaller than this; default 5)\n"
-		"  --grouping-hash-size hash_size_for_grouping (size of hash subset to use for grouping; defaults to full hash size)\n"
-		"  --threads            number_of_threads (maximal number of threads to use; defaults to maximal available)\n"
-		"  --log-file           log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n"
-		"  --out-file           output_file_name (output name file; default ldblocksOut.tsv)\n";
+		"  --input-bed        file_name (input file name; required)\n"
+		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix; required) \n"
+		"  --n-individuals    number_of_individuals (must be 3 or more; required)\n"
+		"  --hash-size        hash_size; default 60\n"
+		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available)\n"
+		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n"
+		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv)\n";
 	std::unordered_map <string, string> clInfo;
 	parseCL(argc, argv, clInfo);
 
@@ -116,14 +112,21 @@ int main(int argc, char *argv[]){
 		inFileName = clIter->second;
 	}
 
-	clIter = clInfo.find("sparsity");
+	clIter = clInfo.find("n-rows-per-band");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
-		sparsity = 0.5;
+		std::cerr << "ERROR: specification of the number of rows per band is required\n";
+		std::cerr << cliHelp;
+		exit(2);
 	} else {
-		sparsity = std::stof(clIter->second);
+		try {
+			nRowsPerBand = stoi(clIter->second);
+		} catch(const std::invalid_argument& ia){
+			std::cerr << "ERROR: Provided number of rows per band is not an integer\n";
+			exit(2);
+		}
 	}
-	if ( (sparsity < 0.0) || (sparsity > 1.0) ){
-		std::cerr << "ERROR: sparsity must be between 0.0 and 1.0\n";
+	if (nRowsPerBand <= 0){
+		std::cerr << "ERROR: number of rows per band must be greater than zero\n";
 		exit(2);
 	}
 
@@ -160,36 +163,8 @@ int main(int argc, char *argv[]){
 		std::cerr << "ERROR: hash length must be 3 or more\n";
 		exit(2);
 	}
-
-	clIter = clInfo.find("min-group-size");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		minGroupSize = 5;
-	} else {
-		try {
-			minGroupSize = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
-			std::cerr << "ERROR: Provided minimal group size is not an integer\n";
-			exit(2);
-		}
-	}
-	if (minGroupSize < 0){
-		std::cerr << "ERROR: minimal group size must be non-negative\n";
-		exit(2);
-	}
-
-	clIter = clInfo.find("grouping-hash-size");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		groupingHashSize = inputKsketches;
-	} else {
-		try {
-			groupingHashSize = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
-			std::cerr << "ERROR: Provided group precision is not an integer\n";
-			exit(2);
-		}
-	}
-	if (groupingHashSize < 3){
-		std::cerr << "ERROR: must have at least 3 sketches for locus grouping\n";
+	if (nRowsPerBand >= inputKsketches){
+		std::cerr << "ERROR: number of rows per band must be smaller than hash size\n";
 		exit(2);
 	}
 
@@ -229,18 +204,17 @@ int main(int argc, char *argv[]){
 			const size_t nThreads = static_cast<size_t>(inputThreads);
 			groupLD               = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
 		}
-		if (sparsity == 0.0){
+		if (nRowsPerBand == 0){
 			groupLD.allHashLD(outFileName);
 			groupLD.saveLogFile();
 		} else {
-			const size_t kSubs     = static_cast<size_t>(groupingHashSize);
-			const size_t smGrpSize = static_cast<size_t>(minGroupSize);
-			groupLD.ldInGroups(kSubs, sparsity, smGrpSize, outFileName);
+			const size_t rowsPB    = static_cast<size_t>(nRowsPerBand);
+			groupLD.ldInGroups(rowsPB, outFileName);
 			if (logFileName != "none"){
 				groupLD.saveLogFile();
 			}
 		}
-	} catch(std::string problem){
+	} catch(std::string problem) {
 		std::cerr << problem << "\n";
 		exit(4);
 	}

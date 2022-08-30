@@ -1158,52 +1158,49 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "Number of pairs considered: " + std::to_string(totNpairs) + "\n";
 	logMessages_ += "Maximum number fitting in RAM: " + std::to_string(maxPairsInRAM) + "; ";
-	/*
 	if (totNpairs > maxPairsInRAM){
 		logMessages_                += "calculating in chunks\n";
 		const size_t nRAMchunks      = totNpairs / maxPairsInRAM;
 		const size_t nRemainingPairs = totNpairs % maxPairsInRAM;
-		size_t iGroup                = 0;
+		auto groupIt                 = ldGroup.begin();
 		size_t iLocus                = 0;
 		size_t jLocus                = 1;
+		uint32_t groupInd            = 0;
 
 		std::fstream out;
 		out.open(outFileName, std::ios::out | std::ios::trunc);
 		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		uint32_t iKeptGroup = 0;
 
 		for (size_t iChunk = 0; iChunk < nRAMchunks; ++iChunk){
 			std::vector<IndexedPairSimilarity> hashJacGroups;
 			hashJacGroups.reserve(maxPairsInRAM);
 			size_t iPair = 0;
-			for (; iGroup < ldGroup.size(); ++iGroup) {
-				if (ldGroup[iGroup].size() >= smallestGrpSize){
-					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
-						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
-							hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus], iKeptGroup});
-							++iPair;
-							if (iPair == maxPairsInRAM){
-								++jLocus;
-								if ( jLocus == ldGroup[iGroup].size() ){
-									if (iLocus < ldGroup[iGroup].size() - 1){
-										++iLocus;
-										jLocus = iLocus + 1;
-									} else {
-										++iGroup;
-										++iKeptGroup;
-										iLocus = 0;
-										jLocus = 1;
-									}
+			for (; groupIt != ldGroup.end(); ++groupIt) {
+				for (; iLocus < groupIt->second.size() - 1; ++iLocus){
+					for (; jLocus < groupIt->second.size(); ++jLocus){
+						hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, groupIt->second[iLocus], groupIt->second[jLocus], groupInd});
+						++iPair;
+						if (iPair == maxPairsInRAM){
+							++jLocus;
+							if ( jLocus == groupIt->second.size() ){
+								if (iLocus < groupIt->second.size() - 1){
+									++iLocus;
+									jLocus = iLocus + 1;
+								} else {
+									++groupIt;
+									++groupInd;
+									iLocus = 0;
+									jLocus = 1;
 								}
-								goto stopAllLoops;
 							}
+							goto stopAllLoops;
 						}
-						jLocus = iLocus + 2;
 					}
-					++iKeptGroup;
-					iLocus = 0;
-					jLocus = 1;
+					jLocus = iLocus + 2;
 				}
+				++groupInd;
+				iLocus = 0;
+				jLocus = 1;
 			}
 		stopAllLoops:
 			const size_t nPairsPerThread = maxPairsInRAM / nThreads_;
@@ -1250,18 +1247,16 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		if (nRemainingPairs){
 			std::vector<IndexedPairSimilarity> hashJacGroups;
 			hashJacGroups.reserve(nRemainingPairs);
-			for (; iGroup < ldGroup.size(); ++iGroup) {
-				if (ldGroup[iGroup].size() >= smallestGrpSize){
-					for (; iLocus < ldGroup[iGroup].size() - 1; ++iLocus){
-						for (; jLocus < ldGroup[iGroup].size(); ++jLocus){
-							hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldGroup[iGroup][iLocus], ldGroup[iGroup][jLocus], iKeptGroup});
-						}
-						jLocus = iLocus + 2;
+			for (; groupIt != ldGroup.end(); ++groupIt) {
+				for (; iLocus < groupIt->second.size() - 1; ++iLocus){
+					for (; jLocus < groupIt->second.size(); ++jLocus){
+						hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, groupIt->second[iLocus], groupIt->second[jLocus], groupInd});
 					}
-					++iKeptGroup;
-					iLocus = 0;
-					jLocus = 1;
+					jLocus = iLocus + 2;
 				}
+				++groupInd;
+				iLocus = 0;
+				jLocus = 1;
 			}
 			const size_t nPairsPerThread = nRemainingPairs / nThreads_;
 			if (nPairsPerThread){
@@ -1310,17 +1305,15 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		// estimate Jaccard similarities within groups
 		std::vector<IndexedPairSimilarity> hashJacGroups;
 		hashJacGroups.reserve(totNpairs);
-		uint32_t iKeptGroup = 0;
+		uint32_t groupInd = 0;
 		for (auto &ldg : ldGroup){
-			if (ldg.size() >= smallestGrpSize){
-				for (size_t iLocus = 0; iLocus < ldg.size() - 1; ++iLocus){
-					for (size_t jLocus = iLocus + 1; jLocus < ldg.size(); ++jLocus){
-						hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldg[iLocus], ldg[jLocus], iKeptGroup});
-					}
+			for (size_t iLocus = 0; iLocus < ldg.second.size() - 1; ++iLocus){
+				for (size_t jLocus = iLocus + 1; jLocus < ldg.second.size(); ++jLocus){
+					hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldg.second[iLocus], ldg.second[jLocus], groupInd});
 				}
-				++iKeptGroup;
-				ldg.clear();
 			}
+			++groupInd;
+			ldg.second.clear();
 		}
 		const size_t nPairsPerThread = totNpairs / nThreads_;
 		if (nPairsPerThread){
@@ -1367,7 +1360,6 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		}
 		out.close();
 	}
-*/
 }
 
 void GenoTableHash::ldInGroups(const float &similarityCutoff, const std::string &outFileName) const {
@@ -1686,24 +1678,6 @@ uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nEleme
 	hash *= 0xc2b2ae35;
 	hash ^= hash >> 16;
 
-	return hash;
-}
-
-uint32_t GenoTableHash::simHash_(const size_t &startInd, const size_t &kSketches, const uint32_t &seed, const size_t &maxGrpSize, const uint32_t &firstSetBit) const {
-	//TODO: set an assert for firstSetBit < 32
-	uint32_t hash         = 0;
-	const uint32_t one    = 1;
-	const size_t fourByte = 4 * byteSize_;
-	std::array<int32_t, fourByte> v{};    // may not be using the whole array, but likely worth it to declare on the stack
-	for (size_t iSketch = startInd; iSketch < startInd + kSketches; ++iSketch){
-		const uint32_t skHash = murMurHash_(sketches_[iSketch], seed) % maxGrpSize;
-		for (uint32_t j = firstSetBit; j < fourByte; ++j){
-			v[j] += -1 + 2 * static_cast<int32_t>( one & (skHash >> j) );
-		}
-	}
-	for (uint32_t i = firstSetBit; i < fourByte; ++i){
-		hash |= (static_cast<uint32_t>(v[i] > 0) << i);
-	}
 	return hash;
 }
 
