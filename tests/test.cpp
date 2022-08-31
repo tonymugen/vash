@@ -210,7 +210,7 @@ int main(){
 		output.open(outFileName.c_str(), std::ios::trunc | std::ios::out);
 		for (const auto &o : ldGroups){
 			for (const auto l : o.second){
-				output << o.first << " " << l << "\n";
+				output << "G" << o.first << " " << l << "\n";
 			}
 		}
 		output.close();

@@ -641,7 +641,7 @@ constexpr uint8_t  GenoTableHash::oneBit_                = 0b00000001;          
 constexpr uint8_t  GenoTableHash::byteSize_              = 8;                                    // Size of one byte in bits 
 constexpr uint8_t  GenoTableHash::llWordSize_            = 8;                                    // 64 bit word size in bytes 
 constexpr size_t   GenoTableHash::maxPairs_              = 6074000999UL;                         // approximate maximum number that does not overflow with n*(n-1)/2
-constexpr size_t   GenoTableHash::nblocks_               = sizeof(size_t) / 4;                   // MurMurHash number of blocks 
+constexpr size_t   GenoTableHash::nblocks32_             = sizeof(size_t) / sizeof(uint32_t);    // MurMurHash number of 32 bit blocks in size_t
 constexpr uint32_t GenoTableHash::mmhKeyLen_             = sizeof(size_t);                       // MurMurHash key length 
 constexpr uint16_t GenoTableHash::emptyBinToken_         = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 constexpr uint32_t GenoTableHash::c1_                    = 0xcc9e2d51;                           // MurMurHash c1 constant 
@@ -1099,32 +1099,30 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 
 std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
 	// TODO: add an assert() for nRowsPerBand != 0 and nRowsPerBand < kSketches_
-	const size_t nBands    = kSketches_ / nRowsPerBand;
-	const size_t remainder = kSketches_ % nRowsPerBand;
+	const size_t nBands = kSketches_ / nRowsPerBand; // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
 
 	logMessages_ += "Grouping loci\n";
 	logMessages_ += "Number of rows per band: " + std::to_string(nRowsPerBand) + "\n";
-	logMessages_ += "Number of bands: " + std::to_string( nBands + static_cast<bool>(remainder) ) + "\n";
+	logMessages_ += "Number of bands: " + std::to_string(nBands) + "\n";
 
-	const uint32_t seed = static_cast<uint32_t>( rng_.ranInt() );
-	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;     // the hash table
+	const uint32_t sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
+	const uint32_t indexSeed  = static_cast<uint32_t>( rng_.ranInt() );
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;       // the hash table; indexed by hashing the index vector
 
-	size_t iSketch = 0;
-	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		 for (size_t iBand = 0; iBand < nBands; ++iBand){
-		 	const uint32_t hash = murMurHash_(iSketch, nRowsPerBand, seed);
-			if ( ldGroup[hash].empty() || (ldGroup[hash].back() != iLocus) ) {
-				ldGroup[hash].push_back(iLocus);
+	for (size_t iBand = 0; iBand < nBands; ++iBand){
+		size_t iSketch = 0;
+		std::unordered_map< uint32_t, std::vector<size_t> > localLDG;  // hash table local to each band, indexed by sketch hashes
+		for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
+		 	const uint32_t hash = murMurHash_(iSketch + iLocus * kSketches_, nRowsPerBand, sketchSeed);
+			localLDG[hash].push_back(iLocus);
+		}
+		for (auto el : localLDG){
+			const uint32_t elementHash = murMurHash_(el.second, indexSeed);
+			if ( ldGroup[elementHash].empty() ){
+				ldGroup[elementHash] = std::move(el.second);
 			}
-			iSketch += nRowsPerBand;
-		 }
-		 if (remainder) {
-			 const uint32_t hash = murMurHash_(iSketch, remainder, seed);
-			if ( ldGroup[hash].empty() || (ldGroup[hash].back() != iLocus) ) {
-				ldGroup[hash].push_back(iLocus);
-			}
-			iSketch += remainder;
-		 }
+		}
+		iSketch += nRowsPerBand;
 	}
 	// remove groups with one locus
 	auto ldgIt = ldGroup.begin();
@@ -1614,7 +1612,38 @@ uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) con
 	// body
 	auto blocks = reinterpret_cast<const uint32_t *>(&key);
 
-	for (size_t i = 0; i < nblocks_; ++i){
+	for (size_t i = 0; i < nblocks32_; ++i){
+		uint32_t k1 = blocks[i];
+
+		k1 *= c1_;
+		k1  = (k1 << 15) | (k1 >> 17);
+		k1 *= c2_;
+
+		hash ^= k1;
+		hash  = (hash << 13) | (hash >> 19);
+		hash  = hash * 5 + 0xe6546b64;
+	}
+
+	// there is no tail since the input is fixed (at eight bytes typically)
+	// finalize
+	hash ^= mmhKeyLen_;
+	hash ^= hash >> 16;
+	hash *= 0x85ebca6b;
+	hash ^= hash >> 13;
+	hash *= 0xc2b2ae35;
+	hash ^= hash >> 16;
+
+	return hash;
+}
+
+uint32_t GenoTableHash::murMurHash_(const std::vector<size_t> &key, const uint32_t &seed) const {
+	uint32_t hash = seed;
+
+	// body
+	auto blocks = reinterpret_cast<const uint32_t *>( key.data() );
+	const size_t nBlocks = nblocks32_ * key.size();
+
+	for (size_t i = 0; i < nBlocks; ++i){
 		uint32_t k1 = blocks[i];
 
 		k1 *= c1_;

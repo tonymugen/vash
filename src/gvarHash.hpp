@@ -416,8 +416,8 @@ namespace BayesicSpace {
 		static const uint8_t byteSize_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
-		/** \brief MurMurHash number of blocks */
-		static const size_t nblocks_;
+		/** \brief MurMurHash number of 32 bit blocks in `size_t` */
+		static const size_t nblocks32_;
 		/** \brief MurMurHash key length */
 		static const uint32_t mmhKeyLen_;
 		/** \brief Value corresponding to an empty token */
@@ -475,6 +475,16 @@ namespace BayesicSpace {
 		 * \return the hash value
 		 */
 		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
+		/** \brief MurMurHash of a vector
+		 *
+		 * Generates a 32-bit hash of an index vector using the MurMurHash3 algorithm.
+		 *
+		 * \param[in] key the vector to be hashed
+		 * \param[in] seed the seed
+		 *
+		 * \return the hash value
+		 */
+		uint32_t murMurHash_(const std::vector<size_t> &key, const uint32_t &seed) const;
 		/** \brief MurMurHash of a sketch portion
 		 *
 		 * Generates a 32-bit hash of a portion of an OPH sketch using the MurMurHash3 algorithm.
