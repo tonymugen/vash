@@ -83,12 +83,12 @@ namespace BayesicSpace {
 
 	/** \brief Jaccard value with indexes
 	 *
-	 * Groups a Jaccard similarity value of two loci with their indexes and the ID of the group they belong to.
+	 * Groups a Jaccard similarity value of two elements (e.g., loci or individuals) with their indexes and the ID of the group they belong to.
 	 */
 	struct IndexedPairSimilarity {
 		float simiarityValue;
-		size_t locus1ind;
-		size_t locus2ind;
+		size_t element1ind;
+		size_t element2ind;
 		uint32_t groupID;
 	};
 
@@ -352,6 +352,8 @@ namespace BayesicSpace {
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 of greater).
 		 * Locus pairs are included in the pair hash table if all rows in at least one band match.
 		 * The resulting hash table has groups with at least two loci per group (indexed by a hash of OPH sketches within bands).
+		 * Locus indexes are in increasing order within each group.
+		 * Some locus pairs may end up in more than one group, but no groups are completely identical in locus composition.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 *

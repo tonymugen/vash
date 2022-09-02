@@ -125,8 +125,8 @@ int main(int argc, char *argv[]){
 			exit(2);
 		}
 	}
-	if (nRowsPerBand <= 0){
-		std::cerr << "ERROR: number of rows per band must be greater than zero\n";
+	if (nRowsPerBand < 0){
+		std::cerr << "ERROR: number of rows per band must be non-negative\n";
 		exit(2);
 	}
 
@@ -159,11 +159,11 @@ int main(int argc, char *argv[]){
 			exit(2);
 		}
 	}
-	if (inputKsketches <= 3){
-		std::cerr << "ERROR: hash length must be 3 or more\n";
+	if ( (inputKsketches <= 3) && (inputKsketches > 0) ){
+		std::cerr << "ERROR: hash length must be 3 or more, or zero\n";
 		exit(2);
 	}
-	if (nRowsPerBand >= inputKsketches){
+	if ( (nRowsPerBand >= inputKsketches) && ( nRowsPerBand && inputKsketches ) ){
 		std::cerr << "ERROR: number of rows per band must be smaller than hash size\n";
 		exit(2);
 	}
@@ -197,21 +197,32 @@ int main(int argc, char *argv[]){
 	try {
 		const size_t kSketches = static_cast<size_t>(inputKsketches);
 		const size_t nIndiv    = static_cast<size_t>(Nindv);
-		BayesicSpace::GenoTableHash groupLD;
-		if (inputThreads < 1){
-			groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
+		if (kSketches == 0){
+			if (inputThreads < 1){
+				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv);
+				allJaccard.allJaccardLD(outFileName);
+			} else {
+				const size_t nThreads = static_cast<size_t>(inputThreads);
+				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv, nThreads);
+				allJaccard.allJaccardLD(outFileName);
+			}
 		} else {
-			const size_t nThreads = static_cast<size_t>(inputThreads);
-			groupLD               = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
-		}
-		if (nRowsPerBand == 0){
-			groupLD.allHashLD(outFileName);
-			groupLD.saveLogFile();
-		} else {
-			const size_t rowsPB    = static_cast<size_t>(nRowsPerBand);
-			groupLD.ldInGroups(rowsPB, outFileName);
-			if (logFileName != "none"){
+			BayesicSpace::GenoTableHash groupLD;
+			if (inputThreads < 1){
+				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
+			} else {
+				const size_t nThreads = static_cast<size_t>(inputThreads);
+				groupLD               = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
+			}
+			if (nRowsPerBand == 0){
+				groupLD.allHashLD(outFileName);
 				groupLD.saveLogFile();
+			} else {
+				const size_t rowsPB    = static_cast<size_t>(nRowsPerBand);
+				groupLD.ldInGroups(rowsPB, outFileName);
+				if (logFileName != "none"){
+					groupLD.saveLogFile();
+				}
 			}
 		}
 	} catch(std::string problem) {
