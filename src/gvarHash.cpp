@@ -78,7 +78,7 @@ uint32_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const siz
 }
 
 size_t BayesicSpace::getAvailableRAM() {
-	if ( std::ifstream("/proc/meminfo").good() ) {
+	if ( std::ifstream("/proc/meminfo").good() ){
 		std::string memLine;
 		std::fstream memInfoStream;
 		memInfoStream.open("/proc/meminfo", std::ios::in);
@@ -124,7 +124,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	if ( inStr.fail() ){
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string(__FUNCTION__);
 	}
-	const int32_t endPosition = inStr.tellg();
+	const uint32_t endPosition = inStr.tellg();
 	if ( endPosition < magicBytes_.size() ){
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string(__FUNCTION__);
 	}
@@ -699,7 +699,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		outLog.close();
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string(__FUNCTION__);
 	}
-	const int32_t endPosition = inStr.tellg();
+	const uint32_t endPosition = inStr.tellg();
 	if ( endPosition < magicBytes_.size() ){
 		logMessages_ += "ERROR: no loci in the input .bed file " + inputFileName + "; aborting\n";
 		std::fstream outLog;
@@ -851,7 +851,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, logFileName_{logFileName} {
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{logFileName} {
 	std::stringstream logStream;
 	const time_t t = time(nullptr);
 	logStream << std::put_time(localtime(&t), "%b %e %H:%M %Z");
@@ -1215,10 +1215,6 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		out << "G" << idxRes.groupID + 1 << "\t" << idxRes.element1ind + 1 << "\t" << idxRes.element2ind + 1 << "\t" << idxRes.simiarityValue << "\n";
 	}
 	out.close();
-}
-
-void GenoTableHash::ldInGroups(const float &similarityCutoff, const std::string &outFileName) const {
-	// TODO: add assert() for similarityCutoff < float epsilon and similarityCutoff > 1.0
 }
 
 void GenoTableHash::saveLogFile() const {

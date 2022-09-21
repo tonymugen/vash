@@ -36,9 +36,9 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "src/gvarHash.hpp"
+#include "gvarHash.hpp"
 
-void parseCL(int&, char**, std::unordered_map<string, string> &);
+void parseCL(int&, char**, std::unordered_map<std::string, std::string> &);
 
 /** \brief Command line parser
  *
@@ -48,11 +48,11 @@ void parseCL(int&, char**, std::unordered_map<string, string> &);
  * \param[in] argv command line input array
  * \param[out] cli map of tags to values
  */
-void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
+void parseCL(int &argc, char **argv, std::unordered_map<std::string, std::string> &cli){
 	// set to true after encountering a flag token (the characters after the dash)
 	bool val = false;
 	// store the token value here
-	string curFlag;
+	std::string curFlag;
 
 	for (int iArg = 1; iArg < argc; iArg++) {
 		const char *pchar = argv[iArg];
@@ -76,9 +76,9 @@ void parseCL(int &argc, char **argv, std::unordered_map<string, string> &cli){
 }
 
 int main(int argc, char *argv[]){
-	string inFileName;
-	string logFileName;
-	string outFileName;
+	std::string inFileName;
+	std::string logFileName;
+	std::string outFileName;
 	int nRowsPerBand{0};
 	int inputKsketches{0};
 	int inputThreads{-1};
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]){
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available)\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv)\n";
-	std::unordered_map <string, string> clInfo;
+	std::unordered_map <std::string, std::string> clInfo;
 	parseCL(argc, argv, clInfo);
 
 	if ( clInfo.empty() ){

@@ -27,8 +27,7 @@
  *
  */
 
-#ifndef gvhash_hpp
-#define gvhash_hpp
+#pragma once
 
 #include <cstddef>
 #include <vector>
@@ -39,7 +38,7 @@
 #include <thread>
 #include <mutex>
 
-#include "bayesicUtilities/random.hpp"
+#include "random.hpp"
 
 namespace BayesicSpace {
 	struct IndexedPairSimilarity; 
@@ -123,7 +122,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const string &inputFileName, const size_t &nIndividuals, const size_t &nThreads);
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, const size_t &nThreads);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -269,7 +268,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const string &logFileName);
+		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -368,15 +367,6 @@ namespace BayesicSpace {
 		 * \param[in] outFileName name of the output file
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
-		/** \brief Linkage disequilibrium (LD) in groups
-		 *
-		 * Group loci with Jaccard similarity exceeding the provided cut-off.
-		 * The cut-off is approximate. Some false positives and false negatives will occur.
-		 *
-		 * \param[in] similarityCutoff Jaccard similarity cut-off for group inclusion
-		 * \param[in] outFileName name of the output file
-		 */
-		void ldInGroups(const float &similarityCutoff, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -401,13 +391,13 @@ namespace BayesicSpace {
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
 		/** \brief Random number generator */
-		RanDraw rng_;
+		mutable RanDraw rng_;
 		/** \brief The mutex */
 		mutable std::mutex mtx_;
 		/** \brief Log messages */
 		mutable std::string logMessages_;
 		/** \brief Log file name */
-		string logFileName_;
+		std::string logFileName_;
 		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
 		static const size_t maxPairs_;
 		/** \brief Leading bytes for .bed files */
@@ -533,4 +523,3 @@ namespace BayesicSpace {
 	};
 }
 
-#endif // gvhash_hpp

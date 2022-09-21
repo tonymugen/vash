@@ -1,3 +1,6 @@
-[submodule "src/bayesicUtilities"]
-	path = src/bayesicUtilities
+[submodule "bayesicUtilities"]
+	path = externals/bayesicUtilities/
+	url = https://github.com/tonymugen/bayesicUtilities
+[submodule "externals/bayesicUtilities"]
+	path = externals/bayesicUtilities
 	url = https://github.com/tonymugen/bayesicUtilities
