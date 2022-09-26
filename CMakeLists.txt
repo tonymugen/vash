@@ -22,44 +22,60 @@ else()
 		)
 	endif()
 endif()
+set(CMAKE_CXX_FLAGS_PROFILE
+	"-g -p -O3"
+)
+set(CMAKE_CXX_SHARED_LINKER_FLAGS_PROFILE
+	"-g -p -O3"
+)
+set(CMAKE_CXX_STATIC_LINKER_FLAGS_PROFILE
+	"-g -p -O3"
+)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
-
+include(GNUInstallDirs)
+# executable
 add_executable(ldblocks
 	apps/ldblocks.cpp
 )
-add_library(vash
-	src/gvarHash.cpp
-	externals/bayesicUtilities/src/random.cpp
-)
-
 target_include_directories(ldblocks
 	PRIVATE externals/bayesicUtilities/include
 	PRIVATE include
 )
-target_include_directories(vash
-	PRIVATE externals/bayesicUtilities/include
-	PRIVATE include
-)
-
 target_link_libraries(ldblocks
 	PRIVATE vash
 )
-set_target_properties(vash PROPERTIES
-	POSITION_INDEPENDENT_CODE ON
-)
-target_compile_options(vash
-	PRIVATE -pthread
-)
-
-set_target_properties(vash PROPERTIES
-	CXX_STANDARD         14
-	CXX_STANDARD_REQURED ON
-	CXX_EXTENSIONS       OFF
+target_compile_options(ldblocks
+	PRIVATE -Wall -Wextra -pedantic
 )
 set_target_properties(ldblocks PROPERTIES
 	CXX_STANDARD         14
 	CXX_STANDARD_REQURED ON
 	CXX_EXTENSIONS       OFF
 )
+install(TARGETS ldblocks
+	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# library
+add_library(vash
+	src/gvarHash.cpp
+	externals/bayesicUtilities/src/random.cpp
+)
+
+target_include_directories(vash
+	PRIVATE externals/bayesicUtilities/include
+	PRIVATE include
+)
+set_target_properties(vash PROPERTIES
+	POSITION_INDEPENDENT_CODE ON
+)
+target_compile_options(vash
+	PRIVATE -Wall -Wextra -pedantic -pthread
+)
+set_target_properties(vash PROPERTIES
+	CXX_STANDARD         14
+	CXX_STANDARD_REQURED ON
+	CXX_EXTENSIONS       OFF
+)
+# no install for now
 
