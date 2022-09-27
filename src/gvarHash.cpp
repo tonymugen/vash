@@ -44,6 +44,7 @@
 #include <iomanip>
 
 #include "gvarHash.hpp"
+#include "random.hpp"
 
 using namespace BayesicSpace;
 // External functions
@@ -422,6 +423,12 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
+	uint64_t locSeed;
+	{
+		std::lock_guard<std::mutex> lk(mtx_);
+		locSeed = rng_.ranInt();
+	}
+	RanDraw locPRNG(locSeed);
 	const size_t addIndv       = nIndividuals_ % 4UL;
 	const size_t addBL         = bedLocusLength - static_cast<size_t>(addIndv > 0);
 	size_t begByte             = firstLocusInd * binLocusSize_;
@@ -434,7 +441,7 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const size_t &f
 		const size_t endWholeBed = begInd + addBL;
 		// Fill the random byte vector
 		for (auto &rv : rand){
-			rv = rng_.ranInt();
+			rv = locPRNG.ranInt();
 		}
 		std::vector<uint8_t> missMasks(binLocusSize_, 0);
 		size_t iBinGeno = begByte;                       // binLocus vector index
@@ -474,9 +481,7 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const size_t &f
 				binByte       |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
 				--offsetToBin;
 			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[iBinGeno] = binByte;
 			++iBinGeno;
 			++iMissMsk;
@@ -502,23 +507,17 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const size_t &f
 				inBedByteOffset += 2;
 				inBedByteOffset  = inBedByteOffset % 8;
 			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[begByte + binLocusSize_ - 1] = binByte;
 		}
 		float aaCount = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
 		if (aaCount > 0.5){ // always want the alternative to be the minor allele
 			for (size_t iBL = 0; iBL < binLocusSize_; ++iBL){
 				const size_t biBL = begByte + iBL;
-				// mutex may have a performance hit sometimes
-				// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-				std::lock_guard<std::mutex> lk(mtx_);
+				// should be safe: each thread accesses different vector elements
 				binGenotypes_[biBL] = (~binGenotypes_[biBL]) & (~missMasks[iBL]);
 			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		}
 		begByte     += binLocusSize_;
@@ -529,6 +528,12 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const size_t &f
 void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
+	uint64_t locSeed;
+	{
+		std::lock_guard<std::mutex> lk(mtx_);
+		locSeed = rng_.ranInt();
+	}
+	RanDraw locPRNG(locSeed);
 	uint8_t remainderInd       = static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 	remainderInd               = byteSize_ - remainderInd;
@@ -538,7 +543,7 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const size_t &st
 	for (size_t iLocus = startLocusInd; iLocus < endLocusInd; ++iLocus){
 		// Fill the random byte vector
 		for (auto &rv : rand){
-			rv = rng_.ranInt();
+			rv = locPRNG.ranInt();
 		}
 		size_t iIndiv         = 0;
 		size_t iRB            = 0;                                                                 // randBytes index
@@ -560,9 +565,7 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const size_t &st
 				binByte                  |= curBitMask << iInByte;
 				++iIndiv;
 			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[iByte] = binByte;
 			++i0Byte;
 			++iRB;
@@ -583,24 +586,18 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const size_t &st
 			++iIndiv;
 		}
 		{
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[begByte + binLocusSize_ - 1] = lastBinByte;
 		}
 		float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
 		if (maf > 0.5){ // always want the alternative to be the minor allele
 			i0Byte = 0;
 			for (size_t i = begByte; i < begByte + binLocusSize_; ++i){
-				// mutex may have a performance hit sometimes
-				// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-				std::lock_guard<std::mutex> lk(mtx_);
+				// should be safe: each thread accesses different vector elements
 				binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
 				++i0Byte;
 			}
-			// mutex may have a performance hit sometimes
-			// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
 		}
 	}
@@ -627,9 +624,7 @@ void GenoTableBin::jaccardBlock_(const size_t &blockStartVec, const size_t &bloc
 			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
 		}
 		const uint32_t isect = countSetBits(locus);
-		// mutex may have a performance hit sometimes
-		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		std::lock_guard<std::mutex> lk(mtx_);
+		// should be safe: each thread accesses different vector elements
 		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect);
 		++curJacMatInd;
 	}
@@ -1270,7 +1265,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 		if ( (iByte < colEnd) && (firstSetBitPos < sketchSize_) ){
 			filledIndexes.push_back(iSketch);
 			{
-				std::lock_guard<std::mutex> lk(mtx_);
+				// should be safe: each thread accesses different vector elements
 				sketches_[sketchBeg + iSketch] = firstSetBitPos;
 			}
 
@@ -1284,7 +1279,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 	}
 	if (filledIndexes.size() == 1){
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){ // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
-			std::lock_guard<std::mutex> lk(mtx_);
+			// should be safe: each thread accesses different vector elements
 			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
 		}
 	} else if (filledIndexes.size() != kSketches_){
@@ -1295,7 +1290,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 		while (emptyCount){
 			for (const auto &f : filledIndexes){
 				uint32_t newIdx = murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg;
-				std::lock_guard<std::mutex> lk(mtx_);
+				// should be safe: each thread accesses different vector elements
 				if ( sketches_[newIdx] == emptyBinToken_ ){
 					sketches_[newIdx] = sketches_[f + sketchBeg];
 					--emptyCount;
@@ -1315,6 +1310,12 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 					const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
+	uint64_t locSeed;
+	{
+		std::lock_guard<std::mutex> lk(mtx_);
+		locSeed = rng_.ranInt();
+	}
+	RanDraw locPRNG(locSeed);
 	const size_t addIndv       = nIndividuals_ % 4UL;
 	const size_t addBL         = bedLocusLength - static_cast<size_t>(addIndv > 0);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
@@ -1326,7 +1327,7 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 		const size_t begInd      = iBedLocus * bedLocusLength;
 		const size_t endWholeBed = begInd + addBL;
 		for (auto &rv : rand){
-			rv = rng_.ranInt();
+			rv = locPRNG.ranInt();
 		}
 		std::vector<uint8_t> binLocus(locusSize_, 0);
 		std::vector<uint8_t> missMasks(locusSize_, 0);
@@ -1403,6 +1404,12 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
+	uint64_t locSeed;
+	{
+		std::lock_guard<std::mutex> lk(mtx_);
+		locSeed = rng_.ranInt();
+	}
+	RanDraw locPRNG(locSeed);
 	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 	remainderInd               = byteSize_ - remainderInd;
@@ -1412,7 +1419,7 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 	for (size_t iLocus = startLocusInd; iLocus < endLocusInd; ++iLocus){
 		// Fill the random byte vector
 		for (auto &rv : rand){
-			rv = rng_.ranInt();
+			rv = locPRNG.ranInt();
 		}
 		size_t iIndiv         = 0;
 		const size_t begIndiv = iLocus * nIndividuals_;
@@ -1579,9 +1586,7 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
 			simVal += static_cast<float>(sketches_[rowSk + iSk] == sketches_[colSk + iSk]);
 		}
-		// mutex may have a performance hit sometimes
-		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		std::lock_guard<std::mutex> lk(mtx_);
+		// should be safe: each thread accesses different vector elements
 		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
 		++curJacMatInd;
 	}
@@ -1593,9 +1598,7 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
 			simVal += static_cast<float>(sketches_[hashJacVec[iBlock].element1ind * kSketches_ + iSk] == sketches_[hashJacVec[iBlock].element2ind * kSketches_ + iSk]);
 		}
-		// mutex may have a performance hit sometimes
-		// ASSUMING everything works correctly, it is not necessary (each thread accesses different vector elements)
-		std::lock_guard<std::mutex> lk(mtx_);
+		// should be safe: each thread accesses different vector elements
 		hashJacVec[iBlock].simiarityValue = simVal / static_cast<float>(kSketches_);
 	}
 }

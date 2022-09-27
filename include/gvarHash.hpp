@@ -42,7 +42,6 @@
 
 namespace BayesicSpace {
 	struct IndexedPairSimilarity; 
-	class GenoTableBinCPP;
 	class GenoTableBin;
 	class GenoTableHash;
 
