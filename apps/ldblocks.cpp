@@ -131,7 +131,7 @@ int main(int argc, char *argv[]){
 	}
 
 	clIter = clInfo.find("n-individuals");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
+	if ( clIter == clInfo.end() ){
 		std::cerr << "ERROR: specification of the number of individuals is required\n";
 		std::cerr << cliHelp;
 		exit(2);

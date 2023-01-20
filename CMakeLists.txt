@@ -45,7 +45,7 @@ target_link_libraries(ldblocks
 	PRIVATE vash
 )
 target_compile_options(ldblocks
-	PRIVATE -Wall -Wextra -pedantic
+	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi
 )
 set_target_properties(ldblocks PROPERTIES
 	CXX_STANDARD         14
@@ -70,7 +70,7 @@ set_target_properties(vash PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 )
 target_compile_options(vash
-	PRIVATE -Wall -Wextra -pedantic -pthread
+	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -pthread
 )
 set_target_properties(vash PROPERTIES
 	CXX_STANDARD         14

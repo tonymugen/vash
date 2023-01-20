@@ -84,7 +84,7 @@ namespace BayesicSpace {
 	 * Groups a Jaccard similarity value of two elements (e.g., loci or individuals) with their indexes and the ID of the group they belong to.
 	 */
 	struct IndexedPairSimilarity {
-		float simiarityValue;
+		float similarityValue;
 		size_t element1ind;
 		size_t element2ind;
 		uint32_t groupID;
@@ -206,6 +206,8 @@ namespace BayesicSpace {
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
 		static const uint8_t byteSize_;
+		/** \brief Number of .bed genotypes per byte */
+		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
 		/** \brief Maximum number of loci for all by all LD */
@@ -253,7 +255,7 @@ namespace BayesicSpace {
 		GenoTableHash() : kSketches_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
-		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
 		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
@@ -270,7 +272,7 @@ namespace BayesicSpace {
 		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName);
 		/** \brief Constructor with input file name
 		 *
-		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
 		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
@@ -318,7 +320,8 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) : GenoTableHash(maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
+		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) :
+				GenoTableHash(maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &in) = delete;
@@ -347,7 +350,7 @@ namespace BayesicSpace {
 		void allHashLD(const std::string &ldFileName) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
-		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 of greater).
+		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
 		 * Locus pairs are included in the pair hash table if all rows in at least one band match.
 		 * The resulting hash table has groups with at least two loci per group (indexed by a hash of OPH sketches within bands).
 		 * Locus indexes are in increasing order within each group.
@@ -387,6 +390,15 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
 		size_t locusSize_;
+		/** \brief Number of full-byte individuals for Fisher-Yates */
+		size_t nFullBytesFY_;
+		/** \brief Number of locus bytes to hash
+		 *
+		 * This is so that the last hash value represents the same number of individuals as the rest
+		 */
+		size_t nBytesToHash_;
+		/** \brief Number of full bytes to hash */
+		size_t nFullBytesToHash_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
 		/** \brief Random number generator */
@@ -405,8 +417,18 @@ namespace BayesicSpace {
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
 		static const uint8_t byteSize_;
+		/** \brief Number of .bed genotypes per byte */
+		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
+		/** \brief Mask to round to the nearest whole-byte count */
+		static const uint64_t roundMask_;
+		/** 64-bit word with all bits set */
+		static const uint64_t allBitsSet_;
+		/** \brief 64-bit word size in bits */
+		static const size_t wordSizeInBits_;
+		/** \brief Maximal value that a 64-bit word can be shifted by */
+		static const uint64_t maxShift_;
 		/** \brief MurMurHash number of 32 bit blocks in `size_t` */
 		static const size_t nblocks32_;
 		/** \brief MurMurHash key length */
