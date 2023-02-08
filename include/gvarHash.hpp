@@ -380,7 +380,7 @@ namespace BayesicSpace {
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
 		 */
 		std::vector<uint16_t> sketches_;
-		/** \brief Number of individuals */
+		/** \brief Number of individuals, possibly padded */
 		size_t nIndividuals_;
 		/** \brief Number of sketches */
 		size_t kSketches_;
@@ -390,15 +390,8 @@ namespace BayesicSpace {
 		size_t nLoci_;
 		/** \brief Locus size in bytes */
 		size_t locusSize_;
-		/** \brief Number of full-byte individuals for Fisher-Yates */
-		size_t nFullBytesFY_;
-		/** \brief Number of locus bytes to hash
-		 *
-		 * This is so that the last hash value represents the same number of individuals as the rest
-		 */
-		size_t nBytesToHash_;
-		/** \brief Number of full bytes to hash */
-		size_t nFullBytesToHash_;
+		/** \brief Number of bytes in divisible by `llWordSize_` */
+		size_t nFullWordBytes_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
 		/** \brief Random number generator */
@@ -427,8 +420,6 @@ namespace BayesicSpace {
 		static const uint64_t allBitsSet_;
 		/** \brief 64-bit word size in bits */
 		static const size_t wordSizeInBits_;
-		/** \brief Maximal value that a 64-bit word can be shifted by */
-		static const uint64_t maxShift_;
 		/** \brief MurMurHash number of 32 bit blocks in `size_t` */
 		static const size_t nblocks32_;
 		/** \brief MurMurHash key length */
@@ -461,10 +452,11 @@ namespace BayesicSpace {
 		 * \param[in] locusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
 		void bed2ophBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
+							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
