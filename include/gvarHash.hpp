@@ -60,7 +60,7 @@ namespace BayesicSpace {
 	 * \param[in] inVec input vector
 	 * \return number of bits set
 	 */
-	uint32_t countSetBits(const std::vector<uint8_t> &inVec);
+	uint64_t countSetBits(const std::vector<uint8_t> &inVec);
 	/** \brief Count set bits in a range within a vector
 	 *
 	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
@@ -70,7 +70,7 @@ namespace BayesicSpace {
 	 * \param[in] length number of bytes to process
 	 * \return number of bits set
 	 */
-	uint32_t countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length);
+	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length);
 	/** \brief Get available RAM
 	 *
 	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.

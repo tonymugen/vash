@@ -195,36 +195,58 @@ int main(int argc, char *argv[]){
 	}
 	// Proceed to actual analysis
 	try {
-		const size_t kSketches = static_cast<size_t>(inputKsketches);
-		const size_t nIndiv    = static_cast<size_t>(Nindv);
+		const size_t kSketches{static_cast<size_t>(inputKsketches)};
+		const size_t nIndiv{static_cast<size_t>(Nindv)};
+		std::chrono::duration<float, std::milli> execTime{0};
 		if (kSketches == 0){
 			if (inputThreads < 1){
+				auto time1 = std::chrono::high_resolution_clock::now();
 				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv);
 				allJaccard.allJaccardLD(outFileName);
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime   = time2 - time1;
 			} else {
-				const size_t nThreads = static_cast<size_t>(inputThreads);
+				const auto nThreads = static_cast<size_t>(inputThreads);
+				auto time1 = std::chrono::high_resolution_clock::now();
 				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv, nThreads);
 				allJaccard.allJaccardLD(outFileName);
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime   = time2 - time1;
 			}
 		} else {
 			BayesicSpace::GenoTableHash groupLD;
 			if (inputThreads < 1){
-				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
+				auto time1 = std::chrono::high_resolution_clock::now();
+				groupLD    = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime   = time2 - time1;
 			} else {
-				const size_t nThreads = static_cast<size_t>(inputThreads);
-				groupLD               = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
+				const auto nThreads{static_cast<size_t>(inputThreads)};
+				auto time1 = std::chrono::high_resolution_clock::now();
+				groupLD    = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime   = time2 - time1;
 			}
 			if (nRowsPerBand == 0){
+				auto time1 = std::chrono::high_resolution_clock::now();
 				groupLD.allHashLD(outFileName);
-				groupLD.saveLogFile();
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime  += time2 - time1;
+				if (logFileName != "none"){
+					groupLD.saveLogFile();
+				}
 			} else {
-				const size_t rowsPB    = static_cast<size_t>(nRowsPerBand);
+				const auto rowsPB{static_cast<size_t>(nRowsPerBand)};
+				auto time1 = std::chrono::high_resolution_clock::now();
 				groupLD.ldInGroups(rowsPB, outFileName);
+				auto time2 = std::chrono::high_resolution_clock::now();
+				execTime  += time2 - time1;
 				if (logFileName != "none"){
 					groupLD.saveLogFile();
 				}
 			}
 		}
+		std::cout << execTime.count() << "\n";
 	} catch(std::string problem) {
 		std::cerr << problem << "\n";
 		exit(4);

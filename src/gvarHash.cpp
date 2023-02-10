@@ -37,14 +37,14 @@
 #include <utility>  // for std::pair
 #include <iterator>
 #include <algorithm>
+#include <numeric>
+#include <functional>
 #include <limits>
 #include <future>
 #include <thread>
 #include <ctime>
 #include <iomanip>
 #include <immintrin.h>
-
-#include <iostream>
 
 #include "gvarHash.hpp"
 #include "random.hpp"
@@ -59,24 +59,43 @@ uint16_t BayesicSpace::countSetBits(uint16_t inVal) {
 	return totSet;
 }
 
-uint32_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec) {
-	uint32_t totSet = 0;
-	for (const auto &in : inVec){
-		uint8_t v = in;
-		for (; v; ++totSet) {
-			v &= v - 1;
-		}
+uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec) {
+	constexpr size_t wordSize    = 8;
+	constexpr uint64_t roundMask = 0xfffffffffffffff8;
+	uint32_t totSet{0};
+	const size_t nWholeWords = inVec.size() & roundMask;
+	size_t iByte{0};
+	while (iByte < nWholeWords){
+		uint64_t chunk{0};
+		memcpy(&chunk, inVec.data() + iByte, wordSize);
+		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
+		iByte += wordSize;
+	}
+	if ( nWholeWords < inVec.size() ){
+		uint64_t chunk{0};
+		memcpy(&chunk, inVec.data() + iByte, inVec.size() - nWholeWords);
+		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 	}
 	return totSet;
 }
 
-uint32_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length) {
-	uint32_t totSet = 0;
-	for (size_t i = start; i < start + length; ++i){
-		uint8_t v = inVec[i];
-		for (; v; ++totSet) {
-			v &= v - 1;
-		}
+uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length) {
+	constexpr size_t wordSize    = 8;
+	constexpr uint64_t roundMask = 0xfffffffffffffff8;
+	uint32_t totSet{0};
+	const size_t roundLength = length & roundMask;
+	const size_t nWholeWords = start + roundLength;
+	size_t iByte{start};
+	while (iByte < nWholeWords){
+		uint64_t chunk{0};
+		memcpy(&chunk, inVec.data() + iByte, wordSize);
+		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
+		iByte += wordSize;
+	}
+	if (roundLength < length){
+		uint64_t chunk{0};
+		memcpy(&chunk, inVec.data() + iByte, length - roundLength);
+		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 	}
 	return totSet;
 }
@@ -1650,30 +1669,31 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
 		// compute row and column indexes from the vectorized by column lower triangle index
 		// got these expressions by combining various web sources and verifying
-		const size_t kp    = nnLoci - curJacMatInd;
-		const size_t p     = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
-		const size_t row   = nLoci_ - 2 - p;
-		const size_t col   = nLoci_ - (kp - p * (p + 1) / 2) - 1;
-		const size_t rowSk = row * kSketches_;
-		const size_t colSk = col * kSketches_;
-		float simVal       = 0.0;
-		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
-			simVal += static_cast<float>(sketches_[rowSk + iSk] == sketches_[colSk + iSk]);
-		}
+		const size_t kp  = nnLoci - curJacMatInd;
+		const size_t p   = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
+		const size_t row = nLoci_ - 2 - p;
+		const size_t col = nLoci_ - (kp - p * (p + 1) / 2) - 1;
+		const auto rowSk = static_cast<std::vector<uint16_t>::difference_type>(row * kSketches_);
+		const auto colSk = static_cast<std::vector<uint16_t>::difference_type>(col * kSketches_);
+		auto start       = sketches_.begin() + rowSk;
+		// count equal elements using the inner_product idiom
+		int simVal = std::inner_product( start, start + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
+				sketches_.begin() + colSk, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
-		hashJacVec[iVecInd] = simVal / static_cast<float>(kSketches_);
+		hashJacVec[iVecInd] = static_cast<float>(simVal) / static_cast<float>(kSketches_);
 		++curJacMatInd;
 	}
 }
 
 void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &hashJacVec) const {
 	for (size_t iBlock = blockStartVec; iBlock < blockEndVec; ++iBlock){
-		float simVal = 0.0;
-		for (size_t iSk = 0; iSk < kSketches_; ++iSk){
-			simVal += static_cast<float>(sketches_[hashJacVec[iBlock].element1ind * kSketches_ + iSk] == sketches_[hashJacVec[iBlock].element2ind * kSketches_ + iSk]);
-		}
+		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(hashJacVec[iBlock].element1ind * kSketches_);
+		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(hashJacVec[iBlock].element2ind * kSketches_);
+		// count equal elements using the inner_product idiom
+		int simVal = std::inner_product( start1, start1 + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
+				start2, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
-		hashJacVec[iBlock].similarityValue = simVal / static_cast<float>(kSketches_);
+		hashJacVec[iBlock].similarityValue = static_cast<float>(simVal) / static_cast<float>(kSketches_);
 	}
 }
 
