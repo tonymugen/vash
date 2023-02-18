@@ -79,6 +79,7 @@ int main(int argc, char *argv[]){
 	std::string inFileName;
 	std::string logFileName;
 	std::string outFileName;
+	constexpr int defaultHashSize{60};
 	int nRowsPerBand{0};
 	int inputKsketches{0};
 	int inputThreads{-1};
@@ -86,13 +87,18 @@ int main(int argc, char *argv[]){
 
 	// set usage message
 	std::string cliHelp = "Command line flags (in any order):\n" 
-		"  --input-bed        file_name (input file name; required)\n"
-		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix; required) \n"
-		"  --n-individuals    number_of_individuals (must be 3 or more; required)\n"
-		"  --hash-size        hash_size; default 60\n"
-		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available)\n"
-		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none')\n"
-		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv)\n";
+		"  --input-bed        file_name (input file name; required).\n"
+		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix; required).\n"
+		"                     Set to 0 to get all by all estimates. The value is ignored if hash size is set to 0 (for full Jaccard similarity estimates).\n"
+		"                     This parameter must be smaller than hash size and controls the similarity cut-off; larger values lead to sparser similarity matrices.\n"
+		"  --n-individuals    number_of_individuals (must be 3 or more; required).\n"
+		"  --hash-size        hash_size; must be smaller than the number of individuals.\n"
+		"                     Default is the smaller of " + std::to_string(defaultHashSize) + " and half the number of individuals.\n"
+		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 to obtain precise Jaccard similarity estimates.\n"
+		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
+		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
+		"                     No log file is produced for the full Jaccard estimates (this will change in future vesions).\n"
+		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n";
 	std::unordered_map <std::string, std::string> clInfo;
 	parseCL(argc, argv, clInfo);
 
@@ -120,7 +126,7 @@ int main(int argc, char *argv[]){
 	} else {
 		try {
 			nRowsPerBand = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
+		} catch(const std::invalid_argument& ia) {
 			std::cerr << "ERROR: Provided number of rows per band is not an integer\n";
 			exit(2);
 		}
@@ -138,7 +144,7 @@ int main(int argc, char *argv[]){
 	} else {
 		try {
 			Nindv = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
+		} catch(const std::invalid_argument& ia) {
 			std::cerr << "ERROR: Provided number of individuals is not an integer\n";
 			exit(2);
 		}
@@ -148,22 +154,24 @@ int main(int argc, char *argv[]){
 		exit(2);
 	}
 
+	bool hashSizeNotProvided{true};
 	clIter = clInfo.find("hash-size");
 	if ( clIter == clInfo.end() ){ // if not there, set to default
-		inputKsketches = 60;
+		inputKsketches = defaultHashSize;
 	} else {
 		try {
 			inputKsketches = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
+		} catch(const std::invalid_argument& ia) {
 			std::cerr << "ERROR: Provided hash size is not an integer\n";
 			exit(2);
 		}
+		hashSizeNotProvided = false;
 	}
 	if ( (inputKsketches <= 3) && (inputKsketches > 0) ){
 		std::cerr << "ERROR: hash length must be 3 or more, or zero\n";
 		exit(2);
 	}
-	if ( (nRowsPerBand >= inputKsketches) && ( nRowsPerBand && inputKsketches ) ){
+	if ( (nRowsPerBand >= inputKsketches) && ( (nRowsPerBand != 0) && (inputKsketches != 0) ) ){
 		std::cerr << "ERROR: number of rows per band must be smaller than hash size\n";
 		exit(2);
 	}
@@ -174,7 +182,7 @@ int main(int argc, char *argv[]){
 	} else {
 		try {
 			inputThreads = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia){
+		} catch(const std::invalid_argument& ia) {
 			std::cerr << "ERROR: Provided number of threads is not an integer\n";
 			exit(2);
 		}
@@ -193,60 +201,47 @@ int main(int argc, char *argv[]){
 	} else {
 		outFileName = clIter->second;
 	}
+	if ( hashSizeNotProvided && (Nindv <= defaultHashSize) ){
+		inputKsketches = Nindv / 2;
+		if (inputKsketches <= 3){
+			std::cerr << "ERROR: hash length must be 3 or more. Number of individuals provided is " << Nindv << ", and the default hash size is set, implying hash size " << inputKsketches << "\n";
+			exit(2);
+		}
+	}
 	// Proceed to actual analysis
 	try {
 		const size_t kSketches{static_cast<size_t>(inputKsketches)};
 		const size_t nIndiv{static_cast<size_t>(Nindv)};
-		std::chrono::duration<float, std::milli> execTime{0};
 		if (kSketches == 0){
 			if (inputThreads < 1){
-				auto time1 = std::chrono::high_resolution_clock::now();
 				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv);
 				allJaccard.allJaccardLD(outFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime   = time2 - time1;
 			} else {
 				const auto nThreads = static_cast<size_t>(inputThreads);
-				auto time1 = std::chrono::high_resolution_clock::now();
 				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv, nThreads);
 				allJaccard.allJaccardLD(outFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime   = time2 - time1;
 			}
 		} else {
 			BayesicSpace::GenoTableHash groupLD;
 			if (inputThreads < 1){
-				auto time1 = std::chrono::high_resolution_clock::now();
-				groupLD    = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime   = time2 - time1;
+				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
 			} else {
 				const auto nThreads{static_cast<size_t>(inputThreads)};
-				auto time1 = std::chrono::high_resolution_clock::now();
-				groupLD    = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime   = time2 - time1;
+				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
 			}
 			if (nRowsPerBand == 0){
-				auto time1 = std::chrono::high_resolution_clock::now();
 				groupLD.allHashLD(outFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime  += time2 - time1;
 				if (logFileName != "none"){
 					groupLD.saveLogFile();
 				}
 			} else {
 				const auto rowsPB{static_cast<size_t>(nRowsPerBand)};
-				auto time1 = std::chrono::high_resolution_clock::now();
 				groupLD.ldInGroups(rowsPB, outFileName);
-				auto time2 = std::chrono::high_resolution_clock::now();
-				execTime  += time2 - time1;
 				if (logFileName != "none"){
 					groupLD.saveLogFile();
 				}
 			}
 		}
-		std::cout << execTime.count() << "\n";
 	} catch(std::string problem) {
 		std::cerr << problem << "\n";
 		exit(4);
