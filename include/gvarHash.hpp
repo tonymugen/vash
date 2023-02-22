@@ -33,7 +33,7 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
-#include <utility>  // for std::pair
+#include <utility>        // for std::pair
 #include <string>
 #include <thread>
 #include <mutex>
@@ -78,6 +78,22 @@ namespace BayesicSpace {
 	 * \return estimated available RAM in bytes
 	 */
 	size_t getAvailableRAM();
+	/** \brief Test .bed magic bytes
+	 *
+	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
+	 *
+	 * \param[in] bytesToTest the byte set to test
+	 */
+	void testBedMagicBytes(std::array<char, 3> &bytesToTest);
+	/** \brief Build thread ranges
+	 *
+	 * Build index ranges to use within each thread.
+	 *
+	 * \param[in] nThreds number of threads
+	 * \param[in] nElementsPerThread number of elements per thread
+	 * \return vector of index ranges
+	 */
+	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread);
 
 	/** \brief Jaccard value with indexes
 	 *
@@ -99,7 +115,7 @@ namespace BayesicSpace {
 	class GenoTableBin {
 	public:
 		/** \brief Default constructor */
-		GenoTableBin(){};
+		GenoTableBin() : nIndividuals_{0}, nLoci_{0}, binLocusSize_{0}, nThreads_{1} {};
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -150,20 +166,22 @@ namespace BayesicSpace {
 		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &nThreads);
 
 		/** \brief Copy constructor (deleted) */
-		GenoTableBin(const GenoTableBin &in) = delete;
+		GenoTableBin(const GenoTableBin &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableBin operator=(const GenoTableBin &in) = delete;
+		GenoTableBin operator=(const GenoTableBin &toCopy) = delete;
 		/** \brief Move constructor
 		 *
-		 * \param[in] in object to move
+		 * \param[in] toMove object to move
 		 */
-		GenoTableBin(GenoTableBin &&in) noexcept;
+		GenoTableBin(GenoTableBin &&toMove) noexcept;
 		/** \brief Move assignment operator
 		 *
-		 * \param[in] in object to be moved
+		 * \param[in] toMove object to be moved
 		 * \return `GenoTableBin` object
 		 */
-		GenoTableBin& operator=(GenoTableBin &&in) noexcept;
+		GenoTableBin& operator=(GenoTableBin &&toMove) noexcept;
+		/** \brief Destructor */
+		~GenoTableBin() = default;
 
 		/** \brief Save the binary genotype file
 		 *
@@ -182,7 +200,7 @@ namespace BayesicSpace {
 		 * \return lower triangle of the LD matrix
 		 */
 		void allJaccardLD(const std::string &ldFileName) const;
-	protected:
+	private:
 		/** \brief Binarized genotype table
 		 *
 		 * Stores one bit per genotype. Heterozygotes are randomly assigned, missing data are assigned 0.
@@ -201,7 +219,7 @@ namespace BayesicSpace {
 		/** \brief The mutex */
 		mutable std::mutex mtx_;
 		/** \brief Leading bytes for .bed files */
-		static const std::array<char, 3> magicBytes_;
+		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
@@ -217,31 +235,28 @@ namespace BayesicSpace {
 		 * Binarizes a range of loci from a vector of input from a _.bed_ file.
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
-		 * \param[in] firstBedLocusInd index of the first locus in the _.bed_ vector
-		 * \param[in] lastBedLocusInd index of one past the last locus in the _.bed_ vector
+		 * \param[in] bedLocusIndRange indexes of the first and last locus in the _.bed_ vector
 		 * \param[in] firstLocusInd overall index of the first locus in the range
 		 * \param[in] bedLocusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void bed2binBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
+		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] startLocusInd first locus index
-		 * \param[in] endLocusInd one past the last locus index
+		 * \param[in] locusIndRange locus index range
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void mac2binBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen);
+		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
-		 * \param[in] blockStartVec index of the block start in `jaccardVec`
-		 * \param[in] blockEndVec index of one past the block end in `jaccardVec`
+		 * \param[in] blockVecRange block index range in `jaccardVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
 		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
 		 */
-		void jaccardBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
+		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
@@ -252,7 +267,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : kSketches_{0} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -324,20 +339,22 @@ namespace BayesicSpace {
 				GenoTableHash(maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
 
 		/** \brief Copy constructor (deleted) */
-		GenoTableHash(const GenoTableHash &in) = delete;
+		GenoTableHash(const GenoTableHash &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableHash operator=(const GenoTableHash &in) = delete;
+		GenoTableHash operator=(const GenoTableHash &toCopy) = delete;
 		/** \brief Move constructor
 		 *
-		 * \param[in] in object to move
+		 * \param[in] toMove object to move
 		 */
-		GenoTableHash(GenoTableHash &&in) noexcept;
+		GenoTableHash(GenoTableHash &&toMove) noexcept;
 		/** \brief Move assignment operator
 		 *
-		 * \param[in] in object to be moved
+		 * \param[in] toMove object to be moved
 		 * \return `GenoTableHash object
 		 */
-		GenoTableHash& operator=(GenoTableHash &&in) noexcept;
+		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept;
+		/** \brief Destructor */
+		~GenoTableHash() = default;
 
 		/** \brief All by all LD from hashes
 		 *
@@ -374,7 +391,7 @@ namespace BayesicSpace {
 		 * Log file name provided at construction.
 		 */
 		void saveLogFile() const;
-	protected:
+	private:
 		/** \brief Vector of sketches
 		 *
 		 * A sketch is the position of the first set bit in a bin of permuted bits.
@@ -523,16 +540,6 @@ namespace BayesicSpace {
 		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
 		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector< IndexedPairSimilarity > &indexedJacc) const;
-		/** \brief Hamming distance
-		 *
-		 * Calculates the bit-wise Hamming distance between two 16-bit variables. Passing the variables by value since they are much smaller than addresses.
-		 *
-		 * \param[in] first first value
-		 * \param[in] second second value
-		 * \return Hamming distance
-		 *
-		 */
-		uint16_t inline hammingDistance_(uint16_t first, uint16_t second) const {return countSetBits(first ^ second); }
 	};
 }
 
