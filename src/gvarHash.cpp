@@ -147,6 +147,12 @@ std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads
 	return threadRanges;
 }
 
+void saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {
+	for (const auto &eachValue : inVec){
+		outputStream << eachValue << " ";
+	}
+}
+
 // GenoTableBin methods
 constexpr size_t   GenoTableBin::nMagicBytes_    = 3;                // number of leading bytes for .bed files
 constexpr uint8_t  GenoTableBin::oneBit_         = 0b00000001;       // One set bit for masking
@@ -156,11 +162,27 @@ constexpr uint8_t  GenoTableBin::llWordSize_     = 8;                // 64 bit w
 constexpr size_t   GenoTableBin::maxNlocusPairs_ = 6074000999UL;     // approximate number of loci that does not overflow with n*(n-1)/2
 
 // Constructors
-GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nThreads_{nThreads} {
+GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads)
+															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+	std::stringstream logStream;
+	const time_t startTime = std::time(nullptr);
+	logStream << std::put_time(localtime(&startTime), "%b %e %Y %H:%M %Z");
+	logMessages_ = "Genotype binarization from a .bed file started on " + logStream.str() + "\n";
+	logStream.clear();
 	if (nIndividuals <= 1){
+		logMessages_ += "ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too small; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (nIndividuals > std::numeric_limits<size_t>::max() / nIndividuals ){ // a square will overflow
+		logMessages_ += "ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too big to make a square relationship matrix; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: the number of individuals (") + std::to_string(nIndividuals) + std::string( ") is too big to make a square relationship matrix in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (nThreads_ == 0){
@@ -173,15 +195,28 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	// Start by measuring file size
 	inStr.open(inputFileName, std::ios::in | std::ios::binary | std::ios::ate);
 	if ( inStr.fail() ){
+		logMessages_ += "ERROR: failed to open file " + inputFileName + "\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const uint64_t endPosition = static_cast<uint64_t>( inStr.tellg() );
 	if (endPosition < nMagicBytes_){
+		logMessages_ += "ERROR: no genotype records in file " + inputFileName + "\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const size_t nTotalBedBytes{static_cast<uint64_t>(endPosition) - nMagicBytes_};
 	inStr.close();
-	nLoci_ = nTotalBedBytes / nBedBytesPerLocus;
+	nLoci_        = nTotalBedBytes / nBedBytesPerLocus;
+	logMessages_ += "Number of individuals: " + std::to_string(nIndividuals_) + "\n";
+	logMessages_ += "Number of loci: " + std::to_string(nLoci_) + "\n";
+	logMessages_ += "Number of threads: " + std::to_string(nThreads_) + "\n";
 
 	inStr.open(inputFileName, std::ios::in | std::ios::binary);
 	std::array<char, nMagicBytes_> magicBuf{0};
@@ -200,6 +235,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	size_t nBedBytesToRead      = nBedLociToRead * nBedBytesPerLocus;
 	nBedBytesToRead             = (nBedBytesToRead > std::numeric_limits<std::streamsize>::max() ? std::numeric_limits<std::streamsize>::max() : nBedBytesToRead);
 	size_t nLociPerThread       = nBedLociToRead / nThreads_;
+	logMessages_               += "RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes\n";
+	logMessages_               += ".bed file will be read in " + std::to_string(nChunks) + " chunk(s)\n";
 	std::vector<char> bedChunkToRead(nBedBytesToRead, 0);
 	assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() )
 			&& "ERROR: remainingBytes larger than maximum streamsize in GenoTableBin constructor");
@@ -212,32 +249,15 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			std::vector< std::future<void> > tasks;
-			tasks.reserve(nThreads_);
-			for (const auto &eachTR : threadRanges){
-				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, &eachTR, locusInd, nBedBytesPerLocus, ranVecSize]{
-						bed2binBlk_(bedChunkToRead, eachTR, locusInd, nBedBytesPerLocus, ranVecSize);
-					})
-				);
-				locusInd += nLociPerThread;
-			}
+			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
 			locusInd += excessLoci;
 		}
 	} else {
+		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nBedLociToRead, 1)};
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			std::vector< std::future<void> > tasks;
-			tasks.reserve(nBedLociToRead);
-			for (size_t iBedLocus = 0; iBedLocus < nBedLociToRead; ++iBedLocus){
-				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize]{
-						const std::pair<size_t, size_t> oneLocusRange{iBedLocus, iBedLocus + 1};
-						bed2binBlk_(bedChunkToRead, oneLocusRange, locusInd, nBedBytesPerLocus, ranVecSize);})
-				);
-				++locusInd;
-			}
+			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
 		}
 	}
 	if (remainingLoci > 0) {
@@ -249,38 +269,38 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLociPerThread)};
 			const size_t excessLoci = remainingLoci - threadRanges.back().second;
 			threadRanges.back().second = remainingLoci;
-			std::vector< std::future<void> > tasks;
-			tasks.reserve(nThreads_);
-			for (const auto &eachTR : threadRanges){
-				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, &eachTR, locusInd, nBedBytesPerLocus, ranVecSize]{
-						bed2binBlk_(bedChunkToRead, eachTR, locusInd, nBedBytesPerLocus, ranVecSize);
-					})
-				);
-				locusInd += nLociPerThread;
-			}
+			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
 			locusInd += excessLoci;
 		} else {
-			std::vector< std::future<void> > tasks;
-			tasks.reserve(remainingLoci);
-			for (size_t iBedLocus = 0; iBedLocus < remainingLoci; ++iBedLocus){
-				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, iBedLocus, locusInd, nBedBytesPerLocus, ranVecSize]{
-						const std::pair<size_t, size_t> oneLocusRange{iBedLocus, iBedLocus + 1};
-						bed2binBlk_(bedChunkToRead, oneLocusRange, locusInd, nBedBytesPerLocus, ranVecSize);})
-				);
-				++locusInd;
-			}
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(remainingLoci, 1)};
+			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
 		}
 	}
 	inStr.close();
 }
 
-GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &nThreads) : nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads} {
+GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads)
+							: nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+	std::stringstream logStream;
+	const time_t startTime = std::time(nullptr);
+	logStream << std::put_time(localtime(&startTime), "%b %e %Y %H:%M %Z");
+	logMessages_ = "Genotype binarization from a .bed file started on " + logStream.str() + "\n";
+	logStream.clear();
 	if (nIndividuals <= 1){
+		logMessages_ += "ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too small; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if ( (maCounts.size() % nIndividuals) > 0 ){
+		logMessages_ += "ERROR: length of allele count vector (" + std::to_string( maCounts.size() ) + " is not divisible by the provided number of individuals (" +
+			std::to_string(nIndividuals) + "\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
 		throw std::string("ERROR: length of allele count vector (") + std::to_string( maCounts.size() ) + std::string(" is not divisible by the provided number of individuals (") +
 			std::to_string(nIndividuals) + std::string( ") in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -325,6 +345,8 @@ GenoTableBin& GenoTableBin::operator=(GenoTableBin &&toMove) noexcept {
 		nLoci_        = toMove.nLoci_;
 		binLocusSize_ = toMove.binLocusSize_;
 		nThreads_     = toMove.nThreads_;
+		logMessages_  = std::move(toMove.logMessages_);
+		logFileName_  = std::move(toMove.logFileName_);
 
 		toMove.nIndividuals_ = 0;
 		toMove.nLoci_        = 0;
@@ -359,33 +381,14 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
 		if (nLocusPairsPerThread > 0){
-			std::vector< std::pair<size_t, size_t> > threadRanges;
-			size_t locusPairInd = 0;
-			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges.emplace_back(locusPairInd, locusPairInd + nLocusPairsPerThread);
-				locusPairInd += nLocusPairsPerThread;
-			}
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
 			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
 			threadRanges.back().second = maxInRAM;
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 				std::vector<float> LDmatChunk(maxInRAM, 0.0);
-				std::vector< std::future<void> > tasks;
-				tasks.reserve(nThreads_);
-				for (const auto &eachTR : threadRanges){
-					tasks.emplace_back(
-						std::async([this, &LDmatChunk, &eachTR, overallPairInd]{
-							jaccardBlock_(eachTR, overallPairInd, LDmatChunk);
-						})
-					);
-					overallPairInd += nLocusPairsPerThread;
-				}
+				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
 				overallPairInd += excessLoci;
-				for (const auto &eachThread : tasks){
-					eachThread.wait();
-				}
-				for (const auto &ldValue : LDmatChunk){
-					output << ldValue << " ";
-				}
+				saveValues(LDmatChunk, output);
 			}
 		} else {
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
@@ -393,9 +396,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
 				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
 				overallPairInd += maxInRAM;
-				for (const auto &ldValue : LDmatChunk){
-					output << ldValue << " ";
-				}
+				saveValues(LDmatChunk, output);
 			}
 		}
 		overallPairInd = maxInRAM * nChunks;
@@ -403,63 +404,39 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 			std::vector<float> LDmatChunk(remainingPairs, 0.0);
 			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
 			if (nRemainPairsPerThread > 0){
-				std::vector< std::pair<size_t, size_t> > threadRanges;
-				size_t locusPairInd = 0;
-				for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-					threadRanges.emplace_back(locusPairInd, locusPairInd + nRemainPairsPerThread);
-					locusPairInd += nRemainPairsPerThread;
-				}
+				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
 				threadRanges.back().second = remainingPairs;
-				std::vector< std::future<void> > tasks;
-				tasks.reserve(nThreads_);
-				for (const auto &eachTR : threadRanges){
-					tasks.emplace_back(
-						std::async([this, &LDmatChunk, &eachTR, overallPairInd]{
-							jaccardBlock_(eachTR, overallPairInd, LDmatChunk);
-						})
-					);
-					overallPairInd += nRemainPairsPerThread;
-				}
+				overallPairInd = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
 			} else {
 				const std::pair<size_t, size_t> remainingRange{0, remainingPairs};
 				jaccardBlock_(remainingRange, overallPairInd, LDmatChunk);
 			}
-			for (const auto &ldValue : LDmatChunk){
-				output << ldValue << " ";
-			}
+			saveValues(LDmatChunk, output);
 		}
 		output.close();
 	} else {
 		std::vector<float> LDmat(nPairs, 0.0);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
 		if (nLocusPairsPerThread > 0){
-			std::vector< std::pair<size_t, size_t> > threadRanges;
-			size_t locusPairInd = 0;
-			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges.emplace_back(locusPairInd, locusPairInd + nLocusPairsPerThread);
-				locusPairInd += nLocusPairsPerThread;
-			}
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
 			threadRanges.back().second = LDmat.size();
-			std::vector< std::future<void> > tasks;
-			tasks.reserve(nThreads_);
-			for (const auto &eachTR : threadRanges){
-				tasks.emplace_back(
-					std::async([this, &LDmat, &eachTR]{
-						jaccardBlock_(eachTR, eachTR.first, LDmat);
-					})
-				);
-			}
+			jaccardThreaded_(threadRanges, 0, LDmat);
 		} else {
 			const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
 			jaccardBlock_(fullRange, 0, LDmat);
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		for (const auto &ldValue : LDmat){
-			output << ldValue << " ";
-		}
+		saveValues(LDmat, output);
 		output.close();
 	}
+}
+
+void GenoTableBin::saveLogFile() const {
+	std::fstream outLog;
+	outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+	outLog << logMessages_;
+	outLog.close();
 }
 
 void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
@@ -563,6 +540,21 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 		}
 		begByte += binLocusSize_;
 	}
+}
+
+size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen){
+	size_t locusInd = firstLocusInd;
+	std::vector< std::future<void> > tasks;
+	tasks.reserve(nThreads_);
+	for (const auto &eachTR : threadRanges){
+		tasks.emplace_back(
+			std::async([this, &bedData, &eachTR, locusInd, bedLocusLength, randVecLen]{
+				bed2binBlk_(bedData, eachTR, locusInd, bedLocusLength, randVecLen);
+			})
+		);
+		locusInd += eachTR.second - eachTR.first;
+	}
+	return locusInd;
 }
 
 void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen) {
@@ -672,13 +664,31 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 	}
 }
 
+size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<float> &jaccardVec) const {
+	size_t overallPairInd = blockStartAll;
+	std::vector< std::future<void> > tasks;
+	tasks.reserve(nThreads_);
+	for (const auto &eachTR : pairIndRanges){
+		tasks.emplace_back(
+			std::async([this, &jaccardVec, &eachTR, overallPairInd]{
+				jaccardBlock_(eachTR, overallPairInd, jaccardVec);
+			})
+		);
+		overallPairInd += eachTR.second - eachTR.first;
+	}
+	for (const auto &eachThread : tasks){
+		eachThread.wait();
+	}
+	return overallPairInd;
+}
+
 // GenoTableHash methods
 constexpr std::array<char, 3> GenoTableHash::magicBytes_{0x6c, 0x1b, 0x01};               // Leading bytes for .bed files 
 constexpr uint8_t  GenoTableHash::oneBit_         = 0b00000001;                           // One set bit for masking 
 constexpr uint8_t  GenoTableHash::byteSize_       = 8;                                    // Size of one byte in bits 
 constexpr uint8_t  GenoTableHash::bedGenoPerByte_ = 4;                                    // Number of genotypes in a .bed byte
 constexpr uint8_t  GenoTableHash::llWordSize_     = 8;                                    // 64 bit word size in bytes 
-constexpr size_t   GenoTableHash::maxPairs_       = 6074000999UL;                         // approximate maximum number that does not overflow with n*(n-1)/2
+constexpr size_t   GenoTableHash::maxPairs_       = 6074000999;                           // approximate maximum number that does not overflow with n*(n-1)/2
 constexpr uint64_t GenoTableHash::roundMask_      = 0xfffffffffffffff8;                   // mask for rounding down to nearest whole-byte value
 constexpr uint64_t GenoTableHash::allBitsSet_     = std::numeric_limits<uint64_t>::max(); // 64-bit word with all bits set
 constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                                   // 64-bit word size

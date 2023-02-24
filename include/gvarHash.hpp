@@ -30,6 +30,7 @@
 #pragma once
 
 #include <cstddef>
+#include <fstream>
 #include <vector>
 #include <array>
 #include <unordered_map>
@@ -94,6 +95,14 @@ namespace BayesicSpace {
 	 * \return vector of index ranges
 	 */
 	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread);
+	/** \brief Save values 
+	 *
+	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 *
+	 * \param[in] inVec vector of floats to save
+	 * \param[in, out] outputStream `fstream` to save to
+	 */
+	void saveValues(const std::vector<float> &inVec, std::fstream &outputStream);
 
 	/** \brief Jaccard value with indexes
 	 *
@@ -124,8 +133,9 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals) : GenoTableBin( inputFileName, nIndividuals, std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -135,9 +145,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] logFileName name of the log file
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, const size_t &nThreads);
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -148,8 +159,9 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals) : GenoTableBin( maCounts, nIndividuals, std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -161,9 +173,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
+		 * \param[in] logFileName name of the log file
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &nThreads);
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
@@ -200,6 +213,11 @@ namespace BayesicSpace {
 		 * \return lower triangle of the LD matrix
 		 */
 		void allJaccardLD(const std::string &ldFileName) const;
+		/** \brief Save the log to a file
+		 *
+		 * Log file name provided at construction.
+		 */
+		void saveLogFile() const;
 	private:
 		/** \brief Binarized genotype table
 		 *
@@ -230,6 +248,10 @@ namespace BayesicSpace {
 		static const uint8_t llWordSize_;
 		/** \brief Maximum number of loci for all by all LD */
 		static const size_t maxNlocusPairs_;
+		/** \brief Log messages */
+		mutable std::string logMessages_;
+		/** \brief Log file name */
+		std::string logFileName_;
 		/** \brief Binarize a range of loci from _.bed_ file input
 		 *
 		 * Binarizes a range of loci from a vector of input from a _.bed_ file.
@@ -241,6 +263,18 @@ namespace BayesicSpace {
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
 		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
+		/** \brief Multi-threaded binarization of _.bed_ file input 
+		 *
+		 * Binarizes loci from a _.bed_ file using multiple threads.
+		 *
+		 * \param[in] bedData vector of _.bed_ file input
+		 * \param[in] threadRanges vector of locus index ranges, one per thread
+		 * \param[in] firstLocusInd overall index of the first locus in the range
+		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 * \return new value of `firstLocusInd`
+		 */
+		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -257,6 +291,14 @@ namespace BayesicSpace {
 		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
 		 */
 		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
+		/** \brief Jaccard similarity between locus pairs using multiple threads
+		 *
+		 * \param[in] pairIndRanges vector of pair ranges, one range per thread
+		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
+		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
+		 * \return new block start index
+		 */
+		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
