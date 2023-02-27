@@ -326,7 +326,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName);
+		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -342,7 +342,8 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) : GenoTableHash(inputFileName, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
+		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
+							GenoTableHash( inputFileName, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -361,7 +362,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -377,8 +378,8 @@ namespace BayesicSpace {
 		 * \param[in] kSketches the number of sketches per locus
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const std::string &logFileName) :
-				GenoTableHash(maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), logFileName) {};
+		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
+				GenoTableHash( maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &toCopy) = delete;
@@ -464,7 +465,7 @@ namespace BayesicSpace {
 		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
 		static const size_t maxPairs_;
 		/** \brief Leading bytes for .bed files */
-		static const std::array<char, 3> magicBytes_;
+		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */

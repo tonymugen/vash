@@ -703,7 +703,7 @@ size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_
 }
 
 // GenoTableHash methods
-constexpr std::array<char, 3> GenoTableHash::magicBytes_{0x6c, 0x1b, 0x01};               // Leading bytes for .bed files 
+constexpr size_t   GenoTableHash::nMagicBytes_    = 3;                                    // number of leading bytes for .bed files
 constexpr uint8_t  GenoTableHash::oneBit_         = 0b00000001;                           // One set bit for masking 
 constexpr uint8_t  GenoTableHash::byteSize_       = 8;                                    // Size of one byte in bits 
 constexpr uint8_t  GenoTableHash::bedGenoPerByte_ = 4;                                    // Number of genotypes in a .bed byte
@@ -719,10 +719,11 @@ constexpr uint32_t GenoTableHash::c1_             = 0xcc9e2d51;                 
 constexpr uint32_t GenoTableHash::c2_             = 0x1b873593;                           // MurMurHash c2 constant 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName) : kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{logFileName} {
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) : kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
-	const time_t t = time(nullptr);
-	logStream << std::put_time(localtime(&t), "%b %e %Y %H:%M %Z");
+	const time_t startTime = std::time(nullptr);
+	struct tm buf{};
+	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
 	logStream.clear();
 	if (nIndividuals <= 1){
@@ -754,7 +755,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t nBedBytes = nIndividuals / bedGenoPerByte_ + static_cast<bool>(nIndividuals % bedGenoPerByte_);
+	const size_t nBedBytes = nIndividuals / bedGenoPerByte_ + static_cast<size_t>( (nIndividuals % bedGenoPerByte_) > 0 );
 	if (nThreads_ == 0){
 		nThreads_ = 1;
 	} else if ( nThreads_ > std::thread::hardware_concurrency() ){
@@ -773,7 +774,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const std::streamoff endPosition = inStr.tellg();
-	if ( endPosition < static_cast<std::streamoff>( magicBytes_.size() ) ){
+	if ( endPosition < static_cast<std::streamoff>(nMagicBytes_) ){
 		logMessages_ += "ERROR: no loci in the input .bed file " + inputFileName + "; aborting\n";
 		std::fstream outLog;
 		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
@@ -782,8 +783,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	inStr.close();
-	const size_t N  = static_cast<uint64_t>(endPosition) - magicBytes_.size();
-	nLoci_          = N / nBedBytes;
+	const size_t fileSize  = static_cast<uint64_t>(endPosition) - nMagicBytes_;
+	nLoci_          = fileSize / nBedBytes;
 	logMessages_   += "Number of individuals: " + std::to_string(nIndividuals) + "\n";
 	logMessages_   += "Number of individuals to hash: " + std::to_string(nIndividuals_) + "\n";
 	logMessages_   += "Number of loci: " + std::to_string(nLoci_) + "\n";
@@ -792,30 +793,9 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	inStr.open(inputFileName, std::ios::in | std::ios::binary);
-	char magicBuf[magicBytes_.size()]{};
-	inStr.read( magicBuf, magicBytes_.size() );
-	if (magicBuf[0] != magicBytes_[0]){
-		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: first magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	} else if (magicBuf[1] != magicBytes_[1]){
-		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: second magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	} else if (magicBuf[2] != magicBytes_[2]){
-		logMessages_ += "ERROR: file " + inputFileName + " does not appear to be in .bed format; aborting\n";
-		std::fstream outLog;
-		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
-		outLog << logMessages_;
-		outLog.close();
-		throw std::string("ERROR: third magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
+	std::array<char, nMagicBytes_> magicBuf{0};
+	inStr.read( magicBuf.data(), magicBuf.size() );
+	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
 	const size_t nBedBytesPerLocus = nIndividuals / bedGenoPerByte_ + static_cast<size_t>(nIndividuals % bedGenoPerByte_ > 0);
 	const size_t ranVecSize        = nBedBytes / llWordSize_ + static_cast<size_t>(nBedBytes % llWordSize_ > 0);
@@ -834,18 +814,18 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	// Sample with replacement additional individuals to pad out the total
 	std::vector< std::pair<size_t, size_t> > addIndv;
 	for (size_t iAddIndiv = nIndividuals; iAddIndiv < nIndividuals_; ++iAddIndiv){
-		addIndv.emplace_back( std::pair<size_t, size_t>{iAddIndiv, rng_.sampleInt(nIndividuals)} );
+		addIndv.emplace_back( iAddIndiv, rng_.sampleInt(nIndividuals) );
 	}
 	// generate the sequence of random integers; each column must be permuted the same
 	std::vector<size_t> ranInts{rng_.fyIndexesUp(nIndividuals_)};
 	std::vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
 
 	size_t locusInd = 0;
-	if (nLociPerThread){
+	if (nLociPerThread > 0){
 		std::vector< std::pair<size_t, size_t> > threadRanges;
 		size_t bedInd = 0;
 		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-			threadRanges.emplace_back(std::pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
+			threadRanges.emplace_back(bedInd, bedInd + nLociPerThread);
 			bedInd += nLociPerThread;
 		}
 		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
@@ -934,7 +914,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, const std::string &logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{logFileName} {
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t t = time(nullptr);
 	logStream << std::put_time(localtime(&t), "%b %e %H:%M %Z");
