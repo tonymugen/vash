@@ -125,6 +125,59 @@ size_t BayesicSpace::getAvailableRAM() {
 	return defaultSize;
 }
 
+uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
+	constexpr uint32_t const1{0xcc9e2d51};
+	constexpr uint32_t const2{0x1b873593};
+	constexpr size_t   nBlocks32{sizeof(size_t) / sizeof(uint32_t)};    // number of 32 bit blocks in size_t
+	constexpr uint32_t keyLen{sizeof(size_t)};                          // key length 
+	constexpr uint32_t hashMultiplier{5};
+	constexpr uint32_t hashAdder{0xe6546b64};
+
+	constexpr std::array<uint32_t, 4> blockShifts{15, 17, 13, 19};
+	constexpr std::array<uint32_t, 2> finalizeShifts{16, 13};
+	constexpr std::array<uint32_t, 2> finalizeMult{0x85ebca6b, 0xc2b2ae35};
+
+	uint32_t hash{seed};
+	std::array<uint32_t, nBlocks32> blocks{0};
+	memcpy(blocks.data(), &key, nBlocks32);
+
+	// body
+	for (auto &eachBlock : blocks){
+		eachBlock *= const1;
+		eachBlock  = (eachBlock << blockShifts[0]) | (eachBlock >> blockShifts[1]);
+		eachBlock *= const2;
+
+		hash ^= eachBlock;
+		hash  = (hash << blockShifts[2]) | (hash >> blockShifts[3]);
+		hash  = hash * hashMultiplier + hashAdder;
+	}
+
+	// there is no tail since the input is fixed (at eight bytes typically)
+	// finalize
+	hash ^= keyLen;
+	hash ^= hash >> finalizeShifts[0];
+	hash *= finalizeMult[0];
+	hash ^= hash >> finalizeShifts[1];
+	hash *= finalizeMult[1];
+	hash ^= hash >> finalizeShifts[0];
+
+	return hash;
+}
+
+uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t &seed) {
+	uint32_t hash{seed};
+	for (const auto &eachIdx : key){
+		hash = murMurHash(eachIdx, hash);
+	}
+	return hash;
+}
+
+uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed) {
+	uint32_t hash{seed};
+
+	return hash;
+}
+
 void BayesicSpace::testBedMagicBytes(std::array<char, 3> &bytesToTest) {
 	constexpr std::array<char, 3> magicBytes{0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
 	if (bytesToTest[0] != magicBytes[0]){
@@ -712,11 +765,7 @@ constexpr size_t   GenoTableHash::maxPairs_       = 6074000999;                 
 constexpr uint64_t GenoTableHash::roundMask_      = 0xfffffffffffffff8;                   // mask for rounding down to nearest whole-byte value
 constexpr uint64_t GenoTableHash::allBitsSet_     = std::numeric_limits<uint64_t>::max(); // 64-bit word with all bits set
 constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                                   // 64-bit word size
-constexpr size_t   GenoTableHash::nblocks32_      = sizeof(size_t) / sizeof(uint32_t);    // MurMurHash number of 32 bit blocks in size_t
-constexpr uint32_t GenoTableHash::mmhKeyLen_      = sizeof(size_t);                       // MurMurHash key length 
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
-constexpr uint32_t GenoTableHash::c1_             = 0xcc9e2d51;                           // MurMurHash c1 constant 
-constexpr uint32_t GenoTableHash::c2_             = 0x1b873593;                           // MurMurHash c2 constant 
 
 // Constructors
 GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) : kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
@@ -831,26 +880,28 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
 		threadRanges.back().second = nBedLociToRead;
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-			// TODO: add cassert() for nBedBytesToRead < streamsize::max()
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
+					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			std::vector< std::future<void> > tasks;
 			tasks.reserve(nThreads_);
-			for (const auto &tr : threadRanges){
+			for (const auto &eachTR : threadRanges){
 				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &addIndv, &seeds]{
-						bed2ophBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+					std::async([this, &bedChunkToRead, &eachTR, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &addIndv, &seeds]{
+						bed2ophBlk_(bedChunkToRead, eachTR.first, eachTR.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
 					})
 				);
 				locusInd += nLociPerThread;
 			}
-			for (const auto &th : tasks){
-				th.wait();
+			for (const auto &eachTask : tasks){
+				eachTask.wait();
 			}
 			locusInd += excessLoci;
 		}
 	} else {
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-			// TODO: add cassert() for nBedBytesToRead < streamsize::max()
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
+					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			std::vector< std::future<void> > tasks;
 			tasks.reserve(nBedLociToRead);
@@ -862,37 +913,38 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 				);
 				++locusInd;
 			}
-			for (const auto &th : tasks){
-				th.wait();
+			for (const auto &eachTask : tasks){
+				eachTask.wait();
 			}
 		}
 	}
-	if (remainingLoci) {
+	if (remainingLoci > 0) {
 		bedChunkToRead.resize(remainingBytes);
-		// TODO: add cassert() for remainingBytes < streamsize::max()
+		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() )
+				&& "ERROR: amount left to read larger than maximum streamsize in GenoTableHash constructor");
 		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
 		nLociPerThread = remainingLoci / nThreads_;
-		if (nLociPerThread){
+		if (nLociPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges;
 			size_t bedInd = 0;
 			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges.emplace_back(std::pair<size_t, size_t>{bedInd, bedInd + nLociPerThread});
+				threadRanges.emplace_back(bedInd, bedInd + nLociPerThread);
 				bedInd += nLociPerThread;
 			}
 			const size_t excessLoci = remainingLoci - threadRanges.back().second;
 			threadRanges.back().second = remainingLoci;
 			std::vector< std::future<void> > tasks;
 			tasks.reserve(nThreads_);
-			for (const auto &tr : threadRanges){
+			for (const auto &eachTR : threadRanges){
 				tasks.emplace_back(
-					std::async([this, &bedChunkToRead, &tr, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &addIndv, &seeds]{
-						bed2ophBlk_(bedChunkToRead, tr.first, tr.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+					std::async([this, &bedChunkToRead, &eachTR, locusInd, nBedBytesPerLocus, ranVecSize, &ranInts, &addIndv, &seeds]{
+						bed2ophBlk_(bedChunkToRead, eachTR.first, eachTR.second, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
 					})
 				);
 				locusInd += nLociPerThread;
 			}
-			for (const auto &th : tasks){
-				th.wait();
+			for (const auto &eachTask : tasks){
+				eachTask.wait();
 			}
 			locusInd += excessLoci;
 		} else {
@@ -906,8 +958,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 				);
 				++locusInd;
 			}
-			for (const auto &th : tasks){
-				th.wait();
+			for (const auto &eachTask : tasks){
+				eachTask.wait();
 			}
 		}
 	}
@@ -916,8 +968,9 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 
 GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
-	const time_t t = time(nullptr);
-	logStream << std::put_time(localtime(&t), "%b %e %H:%M %Z");
+	const time_t startTime = std::time(nullptr);
+	struct tm buf{};
+	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a minor allele count vector started on " + logStream.str() + "\n";
 	logStream.clear();
 	if (nIndividuals <= 1){
@@ -928,7 +981,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 		outLog.close();
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (maCounts.size() % nIndividuals){
+	if ( (maCounts.size() % nIndividuals) > 0){
 		logMessages_ += "ERROR: minor allele vector size (" + std::to_string( maCounts.size() ) + ") is not evenly divisible by the number of individuals (" + std::to_string(nIndividuals_) + "); aborting\n";
 		std::fstream outLog;
 		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
@@ -958,7 +1011,8 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 	} else if ( nThreads_ > std::thread::hardware_concurrency() ){
 		nThreads_ = std::thread::hardware_concurrency();
 	}
-	sketchSize_ = nIndividuals_ / kSketches_;    // want only full sketches (all from the same number of individuals)
+	sketchSize_   = nIndividuals / kSketches_ + static_cast<size_t>( (nIndividuals % kSketches_) > 0 );
+	nIndividuals_ = sketchSize_ * kSketches_;
 	if (sketchSize_ >= emptyBinToken_){
 		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too small; aborting\n";
 		std::fstream outLog;
@@ -969,8 +1023,10 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	locusSize_              = nIndividuals_ / byteSize_ + static_cast<bool>(nIndividuals_ % byteSize_);
-	const size_t ranVecSize = locusSize_ / llWordSize_ + static_cast<bool>(locusSize_ % llWordSize_);
+	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
+	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
+	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
+	const size_t ranVecSize = locusSize_ / llWordSize_ + static_cast<size_t>( (locusSize_ % llWordSize_) > 0);
 	// Calculate the actual sketch number based on the realized sketch size
 	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	// generate the sequence of random integers; each column must be permuted the same
@@ -984,53 +1040,54 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 
 	std::vector< std::pair<size_t, size_t> > threadRanges;
 	const size_t nLociPerThread = nLoci_ / nThreads_;
-	if (nLociPerThread){
+	if (nLociPerThread > 0){
 		size_t locusInd = 0;
 		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-			threadRanges.emplace_back(std::pair<size_t, size_t>{locusInd, locusInd + nLociPerThread});
+			threadRanges.emplace_back(locusInd, locusInd + nLociPerThread);
 			locusInd += nLociPerThread;
 		}
 		threadRanges.back().second = nLoci_;
 		std::vector< std::future<void> > tasks;
 		tasks.reserve(nThreads_);
-		for (const auto &tr : threadRanges){
+		for (const auto &eachTR : threadRanges){
 			tasks.emplace_back(
-				std::async([this, &maCounts, &tr, ranVecSize, &ranInts, &seeds]{
-					mac2ophBlk_(maCounts, tr.first, tr.second, ranVecSize, ranInts, seeds);
+				std::async([this, &maCounts, &eachTR, ranVecSize, &ranInts, &seeds]{
+					mac2ophBlk_(maCounts, eachTR.first, eachTR.second, ranVecSize, ranInts, seeds);
 				})
 			);
 		}
-		for (const auto &th : tasks){
-			th.wait();
+		for (const auto &eachTask : tasks){
+			eachTask.wait();
 		}
 	} else {
 		mac2ophBlk_(maCounts, 0, nLoci_, ranVecSize, ranInts, seeds);
 	}
 }
 
-GenoTableHash::GenoTableHash(GenoTableHash &&in) noexcept {
-	*this = std::move(in);
+GenoTableHash::GenoTableHash(GenoTableHash &&toMove) noexcept : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{0} {
+	*this = std::move(toMove);
 }
 
-GenoTableHash& GenoTableHash::operator=(GenoTableHash &&in) noexcept {
-	// TODO: add the new variables
-	if (this != &in){
-		sketches_     = std::move(in.sketches_);
-		nIndividuals_ = in.nIndividuals_;
-		kSketches_    = in.kSketches_;
-		nLoci_        = in.nLoci_;
-		sketchSize_   = in.sketchSize_;
-		nThreads_     = in.nThreads_;
-		locusSize_    = in.locusSize_;
-		logFileName_  = std::move(in.logFileName_);
-		logMessages_  = std::move(in.logMessages_);
+GenoTableHash& GenoTableHash::operator=(GenoTableHash &&toMove) noexcept {
+	if (this != &toMove){
+		sketches_       = std::move(toMove.sketches_);
+		nIndividuals_   = toMove.nIndividuals_;
+		kSketches_      = toMove.kSketches_;
+		sketchSize_     = toMove.sketchSize_;
+		nLoci_          = toMove.nLoci_;
+		locusSize_      = toMove.locusSize_;
+		nFullWordBytes_ = toMove.nFullWordBytes_;
+		nThreads_       = toMove.nThreads_;
+		logFileName_    = std::move(toMove.logFileName_);
+		logMessages_    = std::move(toMove.logMessages_);
 
-		in.nIndividuals_ = 0;
-		in.kSketches_    = 0;
-		in.nLoci_        = 0;
-		in.sketchSize_   = 0;
-		in.nThreads_     = 0;
-		in.locusSize_    = 0;
+		toMove.nIndividuals_   = 0;
+		toMove.kSketches_      = 0;
+		toMove.sketchSize_     = 0;
+		toMove.nLoci_          = 0;
+		toMove.locusSize_      = 0;
+		toMove.nFullWordBytes_ = 0;
+		toMove.nThreads_       = 0;
 	}
 	return *this;
 }
@@ -1059,11 +1116,11 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
-		if (nLocusPairsPerThread){
+		if (nLocusPairsPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges;
 			size_t locusPairInd = 0;
 			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges.emplace_back(std::pair<size_t, size_t>{locusPairInd, locusPairInd + nLocusPairsPerThread});
+				threadRanges.emplace_back(locusPairInd, locusPairInd + nLocusPairsPerThread);
 				locusPairInd += nLocusPairsPerThread;
 			}
 			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
@@ -1072,20 +1129,20 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 				std::vector<float> LDmatChunk(maxInRAM, 0.0);
 				std::vector< std::future<void> > tasks;
 				tasks.reserve(nThreads_);
-				for (const auto &tr : threadRanges){
+				for (const auto &eachTR : threadRanges){
 					tasks.emplace_back(
-						std::async([this, &LDmatChunk, &tr, overallPairInd]{
-							hashJacBlock_(tr.first, tr.second, overallPairInd, LDmatChunk);
+						std::async([this, &LDmatChunk, &eachTR, overallPairInd]{
+							hashJacBlock_(eachTR.first, eachTR.second, overallPairInd, LDmatChunk);
 						})
 					);
 					overallPairInd += nLocusPairsPerThread;
 				}
 				overallPairInd += excessLoci;
-				for (const auto &th : tasks){
-					th.wait();
+				for (const auto &eachTask : tasks){
+					eachTask.wait();
 				}
-				for (const auto &ld : LDmatChunk){
-					output << ld << " ";
+				for (const auto &ldValue : LDmatChunk){
+					output << ldValue << " ";
 				}
 			}
 		} else {
@@ -1093,29 +1150,29 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 				std::vector<float> LDmatChunk(maxInRAM, 0.0);
 				hashJacBlock_(0, maxInRAM, overallPairInd, LDmatChunk);
 				overallPairInd += maxInRAM;
-				for (const auto &ld : LDmatChunk){
-					output << ld << " ";
+				for (const auto &ldValue : LDmatChunk){
+					output << ldValue << " ";
 				}
 			}
 		}
 		overallPairInd = maxInRAM * nChunks;
-		if (remainingPairs){
+		if (remainingPairs > 0){
 			std::vector<float> LDmatChunk(remainingPairs, 0.0);
 			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
-			if (nRemainPairsPerThread){
+			if (nRemainPairsPerThread > 0){
 				std::vector< std::pair<size_t, size_t> > threadRanges;
 				size_t locusPairInd = 0;
 				for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-					threadRanges.emplace_back(std::pair<size_t, size_t>{locusPairInd, locusPairInd + nRemainPairsPerThread});
+					threadRanges.emplace_back(locusPairInd, locusPairInd + nRemainPairsPerThread);
 					locusPairInd += nRemainPairsPerThread;
 				}
 				threadRanges.back().second = remainingPairs;
 				std::vector< std::future<void> > tasks;
 				tasks.reserve(nThreads_);
-				for (const auto &tr : threadRanges){
+				for (const auto &eachTR : threadRanges){
 					tasks.emplace_back(
-						std::async([this, &LDmatChunk, &tr, overallPairInd]{
-							hashJacBlock_(tr.first, tr.second, overallPairInd, LDmatChunk);
+						std::async([this, &LDmatChunk, &eachTR, overallPairInd]{
+							hashJacBlock_(eachTR.first, eachTR.second, overallPairInd, LDmatChunk);
 						})
 					);
 					overallPairInd += nRemainPairsPerThread;
@@ -1123,8 +1180,8 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 			} else {
 				hashJacBlock_(0, remainingPairs, overallPairInd, LDmatChunk);
 			}
-			for (const auto &ld : LDmatChunk){
-				output << ld << " ";
+			for (const auto &ldValue : LDmatChunk){
+				output << ldValue << " ";
 			}
 		}
 		output.close();
@@ -1132,20 +1189,20 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		logMessages_ += "calculating in one go\n";
 		std::vector<float> LDmat(nPairs, 0.0);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
-		if (nLocusPairsPerThread){
+		if (nLocusPairsPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges;
 			size_t locusPairInd = 0;
 			for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-				threadRanges.emplace_back(std::pair<size_t, size_t>{locusPairInd, locusPairInd + nLocusPairsPerThread});
+				threadRanges.emplace_back(locusPairInd, locusPairInd + nLocusPairsPerThread);
 				locusPairInd += nLocusPairsPerThread;
 			}
 			threadRanges.back().second = LDmat.size();
 			std::vector< std::future<void> > tasks;
 			tasks.reserve(nThreads_);
-			for (const auto &tr : threadRanges){
+			for (const auto &eachTR : threadRanges){
 				tasks.emplace_back(
-					std::async([this, &LDmat, &tr]{
-						hashJacBlock_(tr.first, tr.second, tr.first, LDmat);
+					std::async([this, &LDmat, &eachTR]{
+						hashJacBlock_(eachTR.first, eachTR.second, eachTR.first, LDmat);
 					})
 				);
 			}
@@ -1154,36 +1211,38 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		for (const auto &ld : LDmat){
-			output << ld << " ";
+		for (const auto &ldValue : LDmat){
+			output << ldValue << " ";
 		}
 		output.close();
 	}
 }
 
 std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
-	// TODO: add an assert() for nRowsPerBand != 0 and nRowsPerBand < kSketches_
+	assert( (nRowsPerBand != 0) && "ERROR: nRowsPerBand must not be 0" );
+	assert( (nRowsPerBand < kSketches_) && "ERROR: nRowsPerBand must be less than kSketches_" );
 	const size_t nBands = kSketches_ / nRowsPerBand; // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
 
 	logMessages_ += "Grouping loci\n";
 	logMessages_ += "Number of rows per band: " + std::to_string(nRowsPerBand) + "\n";
 	logMessages_ += "Number of bands: " + std::to_string(nBands) + "\n";
 
-	const uint32_t sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
-	const uint32_t indexSeed  = static_cast<uint32_t>( rng_.ranInt() );
+	const auto sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
+	const auto indexSeed  = static_cast<uint32_t>( rng_.ranInt() );
 	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;       // the hash table; indexed by hashing the index vector
 
 	size_t iSketch = 0;
 	for (size_t iBand = 0; iBand < nBands; ++iBand){
 		std::unordered_map< uint32_t, std::vector<size_t> > localLDG;  // hash table local to each band, indexed by sketch hashes
 		for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		 	const uint32_t hash = murMurHash_(iSketch + iLocus * kSketches_, nRowsPerBand, sketchSeed);
+		 	const uint32_t hash = murMurHash(iSketch + iLocus * kSketches_, nRowsPerBand, sketches_, sketchSeed);
 			localLDG[hash].push_back(iLocus);
 		}
-		for (auto el : localLDG){
-			const uint32_t elementHash = murMurHash_(el.second, indexSeed);
+		for (auto &element : localLDG){
+			const uint32_t elementHash = murMurHash(element.second, indexSeed);
+			// TODO: probably need to emplace_back() instead, whether it is empty or not? OTOH, hashing the whole vector? Figure it out.
 			if ( ldGroup[elementHash].empty() ){
-				ldGroup[elementHash] = std::move(el.second);
+				ldGroup[elementHash] = std::move(element.second);
 			}
 		}
 		iSketch += nRowsPerBand;
@@ -1236,26 +1295,26 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
 	// estimate locus pair similarities
 	const size_t nPairsPerThread = hashJacGroups.size() / nThreads_;
-	if (nPairsPerThread){
+	if (nPairsPerThread > 0){
 		std::vector< std::pair<size_t, size_t> > threadRanges;
 		threadRanges.reserve(nThreads_);
 		size_t pairInd = 0;
 		for (size_t iThread = 0; iThread < nThreads_; ++iThread){
-			threadRanges.emplace_back(std::pair<size_t, size_t>{pairInd, pairInd + nPairsPerThread});
+			threadRanges.emplace_back(pairInd, pairInd + nPairsPerThread);
 			pairInd += nPairsPerThread;
 		}
 		threadRanges.back().second = hashJacGroups.size(); // assuming the number of threads << number of groups, this should not lead to noticeable thread imbalance
 		std::vector< std::future<void> > tasks;
 		tasks.reserve(nThreads_);
-		for (const auto &tr : threadRanges){
+		for (const auto &eachTR : threadRanges){
 			tasks.emplace_back(
-				std::async([this, &tr, &hashJacGroups]{
-					hashJacBlock_(tr.first, tr.second, hashJacGroups);
+				std::async([this, &eachTR, &hashJacGroups]{
+					hashJacBlock_(eachTR.first, eachTR.second, hashJacGroups);
 				})
 			);
 		}
-		for (const auto &th : tasks){
-			th.wait();
+		for (const auto &eachTask : tasks){
+			eachTask.wait();
 		}
 	} else {
 		std::vector< std::future<void> > tasks;
@@ -1267,8 +1326,8 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 				})
 			);
 		}
-		for (const auto &th : tasks){
-			th.wait();
+		for (const auto &eachTask : tasks){
+			eachTask.wait();
 		}
 	}
 
@@ -1348,7 +1407,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 		uint64_t nSumUnsetBits{0};
 		while ( (nWordUnsetBits == wordSizeInBits_) && ( iByte < binLocus.size() ) ){
 			uint64_t locusChunk{allBitsSet_};
-			// TODO: add cassert() for iByte < binLocus.size(); must be true since this is the loop conditions
+			assert( ( iByte < binLocus.size() ) && "ERROR: iByte must be less than locus size in bytes in locusOPH_()" );
 			const size_t nRemainingBytes{binLocus.size() - iByte};
 			locusChunkSize = static_cast<size_t>(nRemainingBytes >= llWordSize_) * llWordSize_ + static_cast<size_t>(nRemainingBytes < llWordSize_) * nRemainingBytes;
 			memcpy(&locusChunk, binLocus.data() + iByte, locusChunkSize);
@@ -1380,18 +1439,18 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 			filledIndexes.push_back( rng_.sampleInt(kSketches_) );
 		}
 		size_t emptyCount = kSketches_ - filledIndexes.size();
-		while (emptyCount){
-			for (const auto &f : filledIndexes){
-				auto newIdx = static_cast<uint32_t>(murMurHash_(f, seeds[iSeed]) % kSketches_ + sketchBeg);
+		while (emptyCount > 0){
+			for (const auto &eachFI : filledIndexes){
+				auto newIdx = static_cast<uint32_t>(murMurHash(eachFI, seeds[iSeed]) % kSketches_ + sketchBeg);
 				// should be safe: each thread accesses different vector elements
 				if (sketches_[newIdx] == emptyBinToken_){
-					sketches_[newIdx] = sketches_[f + sketchBeg];
+					sketches_[newIdx] = sketches_[eachFI + sketchBeg];
 					--emptyCount;
 					break;
 				}
 			}
 			++iSeed;
-			std::lock_guard<std::mutex> lk(mtx_);      // lock before measuring to ensure that the size is valid
+			std::lock_guard<std::mutex> lock(mtx_);      // lock before measuring to ensure that the size is valid
 			if ( iSeed == seeds.size() ){
 				seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 			}
@@ -1403,9 +1462,9 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 					const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
-	uint64_t locSeed;
+	uint64_t locSeed{0};
 	{
-		std::lock_guard<std::mutex> lk(mtx_);
+		std::lock_guard<std::mutex> lock(mtx_);
 		locSeed = rng_.ranInt();
 	}
 	RanDraw locPRNG(locSeed);
@@ -1414,13 +1473,13 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 	const auto lastByteMask = static_cast<uint8_t>( std::numeric_limits<uint8_t>::max() << static_cast<uint8_t>(nIndividuals_ % byteSize_) );
 	// Fill the random byte vector
 	std::vector<uint64_t> rand(randVecLen);
-	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
-	size_t iLocus      = firstLocusInd;
+	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	size_t iLocus   = firstLocusInd;
 	for (size_t iBedLocus = firstBedLocusInd; iBedLocus < lastBedLocusInd; ++iBedLocus){
 		const size_t begInd      = iBedLocus * bedLocusLength;
 		const size_t endWholeBed = begInd + addBL;
-		for (auto &rv : rand){
-			rv = locPRNG.ranInt();
+		for (auto &randValue : rand){
+			randValue = locPRNG.ranInt();
 		}
 		std::vector<uint8_t> binLocus(locusSize_, 0);
 		std::vector<uint8_t> missMasks(locusSize_, 0);
@@ -1463,8 +1522,8 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 			++iRB;
 		}
 		uint8_t inBedByteOffset = 0;
-		if (addIndv) {
-			const uint8_t lastBedByte = static_cast<uint8_t>(~bedData[endWholeBed]);
+		if (addIndv > 0) {
+			const auto lastBedByte = static_cast<uint8_t>(~bedData[endWholeBed]);
 			for (size_t iInd = 0; iInd < addIndv; ++iInd){
 				uint8_t firstBitMask    = lastBedByte & (oneBit_ << inBedByteOffset);
 				const uint8_t secondBBO = inBedByteOffset + 1;
@@ -1479,7 +1538,7 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 				firstBitMask     = static_cast<uint8_t>(firstBitMask << iInd);
 				binLocus.back() |= firstBitMask;
 				inBedByteOffset += 2;
-				inBedByteOffset  = inBedByteOffset % 8;
+				inBedByteOffset  = inBedByteOffset % byteSize_;
 			}
 		}
 		for (const auto &addI : padIndiv){
@@ -1517,22 +1576,24 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const size_t &
 void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds){
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
-	uint64_t locSeed;
+	uint64_t locSeed{0};
 	{
-		std::lock_guard<std::mutex> lk(mtx_);
+		std::lock_guard<std::mutex> lock(mtx_);
 		locSeed = rng_.ranInt();
 	}
 	RanDraw locPRNG(locSeed);
-	uint8_t remainderInd       = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
+	constexpr uint8_t middleMask{0b10000011};
+	constexpr uint8_t endTwoBitMask{0b00000011};
+	auto remainderInd          = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
 	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
 	remainderInd               = byteSize_ - remainderInd;
 	// Create a vector to store random bytes for stochastic heterozygote resolution
 	std::vector<uint64_t> rand(randVecLen);
-	uint8_t *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
 	for (size_t iLocus = startLocusInd; iLocus < endLocusInd; ++iLocus){
 		// Fill the random byte vector
-		for (auto &rv : rand){
-			rv = locPRNG.ranInt();
+		for (auto &randValue : rand){
+			randValue = locPRNG.ranInt();
 		}
 		size_t iIndiv         = 0;
 		const size_t begIndiv = iLocus * nIndividuals_;
@@ -1541,11 +1602,11 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 		size_t i0Byte = 0;                                                                         // to index the missMasks vector
 		for (size_t iByte = 0; iByte < locusSize_ - 1; ++iByte){                                   // treat the last byte separately
 			for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte){
-				uint8_t curIndiv          = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
-				curIndiv                 &= 0b10000011;                                            // mask everything in the middle
+				auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
+				curIndiv                 &= middleMask;                                            // mask everything in the middle
 				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
 				missMasks[i0Byte]        |= (missingMask << iInByte);
-				curIndiv                 &= 0b00000011;
+				curIndiv                 &= endTwoBitMask;
 				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
 				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
@@ -1556,11 +1617,11 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 		}
 		// now deal with the last byte in the individual
 		for (uint8_t iRem = 0; iRem < remainderInd; ++iRem){
-			uint8_t curIndiv          = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
-			curIndiv                 &= 0b10000011;                                                // mask everything in the middle
+			auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
+			curIndiv                 &= middleMask;                                                // mask everything in the middle
 			const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
 			missMasks.back()         |= (missingMask << iRem);
-			curIndiv                 &= 0b00000011;                                                
+			curIndiv                 &= endTwoBitMask;                                                
 			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;             // 0b00000000 or 0b00000001 with equal chance
 			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 			curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
@@ -1579,123 +1640,19 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 	}
 }
 
-uint32_t GenoTableHash::murMurHash_(const size_t &key, const uint32_t &seed) const {
-	uint32_t hash = seed;
-
-	// body
-	auto blocks = reinterpret_cast<const uint32_t *>(&key);
-
-	for (size_t i = 0; i < nblocks32_; ++i){
-		uint32_t k1 = blocks[i];
-
-		k1 *= c1_;
-		k1  = (k1 << 15) | (k1 >> 17);
-		k1 *= c2_;
-
-		hash ^= k1;
-		hash  = (hash << 13) | (hash >> 19);
-		hash  = hash * 5 + 0xe6546b64;
-	}
-
-	// there is no tail since the input is fixed (at eight bytes typically)
-	// finalize
-	hash ^= mmhKeyLen_;
-	hash ^= hash >> 16;
-	hash *= 0x85ebca6b;
-	hash ^= hash >> 13;
-	hash *= 0xc2b2ae35;
-	hash ^= hash >> 16;
-
-	return hash;
-}
-
-uint32_t GenoTableHash::murMurHash_(const std::vector<size_t> &key, const uint32_t &seed) const {
-	uint32_t hash = seed;
-
-	// body
-	auto blocks = reinterpret_cast<const uint32_t *>( key.data() );
-	const size_t nBlocks = nblocks32_ * key.size();
-
-	for (size_t i = 0; i < nBlocks; ++i){
-		uint32_t k1 = blocks[i];
-
-		k1 *= c1_;
-		k1  = (k1 << 15) | (k1 >> 17);
-		k1 *= c2_;
-
-		hash ^= k1;
-		hash  = (hash << 13) | (hash >> 19);
-		hash  = hash * 5 + 0xe6546b64;
-	}
-
-	// there is no tail since the input is fixed (at eight bytes typically)
-	// finalize
-	hash ^= mmhKeyLen_;
-	hash ^= hash >> 16;
-	hash *= 0x85ebca6b;
-	hash ^= hash >> 13;
-	hash *= 0xc2b2ae35;
-	hash ^= hash >> 16;
-
-	return hash;
-}
-
-uint32_t GenoTableHash::murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const {
-	// TODO: add an assert() on nElements != 0 and startInd < sketches_.size()
-	uint32_t hash  = seed;
-	auto blocks    = reinterpret_cast<const uint32_t *>(sketches_.data() + startInd);
-	size_t nBlocks = nElements / 2; // each sketch is 16 bits
-
-	// body
-	for (size_t iBlock = 0; iBlock < nBlocks; ++iBlock){
-		uint32_t k1 = blocks[iBlock];
-
-		k1 *= c1_;
-		k1  = (k1 << 15) | (k1 >> 17);
-		k1 *= c2_;
-
-		hash ^= k1;
-		hash  = (hash << 13) | (hash >> 19);
-		hash  = hash * 5 + 0xe6546b64;
-	}
-
-	// tail, if exists
-	if (nElements % 2){
-		uint32_t k1 = static_cast<uint32_t>(sketches_[startInd + nElements - 1]);
-
-		k1 *= c1_;
-		k1  = (k1 << 15) | (k1 >> 17);
-		k1 *= c2_;
-
-		hash ^= k1;
-		hash  = (hash << 13) | (hash >> 19);
-		hash  = hash * 5 + 0xe6546b64;
-	}
-
-	// finalize
-	hash ^= mmhKeyLen_;
-	hash ^= hash >> 16;
-	hash *= 0x85ebca6b;
-	hash ^= hash >> 13;
-	hash *= 0xc2b2ae35;
-	hash ^= hash >> 16;
-
-	return hash;
-}
-
 void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, std::vector<float> &hashJacVec) const {
 	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	size_t curJacMatInd = blockStartAll;
 	for (size_t iVecInd = blockStartVec; iVecInd < blockEndVec; ++iVecInd){
 		// compute row and column indexes from the vectorized by column lower triangle index
 		// got these expressions by combining various web sources and verifying
-		const size_t kp  = nnLoci - curJacMatInd;
-		const size_t p   = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kp) ) ) - 1) / 2;
-		const size_t row = nLoci_ - 2 - p;
-		const size_t col = nLoci_ - (kp - p * (p + 1) / 2) - 1;
-		const auto rowSk = static_cast<std::vector<uint16_t>::difference_type>(row * kSketches_);
-		const auto colSk = static_cast<std::vector<uint16_t>::difference_type>(col * kSketches_);
-		auto start       = sketches_.begin() + rowSk;
+		const size_t kpIdx = nnLoci - curJacMatInd;
+		const size_t pIdx  = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
+		const size_t row   = nLoci_ - 2 - pIdx;
+		const size_t col   = nLoci_ - (kpIdx - pIdx * (pIdx + 1) / 2) - 1;
+		const auto rowSk   = static_cast<std::vector<uint16_t>::difference_type>(row * kSketches_);
+		const auto colSk   = static_cast<std::vector<uint16_t>::difference_type>(col * kSketches_);
+		auto start         = sketches_.begin() + rowSk;
 		// count equal elements using the inner_product idiom
 		int simVal = std::inner_product( start, start + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
 				sketches_.begin() + colSk, 0, std::plus<>(), std::equal_to<>() );
@@ -1705,15 +1662,15 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 	}
 }
 
-void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &hashJacVec) const {
+void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &indexedJacc) const {
 	for (size_t iBlock = blockStartVec; iBlock < blockEndVec; ++iBlock){
-		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(hashJacVec[iBlock].element1ind * kSketches_);
-		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(hashJacVec[iBlock].element2ind * kSketches_);
+		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(indexedJacc[iBlock].element1ind * kSketches_);
+		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(indexedJacc[iBlock].element2ind * kSketches_);
 		// count equal elements using the inner_product idiom
 		int simVal = std::inner_product( start1, start1 + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
 				start2, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
-		hashJacVec[iBlock].similarityValue = static_cast<float>(simVal) / static_cast<float>(kSketches_);
+		indexedJacc[iBlock].similarityValue = static_cast<float>(simVal) / static_cast<float>(kSketches_);
 	}
 }
 

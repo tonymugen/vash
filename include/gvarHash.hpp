@@ -79,6 +79,38 @@ namespace BayesicSpace {
 	 * \return estimated available RAM in bytes
 	 */
 	size_t getAvailableRAM();
+	/** \brief MurMurHash of an index value
+	 *
+	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
+	 *
+	 * \param[in] key the key to be hashed
+	 * \param[in] seed the seed
+	 *
+	 * \return the hash value
+	 */
+	uint32_t murMurHash(const size_t &key, const uint32_t &seed);
+	/** \brief MurMurHash of a vector of indexes
+	 *
+	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
+	 *
+	 * \param[in] key the key vector to be hashed
+	 * \param[in] seed the seed
+	 *
+	 * \return the hash value
+	 */
+	uint32_t murMurHash(const std::vector<size_t> &key, const uint32_t &seed);
+	/** \brief MurMurHash of a vector of indexes
+	 *
+	 * Generates a 32-bit hash of a vector of `uint16_t` values using the MurMurHash3 algorithm.
+	 *
+	 * \param[in] start start index
+	 * \param[in] length number of elements to hash
+	 * \param[in] key the vector to be hashed
+	 * \param[in] seed the hash seed
+	 *
+	 * \return hash value
+	 */
+	uint32_t murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed);
 	/** \brief Test .bed magic bytes
 	 *
 	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
@@ -480,16 +512,8 @@ namespace BayesicSpace {
 		static const uint64_t allBitsSet_;
 		/** \brief 64-bit word size in bits */
 		static const size_t wordSizeInBits_;
-		/** \brief MurMurHash number of 32 bit blocks in `size_t` */
-		static const size_t nblocks32_;
-		/** \brief MurMurHash key length */
-		static const uint32_t mmhKeyLen_;
 		/** \brief Value corresponding to an empty token */
 		static const uint16_t emptyBinToken_;
-		/** \brief MurMurHash c1 constant */
-		static const uint32_t c1_;
-		/** \brief MurMurHash c2 constant */
-		static const uint32_t c2_;
 		/** \brief Single-locus one-permutation hash
 		 *
 		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
@@ -530,37 +554,6 @@ namespace BayesicSpace {
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
 		void mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
-		/** \brief MurMurHash to fill in empty bins
-		 *
-		 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
-		 *
-		 * \param[in] key the key to be hashed
-		 * \param[in] seed the seed
-		 *
-		 * \return the hash value
-		 */
-		uint32_t murMurHash_(const size_t &key, const uint32_t &seed) const;
-		/** \brief MurMurHash of a vector
-		 *
-		 * Generates a 32-bit hash of an index vector using the MurMurHash3 algorithm.
-		 *
-		 * \param[in] key the vector to be hashed
-		 * \param[in] seed the seed
-		 *
-		 * \return the hash value
-		 */
-		uint32_t murMurHash_(const std::vector<size_t> &key, const uint32_t &seed) const;
-		/** \brief MurMurHash of a sketch portion
-		 *
-		 * Generates a 32-bit hash of a portion of an OPH sketch using the MurMurHash3 algorithm.
-		 *
-		 * \param[in] startInd index of the first sketch element (to the `sketches_` vector)
-		 * \param[in] nElements number of elements to hash
-		 * \param[in] seed the seed
-		 *
-		 * \return the hash value
-		 */
-		uint32_t murMurHash_(const size_t &startInd, const size_t &nElements, const uint32_t &seed) const;
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
