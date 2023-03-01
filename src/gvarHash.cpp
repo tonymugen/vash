@@ -173,8 +173,26 @@ uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t
 }
 
 uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed) {
+	constexpr size_t keysPerWord{sizeof(size_t) / sizeof(uint16_t)};
+	constexpr auto roundMask = static_cast<size_t>( -(keysPerWord) );
 	uint32_t hash{seed};
+	const size_t end{start + length};
+	const size_t wholeEnd{end & roundMask};
 
+	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" );
+
+	size_t keyIdx{start};
+	while (keyIdx < wholeEnd){
+		size_t keyBlock{0};
+		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
+		hash    = murMurHash(keyBlock, hash);
+		keyIdx += keysPerWord;
+	}
+	if (end > wholeEnd){  // if there is a tail
+		size_t keyBlock{0};
+		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
+		hash = murMurHash(keyBlock, hash);
+	}
 	return hash;
 }
 
