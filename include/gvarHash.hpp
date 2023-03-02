@@ -79,6 +79,25 @@ namespace BayesicSpace {
 	 * \return estimated available RAM in bytes
 	 */
 	size_t getAvailableRAM();
+	/** \brief MurMurHash mixer module of an index value
+	 *
+	 * Generates a 32-bit an unfinalized hash of an index value using the MurMurHash3 algorithm.
+	 *
+	 * \param[in] key the key to be hashed
+	 * \param[in] seed the seed
+	 *
+	 * \return the hash value
+	 */
+	uint32_t murMurHashMixer(const size_t &key, const uint32_t &seed);
+	/** \brief MurMurHash finalizer
+	 *
+	 * MurMurHash3 finalizer for a hash value.
+	 *
+	 * \param[in] inputHash input unfinlized hash value
+	 * 
+	 * \return finalized hash value
+	 */
+	uint32_t murMurHashFinalizer(const uint32_t &inputHash);
 	/** \brief MurMurHash of an index value
 	 *
 	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.

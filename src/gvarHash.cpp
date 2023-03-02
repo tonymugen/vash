@@ -125,7 +125,7 @@ size_t BayesicSpace::getAvailableRAM() {
 	return defaultSize;
 }
 
-uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
+uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed){
 	constexpr uint32_t const1{0xcc9e2d51};
 	constexpr uint32_t const2{0x1b873593};
 	constexpr size_t   nBlocks32{sizeof(size_t) / sizeof(uint32_t)};    // number of 32 bit blocks in size_t
@@ -134,12 +134,10 @@ uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
 	constexpr uint32_t hashAdder{0xe6546b64};
 
 	constexpr std::array<uint32_t, 4> blockShifts{15, 17, 13, 19};
-	constexpr std::array<uint32_t, 2> finalizeShifts{16, 13};
-	constexpr std::array<uint32_t, 2> finalizeMult{0x85ebca6b, 0xc2b2ae35};
 
 	uint32_t hash{seed};
 	std::array<uint32_t, nBlocks32> blocks{0};
-	memcpy(blocks.data(), &key, nBlocks32);
+	memcpy(blocks.data(), &key, keyLen);
 
 	// body
 	for (auto &eachBlock : blocks){
@@ -151,9 +149,15 @@ uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
 		hash  = (hash << blockShifts[2]) | (hash >> blockShifts[3]);
 		hash  = hash * hashMultiplier + hashAdder;
 	}
+	return hash;
+}
 
-	// there is no tail since the input is fixed (at eight bytes typically)
-	// finalize
+uint32_t BayesicSpace::murMurHashFinalizer(const uint32_t &inputHash){
+	constexpr uint32_t keyLen{sizeof(size_t)};                          // key length 
+	constexpr std::array<uint32_t, 2> finalizeShifts{16, 13};
+	constexpr std::array<uint32_t, 2> finalizeMult{0x85ebca6b, 0xc2b2ae35};
+
+	uint32_t hash = inputHash;
 	hash ^= keyLen;
 	hash ^= hash >> finalizeShifts[0];
 	hash *= finalizeMult[0];
@@ -164,11 +168,19 @@ uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
 	return hash;
 }
 
+uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
+	uint32_t hash{murMurHashMixer(key, seed)};
+	hash = murMurHashFinalizer(hash);
+
+	return hash;
+}
+
 uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t &seed) {
 	uint32_t hash{seed};
 	for (const auto &eachIdx : key){
-		hash = murMurHash(eachIdx, hash);
+		hash = murMurHashMixer(eachIdx, hash);
 	}
+	hash = murMurHashFinalizer(hash);
 	return hash;
 }
 
@@ -185,14 +197,15 @@ uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, con
 	while (keyIdx < wholeEnd){
 		size_t keyBlock{0};
 		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
-		hash    = murMurHash(keyBlock, hash);
+		hash    = murMurHashMixer(keyBlock, hash);
 		keyIdx += keysPerWord;
 	}
 	if (end > wholeEnd){  // if there is a tail
 		size_t keyBlock{0};
 		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
-		hash = murMurHash(keyBlock, hash);
+		hash = murMurHashMixer(keyBlock, hash);
 	}
+	hash = murMurHashFinalizer(hash);
 	return hash;
 }
 
