@@ -444,7 +444,7 @@ namespace BayesicSpace {
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] toMove object to be moved
-		 * \return `GenoTableHash object
+		 * \return `GenoTableHash` object
 		 */
 		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept;
 		/** \brief Destructor */
@@ -533,6 +533,16 @@ namespace BayesicSpace {
 		static const size_t wordSizeInBits_;
 		/** \brief Value corresponding to an empty token */
 		static const uint16_t emptyBinToken_;
+		/** \brief Permute bits 
+		 *
+		 * Permutes individual bits in a vector of bytes according to the provided index vector.
+		 * The index vector stores swap addresses of the corresponding positions.
+		 *
+		 * \param[in] permutationIdx permutation index vector
+		 * \param[in,out] binLocus vector of bytes to be permuted
+		 *
+		 */
+		void permuteBits_(const std::vector<size_t> &permutationIdx, std::vector<uint8_t> &binLocus) const;
 		/** \brief Single-locus one-permutation hash
 		 *
 		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
@@ -549,8 +559,7 @@ namespace BayesicSpace {
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
 		 *
 		 * \param[in] bedData _.bed_ file input
-		 * \param[in] firstBedLocusInd index of the first locus in the _.bed_ vector
-		 * \param[in] lastBedLocusInd index of one past the last locus in the _.bed_ vector
+		 * \param[in] bedLocusIndRange range of locus indexes in the block
 		 * \param[in] firstLocusInd overall index of the first locus in the range
 		 * \param[in] locusLength number of bytes in each locus
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
@@ -558,7 +567,23 @@ namespace BayesicSpace {
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2ophBlk_(const std::vector<char> &bedData, const size_t &firstBedLocusInd, const size_t &lastBedLocusInd, const size_t &firstLocusInd,
+		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd,
+							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		/** \brief OPH from _.bed_ file input using multiple threads
+		 *
+		 * Hashes input from a _.bed_ file using multiple threads.
+		 *
+		 * \param[in] bedData _.bed_ file input
+		 * \param[in] threadRanges vector of locus ranges, one per thread
+		 * \param[in] firstLocusInd overall index of the first locus in the range
+		 * \param[in] locusLength number of bytes in each locus
+		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
+		 * \param[in,out] seeds random number seeds for empty bin filling
+		 * \return new value of `firstLocusInd`
+		 */
+		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd,
 							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
@@ -578,12 +603,11 @@ namespace BayesicSpace {
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
 		 * The range of indexes refers to a vectorized by column lower triangle of a similarity matrix.
 		 *
-		 * \param[in] blockStartVec index of the block start in `hashJacVec`
-		 * \param[in] blockEndVec index of one past the block end in `hashJacVec`
+		 * \param[in] blockRange index range in a block in `hashJacVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
 		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
+		void hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
 		/** \brief Hash-based similarity among indexed loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
@@ -595,6 +619,17 @@ namespace BayesicSpace {
 		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
 		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector< IndexedPairSimilarity > &indexedJacc) const;
+		/** \brief Hash-based similarity using multiple threads
+		 *
+		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
+		 * The ranges of indexes refer to a vectorized by column lower triangle of a similarity matrix.
+		 *
+		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
+		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
+		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
+		 * \return new block start index
+		 */
+		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
 	};
 }
 
