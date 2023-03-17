@@ -35,6 +35,7 @@
 #include <vector>
 #include <array>
 #include <utility>  // for std::pair
+#include <limits>
 #include <immintrin.h>
 
 #include "vashFunctions.hpp"
@@ -218,6 +219,82 @@ std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const si
 		bedInd += nElementsPerThread;
 	}
 	return threadRanges;
+}
+
+void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
+														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus) {
+	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
+	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
+	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
+	constexpr auto word64mask{static_cast<uint64_t>(-word64size)};                             // for rounding down to nearest divisible by 8 number 
+	constexpr auto word32mask{static_cast<uint64_t>(-word32size)};                             // for rounding down to nearest divisible by 4 number 
+	constexpr uint64_t secondBitMask{0xaaaaaaaaaaaaaaaa};                                      // all bed second bits set
+	constexpr uint64_t firstBitMask{~secondBitMask};                                           // all bed first bits set
+	const size_t nEvenBedBytes{bedLocusSize & word64mask};                                     // number of bed bytes that fully fit into 64-bit words
+	std::vector<uint32_t> missWords;                                                           // 32-bit words with missing genotype masks
+	std::vector<uint32_t> binWords;                                                            // 32-bit words with binarized data
+	uint32_t setCount{0};
+	uint32_t missingCount{0};
+	size_t iBedByte{bedIdx};
+	while (iBedByte < nEvenBedBytes + bedIdx){
+		uint64_t bedWord{0};
+		memcpy(&bedWord, bedLocus.data() + iBedByte, word64size);
+		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
+		const auto secondBedBits{static_cast<uint32_t>( _pext_u64(bedWord, secondBitMask) )};
+		const uint32_t setHoms{binBits & secondBedBits};                                       // set bit homozygotes (11 in .bed)
+		uint32_t allHets{(~setHoms) & secondBedBits};                                          // set at all het positions
+		const uint32_t missing{(~setHoms) & binBits};                                          // set at missing positions
+		missingCount += static_cast<uint32_t>( _mm_popcnt_u32(missing) );                      // count missing genotypes
+		missWords.push_back(missing);
+		const auto ranBits{static_cast<uint32_t>( prng.ranInt() )};
+		allHets  &= ranBits;                                                                   // flip some of the het bits randomly
+		binBits   = setHoms | allHets;                                                         // add in the set het bits
+		setCount += static_cast<uint32_t>( _mm_popcnt_u32(binBits) );                          // count the number of set bits
+		binWords.push_back(binBits);
+		iBedByte += word64size;
+	}
+	if (bedLocusSize > nEvenBedBytes){
+		const size_t nTrailingBedBytes{bedLocusSize - nEvenBedBytes};
+		uint64_t bedWord{0};
+		memcpy(&bedWord, bedLocus.data() + iBedByte, nTrailingBedBytes);
+		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
+		const auto secondBedBits{static_cast<uint32_t>( _pext_u64(bedWord, secondBitMask) )};
+		const uint32_t setHoms{binBits & secondBedBits};
+		uint32_t allHets{(~setHoms) & secondBedBits};
+		const uint32_t missing{(~setHoms) & binBits};
+		missingCount += static_cast<uint32_t>( _mm_popcnt_u32(missing) );
+		missWords.push_back(missing);
+		const auto ranBits{static_cast<uint32_t>( prng.ranInt() )};
+		allHets  &= ranBits;
+		binBits   = setHoms | allHets;
+		setCount += static_cast<uint32_t>( _mm_popcnt_u32(binBits) );
+		binWords.push_back(binBits);
+	}
+	// test if the set bits are minor alleles and flip them if not
+	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" );
+	if ( (2UL * setCount) > (nIndividuals - missingCount) ){
+		size_t missWordIdx{0};
+		for (auto &eachBinWord : binWords){
+			eachBinWord = (~eachBinWord) & (~missWords[missWordIdx]);                                            // flip the bits in the binary vector and reset the missing bits to 0
+			++missWordIdx;
+		}
+		const auto padShift{static_cast<uint32_t>( (binWords.size() * word32sizeInBits) % nIndividuals )};
+		const uint32_t lastWordMask{std::numeric_limits<uint32_t>::max() >> padShift};                           // clear the padding bits after the flip
+		binWords.back() = binWords.back() & lastWordMask;
+	}
+	// copy over the binary bits to the locus vector
+	const size_t nEvenBinBytes{binLocusSize & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
+	size_t iBinByte{binIdx};
+	size_t iBinWord{0};
+	while (iBinByte < nEvenBinBytes){
+		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
+		iBinByte += word32size;
+		++iBinWord;
+	}
+	if (binLocusSize > nEvenBinBytes){
+		const size_t nTrailingBinBytes{binLocusSize - nEvenBinBytes};
+		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], nTrailingBinBytes);
+	}
 }
 
 void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {

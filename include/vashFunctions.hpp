@@ -35,6 +35,8 @@
 #include <array>
 #include <fstream>
 
+#include "random.hpp"
+
 namespace BayesicSpace {
 	/** \brief Count set bits in a 16-bit word
 	 *
@@ -136,6 +138,28 @@ namespace BayesicSpace {
 	 * \return vector of index ranges
 	 */
 	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread);
+	/** \brief Convert a locus from _.bed_ to binary format
+	 *
+	 * Convert the _.bed_ two-bit format to one-bit binary.
+	 *
+	 *  - 00 (homozygous first _.bim_ allele) becomes 0 if it is the major allele, 1 otherwise
+	 *  - 11 (homozygous second _.bim_ allele) becomes 1 if it is the minor allele, 0 otherwise
+	 *  - 01 (missing genotype) becomes 0
+	 *  - 10 (heterozygous) becomes 1 with probability 0.5
+	 *
+	 * If the number of individuals is not divisible by eight, the last binary byte is padded with 0s.
+	 *
+	 * \param[in] bedIdx index of the first byte in the `bedLocus` vector
+	 * \param[in] bedLocusSize number of bytes in the _.bed_ locus
+	 * \param[in] bedLocus vector of _.bed_ format bytes
+	 * \param[in] nIndividuals number of individuals
+	 * \param[in,out] prng (pseudo-)random number generator (for resolving heterozygotes)
+	 * \param[in] binIdx index of the first binary byte
+	 * \param[in] binLocusSize number of bytes in the binary locus
+	 * \param[out] binLocus vector of binary format bytes
+	 */
+	void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
+														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus);
 	/** \brief Save values 
 	 *
 	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
