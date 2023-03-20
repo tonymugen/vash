@@ -125,8 +125,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	inStr.read( magicBuf.data(), magicBuf.size() );
 	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
-	binLocusSize_           = nIndividuals_ / byteSize_ + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
-	const size_t ranVecSize = nBedBytesPerLocus / llWordSize_ + static_cast<size_t>( (nBedBytesPerLocus % llWordSize_) > 0 );
+	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	const size_t ramSize        = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
 	size_t nBedLociToRead       = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
@@ -151,7 +150,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
+			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus);
 			locusInd += excessLoci;
 		}
 	} else {
@@ -159,7 +158,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
 			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
+			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus);
 		}
 	}
 	if (remainingLoci > 0) {
@@ -171,11 +170,11 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLociPerThread)};
 			const size_t excessLoci = remainingLoci - threadRanges.back().second;
 			threadRanges.back().second = remainingLoci;
-			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
+			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus);
 			locusInd += excessLoci;
 		} else {
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(remainingLoci, 1)};
-			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize);
+			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus);
 		}
 	}
 	inStr.close();
@@ -359,7 +358,7 @@ void GenoTableBin::saveLogFile() const {
 	outLog.close();
 }
 
-void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen) {
+void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	uint64_t locSeed{0};
@@ -368,108 +367,22 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 		locSeed = rng_.ranInt();
 	}
 	RanDraw locPRNG(locSeed);
-	const size_t addIndv       = nIndividuals_ % 4UL;
-	const size_t addBL         = bedLocusLength - static_cast<size_t>(addIndv > 0);
-	size_t begByte             = firstLocusInd * binLocusSize_;
-	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
-	std::vector<uint64_t> rand(randVecLen);
-	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	size_t begByte{firstLocusInd * binLocusSize_};
 	for (size_t iBedLocus = bedLocusIndRange.first; iBedLocus < bedLocusIndRange.second; ++iBedLocus){
-		const size_t begInd      = iBedLocus * bedLocusLength;
-		const size_t endWholeBed = begInd + addBL;
-		// Fill the random byte vector
-		for (auto &randValue : rand){
-			randValue = locPRNG.ranInt();
-		}
-		std::vector<uint8_t> missMasks(binLocusSize_, 0);
-		size_t iBinGeno = begByte;                       // binLocus vector index
-		size_t iMissMsk = 0;
-		size_t iRB      = 0;                             // randBytes index
-		uint8_t bedByte = 0;
-		// Two bytes of .bed code go into one byte of my binary representation
-		// Therefore, work on two consecutive bytes of .bed code in the loop
-		for (size_t iBed = begInd; iBed < endWholeBed ; iBed += 2){                // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
-			uint8_t binByte{0};
-			bedByte = static_cast<uint8_t>(~bedData[iBed]);                       // flip so that homozygous second allele (usually minor) is set to 11
-			uint8_t offsetToBin{0};                                               // move the .bed mask by this much to align with the binarized byte
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iMissMsk]   |= curMissMask >> offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask |= randBytes[iRB] & (firstBitMask << 1);
-				firstBitMask  &= secondBitMask >> 1;
-				binByte       |= firstBitMask >> offsetToBin;
-				++offsetToBin;
-			}
-			const size_t nextIbed{iBed + 1};
-			bedByte = static_cast<uint8_t>(~bedData[nextIbed]);
-			++iRB;
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iMissMsk]   |= curMissMask << offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask |= randBytes[iRB] & (firstBitMask << 1);
-				firstBitMask  &= secondBitMask >> 1;
-				binByte       |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
-				--offsetToBin;
-			}
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[iBinGeno] = binByte;
-			++iBinGeno;
-			++iMissMsk;
-			++iRB;
-		}
-		uint8_t inBedByteOffset = 0;
-		uint8_t binByte         = 0;
-		if (addIndv > 0) {
-			const auto lastBedByte = static_cast<uint8_t>(~bedData[endWholeBed]);
-			for (size_t iInd = 0; iInd < addIndv; ++iInd){
-				uint8_t firstBitMask    = lastBedByte & (oneBit_ << inBedByteOffset);
-				const uint8_t secondBBO = inBedByteOffset + 1;
-				uint8_t secondBitMask   = lastBedByte & (oneBit_ << secondBBO);
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks.back()      |= static_cast<uint8_t>( (curMissMask >> inBedByteOffset) << iInd );
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask   |= randBytes[iRB] & (firstBitMask << 1);                                       // iRB incremented at the end of the previous loop
-				firstBitMask    &= secondBitMask >> 1;
-				firstBitMask     = firstBitMask >> inBedByteOffset;
-				firstBitMask     = static_cast<uint8_t>(firstBitMask << iInd);
-				binByte         |= firstBitMask;
-				inBedByteOffset += 2;
-				inBedByteOffset  = inBedByteOffset % byteSize_;
-			}
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[begByte + binLocusSize_ - 1] = binByte;
-		}
-		float aaCount = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
-		if (aaCount > 0.5){ // always want the alternative to be the minor allele
-			for (size_t iBL = 0; iBL < binLocusSize_; ++iBL){
-				const size_t biBL = begByte + iBL;
-				// should be safe: each thread accesses different vector elements
-				binGenotypes_[biBL] = (~binGenotypes_[biBL]) & (~missMasks[iBL]);
-			}
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
-		}
+		const size_t begInd{iBedLocus * bedLocusLength};
+		binarizeBedLocus(begInd, bedLocusLength, bedData, nIndividuals_, locPRNG, begByte, binLocusSize_, binGenotypes_);
 		begByte += binLocusSize_;
 	}
 }
 
-size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength, const size_t &randVecLen){
+size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength){
 	size_t locusInd = firstLocusInd;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
 	for (const auto &eachTR : threadRanges){
 		tasks.emplace_back(
-			std::async([this, &bedData, &eachTR, locusInd, bedLocusLength, randVecLen]{
-				bed2binBlk_(bedData, eachTR, locusInd, bedLocusLength, randVecLen);
+			std::async([this, &bedData, &eachTR, locusInd, bedLocusLength]{
+				bed2binBlk_(bedData, eachTR, locusInd, bedLocusLength);
 			})
 		);
 		locusInd += eachTR.second - eachTR.first;
@@ -695,7 +608,6 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
 	const size_t nBedBytesPerLocus = nIndividuals / bedGenoPerByte_ + static_cast<size_t>(nIndividuals % bedGenoPerByte_ > 0);
-	const size_t ranVecSize        = nBedBytes / llWordSize_ + static_cast<size_t>(nBedBytes % llWordSize_ > 0);
 	const size_t ramSize           = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
 	size_t nBedLociToRead          = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
 	nBedLociToRead                 = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
@@ -726,7 +638,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
 			locusInd += excessLoci;
 		}
 	} else {
@@ -735,7 +647,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, 1)};
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
 		}
 	}
 	if (remainingLoci > 0) {
@@ -748,11 +660,11 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLociPerThread)};
 			const size_t excessLoci = remainingLoci - threadRanges.back().second;
 			threadRanges.back().second = remainingLoci;
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
 			locusInd += excessLoci;
 		} else {
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, 1)};
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranVecSize, ranInts, addIndv, seeds);
+			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
 		}
 	}
 	inStr.close();
@@ -1195,7 +1107,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 }
 
 void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t>&bedLocusIndRange, const size_t &firstLocusInd,
-					const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
+					const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	uint64_t locSeed{0};
@@ -1204,79 +1116,12 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 		locSeed = rng_.ranInt();
 	}
 	RanDraw locPRNG(locSeed);
-	const size_t addIndv    = nIndividuals_ % 4UL;
-	const size_t addBL      = bedLocusLength - static_cast<size_t>(addIndv > 0);
-	const auto lastByteMask = static_cast<uint8_t>( std::numeric_limits<uint8_t>::max() << static_cast<uint8_t>(nIndividuals_ % byteSize_) );
-	// Fill the random byte vector
-	std::vector<uint64_t> rand(randVecLen);
-	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
-	size_t iLocus   = firstLocusInd;
+	size_t iLocus{firstLocusInd};
 	for (size_t iBedLocus = bedLocusIndRange.first; iBedLocus < bedLocusIndRange.second; ++iBedLocus){
-		const size_t begInd      = iBedLocus * bedLocusLength;
-		const size_t endWholeBed = begInd + addBL;
-		for (auto &randValue : rand){
-			randValue = locPRNG.ranInt();
-		}
 		std::vector<uint8_t> binLocus(locusSize_, 0);
-		std::vector<uint8_t> missMasks(locusSize_, 0);
-		size_t iBinGeno = 0;                       // binLocus vector index
-		uint8_t bedByte = 0;
-		size_t iRB      = 0;                       // random byte index
-		// Two bytes of .bed code go into one byte of my binary representation
-		// Therefore, work on two consecutive bytes of .bed code in the loop
-		for (size_t iBed = begInd; iBed < endWholeBed; iBed += 2){                 // the last byte has the padding; will deal with it separately (plus the penultimate byte if nBedBytes is even)
-			bedByte = static_cast<uint8_t>(~bedData[iBed]);                        // flip so that homozygous second allele (usually minor) is set to 11
-			uint8_t offsetToBin{0};                                                // move the .bed mask by this much to align with the binarized byte
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iBinGeno]   |= curMissMask >> offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask      |= randBytes[iRB] & (firstBitMask << 1);
-				firstBitMask       &= secondBitMask >> 1;
-				binLocus[iBinGeno] |= firstBitMask >> offsetToBin;
-				++offsetToBin;
-			}
-			const size_t nextIbed = iBed + 1;
-			bedByte = static_cast<uint8_t>(~bedData[nextIbed]);
-			++iRB;
-			for (uint8_t iInByteG = 0; iInByteG < byteSize_; iInByteG += 2){
-				uint8_t firstBitMask  = bedByte & (oneBit_ << iInByteG);
-				uint8_t secondBitMask = bedByte & ( oneBit_ << (iInByteG + 1) );
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks[iBinGeno]   |= curMissMask << offsetToBin;
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask      |= randBytes[iRB] & (firstBitMask << 1);
-				firstBitMask       &= secondBitMask >> 1;
-				binLocus[iBinGeno] |= firstBitMask << offsetToBin; // keep adding to the current binarized byte, so switch the direction of shift
-				--offsetToBin;
-			}
-			++iBinGeno;
-			++iRB;
-		}
-		uint8_t inBedByteOffset = 0;
-		if (addIndv > 0) {
-			const auto lastBedByte = static_cast<uint8_t>(~bedData[endWholeBed]);
-			for (size_t iInd = 0; iInd < addIndv; ++iInd){
-				uint8_t firstBitMask    = lastBedByte & (oneBit_ << inBedByteOffset);
-				const uint8_t secondBBO = inBedByteOffset + 1;
-				uint8_t secondBitMask   = lastBedByte & (oneBit_ << secondBBO);
-				// Keep track of missing genotypes to revert them if I have to flip bits later on
-				const auto curMissMask = static_cast<uint8_t>( ( ( secondBitMask ^ (firstBitMask << 1) ) & secondBitMask ) >> 1 );  // 2nd different from 1st, and 2nd set => missing
-				missMasks.back()      |= static_cast<uint8_t>( (curMissMask >> inBedByteOffset) << iInd );
-				// If 1st is set and 2nd is not, we have a heterozygote. In this case, set the 1st with a 50/50 chance
-				secondBitMask   |= randBytes[iRB] & (firstBitMask << 1);                                       // iRB incremented at the end of the previous loop
-				firstBitMask    &= secondBitMask >> 1;
-				firstBitMask     = firstBitMask >> inBedByteOffset;
-				firstBitMask     = static_cast<uint8_t>(firstBitMask << iInd);
-				binLocus.back() |= firstBitMask;
-				inBedByteOffset += 2;
-				inBedByteOffset  = inBedByteOffset % byteSize_;
-			}
-		}
+		const size_t begInd{iBedLocus * bedLocusLength};
+		binarizeBedLocus(begInd, bedLocusLength, bedData, nIndividuals_, locPRNG, 0, locusSize_, binLocus);
+		// pad the locus to have an even number of sketches 
 		for (const auto &addI : padIndiv){
 			const size_t iLocByte    = addI.first / byteSize_;
 			const auto iInLocByte    = static_cast<uint8_t>(addI.first % byteSize_);
@@ -1295,29 +1140,20 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 			// Must modify the current byte in each loop iteration because permutation indexes may fall into it
 			binLocus[iLocByte] ^= static_cast<uint8_t>( ( binLocus[iLocByte] ^ static_cast<uint8_t>(bytePair) ) & static_cast<uint8_t>(mask) );
 		}
-		float aaCount = static_cast<float>( countSetBits(binLocus) ) / static_cast<float>(nIndividuals_);
-		if (aaCount > 0.5){ // always want the alternative to be the minor allele
-			for (size_t iBL = 0; iBL < locusSize_; ++iBL){
-				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
-			}
-		}
-		if ( lastByteMask < std::numeric_limits<uint8_t>::max() ){
-			binLocus.back() |= lastByteMask;
-		}
 		locusOPH_(iLocus, permutation, seeds, binLocus);
 		++iLocus;
 	}
 }
 
 size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds){
+							const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds){
 	size_t locusInd = firstLocusInd;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
 	for (const auto &eachTR : threadRanges){
 		tasks.emplace_back(
-			std::async([this, &bedData, &eachTR, locusInd, bedLocusLength, randVecLen, &permutation, &padIndiv, &seeds]{
-				bed2ophBlk_(bedData, eachTR, locusInd, bedLocusLength, randVecLen, permutation, padIndiv, seeds);
+			std::async([this, &bedData, &eachTR, locusInd, bedLocusLength, &permutation, &padIndiv, &seeds]{
+				bed2ophBlk_(bedData, eachTR, locusInd, bedLocusLength, permutation, padIndiv, seeds);
 			})
 		);
 		locusInd += eachTR.second - eachTR.first;

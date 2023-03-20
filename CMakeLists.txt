@@ -71,7 +71,7 @@ set_target_properties(vash PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 )
 target_compile_options(vash
-	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -mpopcnt -pthread
+	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -mbmi2 -mpopcnt -pthread
 )
 set_target_properties(vash PROPERTIES
 	CXX_STANDARD         14
