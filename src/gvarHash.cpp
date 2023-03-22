@@ -452,10 +452,8 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 			lastBinByte              |= curBitMask << iRem;
 			++iIndiv;
 		}
-		{
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[begByte + binLocusSize_ - 1] = lastBinByte;
-		}
+		// should be safe: each thread accesses different vector elements
+		binGenotypes_[begByte + binLocusSize_ - 1] = lastBinByte;
 		float maf = static_cast<float>( countSetBits(binGenotypes_, begByte, binLocusSize_) ) / static_cast<float>(nIndividuals_);
 		if (maf > 0.5){ // always want the alternative to be the minor allele
 			i0Byte = 0;
@@ -492,7 +490,8 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		}
 		const uint64_t isect = countSetBits(locus);
 		// should be safe: each thread accesses different vector elements
-		jaccardVec[iVecInd]  = static_cast<float>(uni) / static_cast<float>(isect);
+		// if isect is 0, union must also be 0, so we set the distance to 0.0
+		jaccardVec[iVecInd] = (isect > 0 ? static_cast<float>(uni) / static_cast<float>(isect) : 0.0F);
 		++curJacMatInd;
 	}
 }

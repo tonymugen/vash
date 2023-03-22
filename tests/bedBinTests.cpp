@@ -32,7 +32,7 @@
 #include "random.hpp"
 
 void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-							BayesicSpace::RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus) {
+														BayesicSpace::RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus) {
 	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
 	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
@@ -81,7 +81,6 @@ void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const st
 		binWords.push_back(binBits);
 	}
 	// test if the set bits are minor alleles and flip them if not
-	// TODO: add assert() for nIndividuals > missingCount
 	if ( (2UL * setCount) > (nIndividuals - missingCount) ){
 		size_t missWordIdx{0};
 		for (auto &eachBinWord : binWords){
@@ -96,7 +95,7 @@ void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const st
 	const size_t nEvenBinBytes{binLocusSize & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
 	size_t iBinByte{binIdx};
 	size_t iBinWord{0};
-	while (iBinByte < nEvenBinBytes){
+	while (iBinByte < nEvenBinBytes + binIdx){
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
 		iBinByte += word32size;
 		++iBinWord;
@@ -109,13 +108,13 @@ void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const st
 
 int main() {
 	constexpr size_t byteSize{8};
-	constexpr size_t nIndividuals{151};
-	constexpr size_t nLoci{6};
+	constexpr size_t nIndividuals{502};
+	constexpr size_t nLoci{11};
 	constexpr size_t bedLocusSize{nIndividuals / 4 + static_cast<size_t>( (nIndividuals % 4) > 0 )};
 	constexpr size_t binLocusSize{bedLocusSize / 2 + (bedLocusSize & 1)};
 	std::cout << bedLocusSize << " " << binLocusSize << "\n";
 	constexpr size_t seed{1711};
-	const std::string bedFile("bedConv.bed");
+	const std::string bedFile("indicaChr2_10KhiLoFx.bed");
 	BayesicSpace::RanDraw prng(seed);
 	std::array<char, 3> magicBytes{0};
 	std::vector<char> bedBytes(bedLocusSize * nLoci, 0);

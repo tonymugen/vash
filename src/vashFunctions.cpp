@@ -286,7 +286,7 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	const size_t nEvenBinBytes{binLocusSize & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
 	size_t iBinByte{binIdx};
 	size_t iBinWord{0};
-	while (iBinByte < nEvenBinBytes){
+	while (iBinByte < nEvenBinBytes + binIdx){
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
 		iBinByte += word32size;
 		++iBinWord;

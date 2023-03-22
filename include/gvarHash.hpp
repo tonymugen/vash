@@ -147,7 +147,7 @@ namespace BayesicSpace {
 		void saveGenoBinary(const std::string &outFileName) const;
 		/** \brief All by all Jaccad similarity LD
 		 *
-		 * Calculates linkage disequilibrium among all loci using a corrected Jaccard similarity as the statistic.
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
