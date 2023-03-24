@@ -284,7 +284,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
 			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(float) );      // use half to leave resources for other operations
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
 	logMessages_         += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
 	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
@@ -296,6 +296,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		const size_t remainingPairs = nPairs % maxInRAM;
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
 		if (nLocusPairsPerThread > 0){
@@ -303,14 +304,14 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
 			threadRanges.back().second = maxInRAM;
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<float> LDmatChunk(maxInRAM, 0.0);
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
 				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
 				overallPairInd += excessLoci;
 				saveValues(LDmatChunk, output);
 			}
 		} else {
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<float> LDmatChunk(maxInRAM, 0.0);
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
 				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
 				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
 				overallPairInd += maxInRAM;
@@ -319,7 +320,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		}
 		overallPairInd = maxInRAM * nChunks;
 		if (remainingPairs > 0){
-			std::vector<float> LDmatChunk(remainingPairs, 0.0);
+			std::vector<IndexedPairSimilarity> LDmatChunk(remainingPairs);
 			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
 			if (nRemainPairsPerThread > 0){
 				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
@@ -334,7 +335,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		output.close();
 	} else {
 		logMessages_ += "calculating in one go\n";
-		std::vector<float> LDmat(nPairs, 0.0);
+		std::vector<IndexedPairSimilarity> LDmat(nPairs);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
 		if (nLocusPairsPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
@@ -346,6 +347,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
 		saveValues(LDmat, output);
 		output.close();
 	}
@@ -468,7 +470,7 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 	}
 }
 
-void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<float> &jaccardVec) const {
+void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const {
 	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	std::vector<uint8_t> locus(binLocusSize_);
 	size_t curJacMatInd = blockStartAll;
@@ -491,12 +493,15 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		const uint64_t isect = countSetBits(locus);
 		// should be safe: each thread accesses different vector elements
 		// if isect is 0, union must also be 0, so we set the distance to 0.0
-		jaccardVec[iVecInd] = (isect > 0 ? static_cast<float>(uni) / static_cast<float>(isect) : 0.0F);
+		jaccardVec[iVecInd].groupID         = 0;
+		jaccardVec[iVecInd].element1ind     = row;
+		jaccardVec[iVecInd].element2ind     = col;
+		jaccardVec[iVecInd].similarityValue = (isect > 0 ? static_cast<float>(uni) / static_cast<float>(isect) : 0.0F);
 		++curJacMatInd;
 	}
 }
 
-size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<float> &jaccardVec) const {
+size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const {
 	size_t overallPairInd = blockStartAll;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
@@ -528,7 +533,7 @@ constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t
 
 // Constructors
 GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName)
-								: kSketches_{kSketches}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+								: kSketches_{kSketches}, fSketches_{static_cast<float>(kSketches)}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
@@ -669,7 +674,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) : nIndividuals_{nIndividuals}, kSketches_{kSketches}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) 
+		: nIndividuals_{nIndividuals}, kSketches_{kSketches}, fSketches_{static_cast<float>(kSketches)}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
@@ -762,7 +768,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 	}
 }
 
-GenoTableHash::GenoTableHash(GenoTableHash &&toMove) noexcept : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{0} {
+GenoTableHash::GenoTableHash(GenoTableHash &&toMove) noexcept : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{0} {
 	*this = std::move(toMove);
 }
 
@@ -771,6 +777,7 @@ GenoTableHash& GenoTableHash::operator=(GenoTableHash &&toMove) noexcept {
 		sketches_       = std::move(toMove.sketches_);
 		nIndividuals_   = toMove.nIndividuals_;
 		kSketches_      = toMove.kSketches_;
+		fSketches_      = toMove.fSketches_;
 		sketchSize_     = toMove.sketchSize_;
 		nLoci_          = toMove.nLoci_;
 		locusSize_      = toMove.locusSize_;
@@ -800,7 +807,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
 			 std::to_string(maxPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(float) );      // use half to leave resources for other operations
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
 	logMessages_         += "Calculating all pairwise LD\n";
 	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
@@ -812,6 +819,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		const size_t remainingPairs = nPairs % maxInRAM;
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
 		if (nLocusPairsPerThread > 0){
@@ -819,14 +827,14 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
 			threadRanges.back().second = maxInRAM;
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<float> LDmatChunk(maxInRAM, 0.0);
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
 				overallPairInd  = hashJacThreaded_(threadRanges, overallPairInd, LDmatChunk);
 				overallPairInd += excessLoci;
 				saveValues(LDmatChunk, output);
 			}
 		} else {
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<float> LDmatChunk(maxInRAM, 0.0);
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
 				const std::pair<size_t, size_t> chunkRange(0, maxInRAM);
 				hashJacBlock_(chunkRange, overallPairInd, LDmatChunk);
 				overallPairInd += maxInRAM;
@@ -835,7 +843,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		}
 		overallPairInd = maxInRAM * nChunks;
 		if (remainingPairs > 0){
-			std::vector<float> LDmatChunk(remainingPairs, 0.0);
+			std::vector<IndexedPairSimilarity> LDmatChunk(remainingPairs);
 			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
 			if (nRemainPairsPerThread > 0){
 				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
@@ -850,7 +858,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		output.close();
 	} else {
 		logMessages_ += "calculating in one go\n";
-		std::vector<float> LDmat(nPairs, 0.0);
+		std::vector<IndexedPairSimilarity> LDmat(nPairs);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
 		if (nLocusPairsPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
@@ -862,6 +870,7 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
 		saveValues(LDmat, output);
 		output.close();
 	}
@@ -977,9 +986,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	std::fstream out;
 	out.open(outFileName, std::ios::out | std::ios::trunc);
 	out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-	for (const auto idxRes : hashJacGroups){
-		out << "G" << idxRes.groupID + 1 << "\t" << idxRes.element1ind + 1 << "\t" << idxRes.element2ind + 1 << "\t" << idxRes.similarityValue << "\n";
-	}
+	saveValues(hashJacGroups, out);
 	out.close();
 }
 
@@ -1230,7 +1237,7 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 	}
 }
 
-void GenoTableHash::hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<float> &hashJacVec) const {
+void GenoTableHash::hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const {
 	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	size_t curJacMatInd = blockStartAll;
 	for (size_t iVecInd = blockRange.first; iVecInd < blockRange.second; ++iVecInd){
@@ -1247,7 +1254,10 @@ void GenoTableHash::hashJacBlock_(const std::pair<size_t, size_t> &blockRange, c
 		int simVal = std::inner_product( start, start + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
 				sketches_.begin() + colSk, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
-		hashJacVec[iVecInd] = static_cast<float>(simVal) / static_cast<float>(kSketches_);
+		hashJacVec[iVecInd].groupID         = 0;
+		hashJacVec[iVecInd].element1ind     = row;
+		hashJacVec[iVecInd].element2ind     = col;
+		hashJacVec[iVecInd].similarityValue = static_cast<float>(simVal) / fSketches_;
 		++curJacMatInd;
 	}
 }
@@ -1260,11 +1270,11 @@ void GenoTableHash::hashJacBlock_(const size_t &blockStartVec, const size_t &blo
 		int simVal = std::inner_product( start1, start1 + static_cast<std::vector<uint16_t>::difference_type>(kSketches_),
 				start2, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
-		indexedJacc[iBlock].similarityValue = static_cast<float>(simVal) / static_cast<float>(kSketches_);
+		indexedJacc[iBlock].similarityValue = static_cast<float>(simVal) / fSketches_;
 	}
 }
 
-size_t GenoTableHash::hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<float> &hashJacVec) const {
+size_t GenoTableHash::hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const {
 	size_t overallPairInd = blockStartAll;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);

@@ -145,10 +145,11 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const std::string &outFileName) const;
-		/** \brief All by all Jaccad similarity LD
+		/** \brief All by all Jaccard similarity LD
 		 *
 		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * All values belong to the same group. Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
 		 * \param[in] ldFileName name of the output file
@@ -228,17 +229,17 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] blockVecRange block index range in `jaccardVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
+		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix, with locus pair indexes and the group ID always set to 0
 		 */
-		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
+		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const;
 		/** \brief Jaccard similarity between locus pairs using multiple threads
 		 *
 		 * \param[in] pairIndRanges vector of pair ranges, one range per thread
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix
+		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix, with locus pair indexes and the group ID always set to 0
 		 * \return new block start index
 		 */
-		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<float> &jaccardVec) const;
+		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
@@ -249,7 +250,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -343,6 +344,7 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * All values belong to the same group. Row and column indexes (1-base) of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
 		 * \param[in] ldFileName name of file to save the results
@@ -384,6 +386,8 @@ namespace BayesicSpace {
 		size_t nIndividuals_;
 		/** \brief Number of sketches */
 		size_t kSketches_;
+		/** \brief Number of sketches, float representation */
+		float fSketches_;
 		/** \brief Sketch size */
 		size_t sketchSize_;
 		/** \brief Number of loci */
@@ -492,9 +496,9 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] blockRange index range in a block in `hashJacVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
+		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
 		 */
-		void hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
+		void hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 		/** \brief Hash-based similarity among indexed loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
@@ -513,10 +517,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vectorized lower triangle of the hash-estimated Jaccard similarity matrix
+		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
 		 * \return new block start index
 		 */
-		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<float> &hashJacVec) const;
+		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 	};
 }
 

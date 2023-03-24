@@ -36,6 +36,7 @@
 #include <fstream>
 
 #include "random.hpp"
+#include "gvarHash.hpp"
 
 namespace BayesicSpace {
 	/** \brief Count set bits in a 16-bit word
@@ -168,4 +169,12 @@ namespace BayesicSpace {
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<float> &inVec, std::fstream &outputStream);
+	/** \brief Save indexed values 
+	 *
+	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 *
+	 * \param[in] inVec vector of indexed floats to save
+	 * \param[in, out] outputStream `fstream` to save to
+	 */
+	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream);
 }

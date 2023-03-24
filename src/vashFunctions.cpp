@@ -38,6 +38,7 @@
 #include <limits>
 #include <immintrin.h>
 
+#include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
 using namespace BayesicSpace;
@@ -303,4 +304,9 @@ void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &out
 	}
 }
 
+void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream) {
+	for (const auto &eachValue : inVec){
+		outputStream << "G" << eachValue.groupID + 1 << "\t" << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.similarityValue << "\n";
+	}
+}
 
