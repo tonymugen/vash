@@ -310,3 +310,9 @@ void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, s
 	}
 }
 
+void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream) {
+	for (const auto &eachValue : inVec){
+		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.jaccard << "\t" << eachValue.d << "\n";
+	}
+}
+

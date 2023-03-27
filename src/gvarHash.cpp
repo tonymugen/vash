@@ -284,7 +284,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
 			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
 	logMessages_         += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
 	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
@@ -296,7 +296,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		const size_t remainingPairs = nPairs % maxInRAM;
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+		output << "locus1\tlocus2\tjaccard\tD\n";
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
 		if (nLocusPairsPerThread > 0){
@@ -304,14 +304,14 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
 			threadRanges.back().second = maxInRAM;
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
+				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
 				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
 				overallPairInd += excessLoci;
 				saveValues(LDmatChunk, output);
 			}
 		} else {
 			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
-				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
+				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
 				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
 				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
 				overallPairInd += maxInRAM;
@@ -320,7 +320,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		}
 		overallPairInd = maxInRAM * nChunks;
 		if (remainingPairs > 0){
-			std::vector<IndexedPairSimilarity> LDmatChunk(remainingPairs);
+			std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
 			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
 			if (nRemainPairsPerThread > 0){
 				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
@@ -335,7 +335,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		output.close();
 	} else {
 		logMessages_ += "calculating in one go\n";
-		std::vector<IndexedPairSimilarity> LDmat(nPairs);
+		std::vector<IndexedPairLD> LDmat(nPairs);
 		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
 		if (nLocusPairsPerThread > 0){
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
@@ -347,7 +347,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+		output << "locus1\tlocus2\tjaccard\tD\n";
 		saveValues(LDmat, output);
 		output.close();
 	}
@@ -470,10 +470,12 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 	}
 }
 
-void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const {
+void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const {
 	const size_t nnLoci = nLoci_ * (nLoci_ - 1) / 2 - 1; // overflow checked in the calling function; do this here for encapsulation, may move to the calling function later
 	std::vector<uint8_t> locus(binLocusSize_);
-	size_t curJacMatInd = blockStartAll;
+	size_t curJacMatInd{blockStartAll};
+	const auto fIndiv{static_cast<float>(nIndividuals_)};
+	const float fIndivSq{fIndiv * fIndiv};
 	for (size_t iVecInd = blockVecRange.first; iVecInd < blockVecRange.second; ++iVecInd){
 		// compute row and column indexes from the vectorized lower triangle index
 		// got these expressions by combining various web sources and verifying
@@ -486,29 +488,32 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
 			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
 		}
-		const uint64_t uni = countSetBits(locus);
+		const uint64_t isect = countSetBits(locus);
 		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc){
 			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
 		}
-		const uint64_t isect = countSetBits(locus);
+		const uint64_t uni     = countSetBits(locus);
+		const uint64_t locus1n = countSetBits(binGenotypes_, rowBin, binLocusSize_);
+		const uint64_t locus2n = countSetBits(binGenotypes_, colBin, binLocusSize_);
 		// should be safe: each thread accesses different vector elements
 		// if isect is 0, union must also be 0, so we set the distance to 0.0
-		jaccardVec[iVecInd].groupID         = 0;
-		jaccardVec[iVecInd].element1ind     = row;
-		jaccardVec[iVecInd].element2ind     = col;
-		jaccardVec[iVecInd].similarityValue = (isect > 0 ? static_cast<float>(uni) / static_cast<float>(isect) : 0.0F);
+		ldVec[iVecInd].element1ind = row;
+		ldVec[iVecInd].element2ind = col;
+		const auto fsect{static_cast<float>(isect)}; 
+		ldVec[iVecInd].jaccard = (isect > 0 ? fsect / static_cast<float>(uni) : 0.0F);
+		ldVec[iVecInd].d       = fsect / fIndiv - static_cast<float>(locus1n * locus2n) / fIndivSq;
 		++curJacMatInd;
 	}
 }
 
-size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const {
+size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const {
 	size_t overallPairInd = blockStartAll;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
 	for (const auto &eachTR : pairIndRanges){
 		tasks.emplace_back(
-			std::async([this, &jaccardVec, &eachTR, overallPairInd]{
-				jaccardBlock_(eachTR, overallPairInd, jaccardVec);
+			std::async([this, &ldVec, &eachTR, overallPairInd]{
+				jaccardBlock_(eachTR, overallPairInd, ldVec);
 			})
 		);
 		overallPairInd += eachTR.second - eachTR.first;

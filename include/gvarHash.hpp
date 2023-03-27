@@ -57,6 +57,17 @@ namespace BayesicSpace {
 		uint32_t groupID;
 	};
 
+	/** \brief LD value with indexes
+	 *
+	 * Groups a Jaccard similarity value and the D linkage disequilibrium statistic of two loci with their indexes.
+	 */
+	struct IndexedPairLD {
+		float jaccard;
+		float d;
+		size_t element1ind;
+		size_t element2ind;
+	};
+
 	/** \brief Class to store binary compressed genotype tables
 	 *
 	 * Converts genotype data to a lossy compressed binary code.
@@ -227,19 +238,19 @@ namespace BayesicSpace {
 		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
-		 * \param[in] blockVecRange block index range in `jaccardVec`
+		 * \param[in] blockVecRange block index range in `ldVec`
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix, with locus pair indexes and the group ID always set to 0
+		 * \param[out] ldVec vectorized lower triangle of the Jaccard and D similarity matrix with locus pair indexes
 		 */
-		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const;
+		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
 		/** \brief Jaccard similarity between locus pairs using multiple threads
 		 *
 		 * \param[in] pairIndRanges vector of pair ranges, one range per thread
 		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] jaccardVec vectorized lower triangle of the Jaccard similarity matrix, with locus pair indexes and the group ID always set to 0
+		 * \param[out] ldVec vectorized lower triangle of the Jaccard and D similarity matrix with locus pair indexes
 		 * \return new block start index
 		 */
-		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &jaccardVec) const;
+		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *

@@ -177,4 +177,12 @@ namespace BayesicSpace {
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream);
+	/** \brief Save indexed LD values 
+	 *
+	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 *
+	 * \param[in] inVec vector of indexed LD values to save
+	 * \param[in, out] outputStream `fstream` to save to
+	 */
+	void saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream);
 }
