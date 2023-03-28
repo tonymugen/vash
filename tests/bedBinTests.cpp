@@ -109,12 +109,12 @@ void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const st
 int main() {
 	constexpr size_t byteSize{8};
 	constexpr size_t nIndividuals{502};
-	constexpr size_t nLoci{11};
+	constexpr size_t nLoci{19};
 	constexpr size_t bedLocusSize{nIndividuals / 4 + static_cast<size_t>( (nIndividuals % 4) > 0 )};
 	constexpr size_t binLocusSize{bedLocusSize / 2 + (bedLocusSize & 1)};
 	std::cout << bedLocusSize << " " << binLocusSize << "\n";
 	constexpr size_t seed{1711};
-	const std::string bedFile("indicaChr2_10KhiLoFx.bed");
+	const std::string bedFile("indicaChr2_10K_noHetsOut.bed");
 	BayesicSpace::RanDraw prng(seed);
 	std::array<char, 3> magicBytes{0};
 	std::vector<char> bedBytes(bedLocusSize * nLoci, 0);

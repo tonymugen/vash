@@ -296,7 +296,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		const size_t remainingPairs = nPairs % maxInRAM;
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\tD\n";
+		output << "locus1\tlocus2\tjaccard\trSq\n";
 		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
 		size_t overallPairInd = 0;
 		if (nLocusPairsPerThread > 0){
@@ -347,7 +347,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		}
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\tD\n";
+		output << "locus1\tlocus2\tjaccard\trSq\n";
 		saveValues(LDmat, output);
 		output.close();
 	}
@@ -475,7 +475,6 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 	std::vector<uint8_t> locus(binLocusSize_);
 	size_t curJacMatInd{blockStartAll};
 	const auto fIndiv{static_cast<float>(nIndividuals_)};
-	const float fIndivSq{fIndiv * fIndiv};
 	for (size_t iVecInd = blockVecRange.first; iVecInd < blockVecRange.second; ++iVecInd){
 		// compute row and column indexes from the vectorized lower triangle index
 		// got these expressions by combining various web sources and verifying
@@ -500,8 +499,12 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		ldVec[iVecInd].element1ind = row;
 		ldVec[iVecInd].element2ind = col;
 		const auto fsect{static_cast<float>(isect)}; 
+		const float locus1p{static_cast<float>(locus1n) / fIndiv};                      // locus 1 allele frequency
+		const float locus2p{static_cast<float>(locus2n) / fIndiv};                      // locus 2 allele frequency
+		const float pApB{locus1p * locus2p};
+		const float dValue{fsect / fIndiv - pApB};                         // D statistic
 		ldVec[iVecInd].jaccard = (isect > 0 ? fsect / static_cast<float>(uni) : 0.0F);
-		ldVec[iVecInd].d       = fsect / fIndiv - static_cast<float>(locus1n * locus2n) / fIndivSq;
+		ldVec[iVecInd].rSq     = dValue * dValue / ( pApB * (1.0F - locus1p) * (1.0F - locus2p) );
 		++curJacMatInd;
 	}
 }

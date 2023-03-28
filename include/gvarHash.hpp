@@ -59,11 +59,11 @@ namespace BayesicSpace {
 
 	/** \brief LD value with indexes
 	 *
-	 * Groups a Jaccard similarity value and the D linkage disequilibrium statistic of two loci with their indexes.
+	 * Groups a Jaccard similarity value and the \f$r^2\f$ linkage disequilibrium statistic of two loci with their indexes.
 	 */
 	struct IndexedPairLD {
 		float jaccard;
-		float d;
+		float rSq;
 		size_t element1ind;
 		size_t element2ind;
 	};
