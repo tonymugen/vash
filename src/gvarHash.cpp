@@ -543,7 +543,7 @@ constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t
 GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName)
 								: kSketches_{kSketches}, fSketches_{static_cast<float>(kSketches)}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
-	const time_t startTime = std::time(nullptr);
+	const time_t startTime{std::time(nullptr)};
 	struct tm buf{};
 	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
@@ -636,6 +636,13 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	std::vector< std::pair<size_t, size_t> > addIndv;
 	for (size_t iAddIndiv = nIndividuals; iAddIndiv < nIndividuals_; ++iAddIndiv){
 		addIndv.emplace_back( iAddIndiv, rng_.sampleInt(nIndividuals) );
+	}
+	if ( !addIndv.empty() ){
+		std::string addIndexes;
+		for (const auto &eachIdx : addIndv){
+			addIndexes += std::to_string(eachIdx.second) + " ";
+		}
+		logMessages_ += "Re-sampled individuals: " + addIndexes + "\n";
 	}
 	// generate the sequence of random integers; each column must be permuted the same
 	std::vector<size_t> ranInts{rng_.fyIndexesUp(nIndividuals_)};
