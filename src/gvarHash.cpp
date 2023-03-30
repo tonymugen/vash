@@ -499,12 +499,12 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		ldVec[iVecInd].element1ind = row;
 		ldVec[iVecInd].element2ind = col;
 		const auto fsect{static_cast<float>(isect)}; 
-		const float locus1p{static_cast<float>(locus1n) / fIndiv};                      // locus 1 allele frequency
-		const float locus2p{static_cast<float>(locus2n) / fIndiv};                      // locus 2 allele frequency
+		const float locus1p{static_cast<float>(locus1n) / fIndiv};                                  // locus 1 allele frequency
+		const float locus2p{static_cast<float>(locus2n) / fIndiv};                                  // locus 2 allele frequency
 		const float pApB{locus1p * locus2p};
-		const float dValue{fsect / fIndiv - pApB};                         // D statistic
+		const float dValue{fsect / fIndiv - pApB};                                                  // D statistic
 		ldVec[iVecInd].jaccard = (isect > 0 ? fsect / static_cast<float>(uni) : 0.0F);
-		ldVec[iVecInd].rSq     = dValue * dValue / ( pApB * (1.0F - locus1p) * (1.0F - locus2p) );
+		ldVec[iVecInd].rSq     = dValue * dValue / ( pApB * (1.0F - locus1p) * (1.0F - locus2p) );  // nan if either of the loci monomorphic; could be if all hets are called as '0'
 		++curJacMatInd;
 	}
 }
@@ -902,18 +902,20 @@ std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(
 
 	const auto sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
 	const auto indexSeed  = static_cast<uint32_t>( rng_.ranInt() );
-	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;       // the hash table; indexed by hashing the index vector
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;                                                   // the hash table; indexed by hashing the index vector
 
 	size_t iSketch = 0;
+	// Working on each band at a time because only loci with identical _corresponding_ bands go together in a bucket
 	for (size_t iBand = 0; iBand < nBands; ++iBand){
-		std::unordered_map< uint32_t, std::vector<size_t> > localLDG;  // hash table local to each band, indexed by sketch hashes
+		std::unordered_map< uint32_t, std::vector<size_t> > localLDG;                                              // hash table local to each band, indexed by sketch hashes
 		for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		 	const uint32_t hash = murMurHash(iSketch + iLocus * kSketches_, nRowsPerBand, sketches_, sketchSeed);
+		 	const uint32_t hash = murMurHash(iSketch + iLocus * kSketches_, nRowsPerBand, sketches_, sketchSeed);  // iSketch tracks band IDs
 			localLDG[hash].push_back(iLocus);
 		}
+		// Insert groups into the overall hash table, only if an identical group is not there yet
+		// Groups with overlapping membership (but not identical) may end up in the table
 		for (auto &element : localLDG){
 			const uint32_t elementHash = murMurHash(element.second, indexSeed);
-			// TODO: probably need to emplace_back() instead, whether it is empty or not? OTOH, hashing the whole vector? Figure it out.
 			if ( ldGroup[elementHash].empty() ){
 				ldGroup[elementHash] = std::move(element.second);
 			}
@@ -932,8 +934,22 @@ std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(
 	return ldGroup;
 }
 
+void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	logMessages_ += "Saving group IDs only\n";
+	std::fstream out;
+	out.open(outFileName, std::ios::out | std::ios::trunc);
+	out << "groupID\tlocusIdx\n";
+	for (const auto &eachGroup : ldGroups){
+		for (const auto &locusIdx : eachGroup.second){
+			out << "G" << eachGroup.first + 1 << "\t" << locusIdx + 1 << "\n";
+		}
+	}
+	out.close();
+}
+
 void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
-	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup = this->makeLDgroups(nRowsPerBand);
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
 	
 	// there is a possibility that all retained pairs will not fit in RAM
 	// dealing with this is non-trivial (need the whole thing in RAM to eliminate duplicate pairs), so for now will let the system deal with memory issues
@@ -943,7 +959,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	// some will be repeatedly identified by makeLDgroups(), so we will need to eliminate duplicates
 	std::vector<IndexedPairSimilarity> hashJacGroups;
 	uint32_t groupInd = 0;
-	for (auto &ldg : ldGroup){
+	for (auto &ldg : ldGroups){
 		for (size_t iLocus = 0; iLocus < ldg.second.size() - 1; ++iLocus){
 			for (size_t jLocus = iLocus + 1; jLocus < ldg.second.size(); ++jLocus){
 				hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldg.second[iLocus], ldg.second[jLocus], groupInd});
@@ -952,7 +968,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		++groupInd;
 		ldg.second.clear();
 	}
-	logMessages_ += "Number of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() )+ "\n";
+	logMessages_ += "Number of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
 	std::sort(hashJacGroups.begin(), hashJacGroups.end(),
 				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second){
 					return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);

@@ -60,12 +60,15 @@ void parseCL(int &argc, char **argv, std::unordered_map<std::string, std::string
 				std::cerr << "WARNING: forgot character after dash. Ignoring.\n";
 				continue;
 			}
+			if (val){ // A previous flag had no value
+				cli[curFlag] = "set";
+			}
 			// what follows the dash?
 			val     = true;
 			curFlag = pchar + 2;
 		} else {
 			if (val) {
-				val = false;
+				val          = false;
 				cli[curFlag] = pchar;
 			} else {
 				std::cerr << "WARNING: command line value " << pchar << " ignored because it is not preceded by a flag.\n";
@@ -86,15 +89,15 @@ void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI
 	intVariables.clear();
 	stringVariables.clear();
 	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
-	const std::array<std::string, 2> optionalStringVariables{"log-file", "out-file"};
+	const std::array<std::string, 3> optionalStringVariables{"log-file", "out-file", "only-groups"};
 	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
 	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
 
 	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
-	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"} };
+	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"}, {"only-groups", "unset"} };
 
 	if ( parsedCLI.empty() ){
-		throw std::string("Available command line flags");
+		throw std::string("No command line flags specified;");
 	}
 	for (const auto &eachFlag : requiredIntVariables){
 		try {
@@ -129,7 +132,7 @@ void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI
 int main(int argc, char *argv[]){
 
 	// set usage message
-	std::string cliHelp = "Command line flags (in any order):\n" 
+	std::string cliHelp = "Available command line flags (in any order):\n" 
 		"  --input-bed        file_name (input file name; required).\n"
 		"  --n-individuals    number_of_individuals (must be 3 or more; required).\n"
 		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix).\n"
@@ -140,6 +143,7 @@ int main(int argc, char *argv[]){
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"
+		"  --only-groups      if set (with no value), only group IDs are saved for each locus pair. Ignored if --n-rows-per-band or --hash-size is 0.\n"
 		"  Invalid (e.g., non-integer) flag values are replaced by defaults, if available\n";
 	std::unordered_map <std::string, std::string> clInfo;
 	std::unordered_map <std::string, std::string> stringVariables;
@@ -150,7 +154,7 @@ int main(int argc, char *argv[]){
 		extractCLinfo(clInfo, intVariables, stringVariables);
 	} catch(std::string &problem){
 		std::cerr << problem << "\n";
-		std::cerr << cliHelp << "\n";
+		std::cerr << cliHelp;
 		return 1;
 	}
 
@@ -159,19 +163,17 @@ int main(int argc, char *argv[]){
 		const size_t kSketches{static_cast<size_t>(intVariables["hash-size"])};
 		const size_t nIndiv{static_cast<size_t>(intVariables["n-individuals"])};
 		if (kSketches == 0){
+			BayesicSpace::GenoTableBin allJaccard;
 			if (intVariables["threads"] < 1){
-				BayesicSpace::GenoTableBin allJaccard(stringVariables["input-bed"], nIndiv, stringVariables["log-file"]);
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"]);
 				allJaccard.allJaccardLD(stringVariables["out-file"]);
-				if (stringVariables["log-file"] != "none"){
-					allJaccard.saveLogFile();
-				}
 			} else {
 				const auto nThreads = static_cast<size_t>(intVariables["threads"]);
-				BayesicSpace::GenoTableBin allJaccard(stringVariables["input-bed"], nIndiv, stringVariables["log-file"], nThreads);
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"], nThreads);
 				allJaccard.allJaccardLD(stringVariables["out-file"]);
-				if (stringVariables["log-file"] != "none"){
-					allJaccard.saveLogFile();
-				}
+			}
+			if (stringVariables["log-file"] != "none"){
+				allJaccard.saveLogFile();
 			}
 		} else {
 			BayesicSpace::GenoTableHash groupLD;
@@ -183,15 +185,16 @@ int main(int argc, char *argv[]){
 			}
 			if (intVariables["n-rows-per-band"] == 0){
 				groupLD.allHashLD(stringVariables["out-file"]);
-				if (stringVariables["log-file"] != "none"){
-					groupLD.saveLogFile();
-				}
 			} else {
 				const auto rowsPB{static_cast<size_t>(intVariables["n-rows-per-band"])};
-				groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
-				if (stringVariables["log-file"] != "none"){
-					groupLD.saveLogFile();
+				if (stringVariables["only-groups"] == "set"){
+					groupLD.makeLDgroups(rowsPB, stringVariables["out-file"]);
+				} else {
+					groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
 				}
+			}
+			if (stringVariables["log-file"] != "none"){
+				groupLD.saveLogFile();
 			}
 		}
 	} catch(std::string &problem) {
