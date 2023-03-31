@@ -892,35 +892,31 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 }
 
 std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
-	assert( (nRowsPerBand != 0) && "ERROR: nRowsPerBand must not be 0" );
-	assert( (nRowsPerBand < kSketches_) && "ERROR: nRowsPerBand must be less than kSketches_" );
-	const size_t nBands = kSketches_ / nRowsPerBand; // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
+	assert( (nRowsPerBand != 0) && "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
+	assert( (nRowsPerBand < kSketches_) && "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
+	const size_t nBands = kSketches_ / nRowsPerBand;                                                               // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
+	assert( ( nBands >= std::numeric_limits<uint16_t>::max() ) &&
+			"ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
 
 	logMessages_ += "Grouping loci\n";
 	logMessages_ += "Number of rows per band: " + std::to_string(nRowsPerBand) + "\n";
 	logMessages_ += "Number of bands: " + std::to_string(nBands) + "\n";
 
 	const auto sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
-	const auto indexSeed  = static_cast<uint32_t>( rng_.ranInt() );
-	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;                                                   // the hash table; indexed by hashing the index vector
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroup;                                                   // the hash table
 
-	size_t iSketch = 0;
-	// Working on each band at a time because only loci with identical _corresponding_ bands go together in a bucket
-	for (size_t iBand = 0; iBand < nBands; ++iBand){
-		std::unordered_map< uint32_t, std::vector<size_t> > localLDG;                                              // hash table local to each band, indexed by sketch hashes
-		for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
-		 	const uint32_t hash = murMurHash(iSketch + iLocus * kSketches_, nRowsPerBand, sketches_, sketchSeed);  // iSketch tracks band IDs
-			localLDG[hash].push_back(iLocus);
-		}
-		// Insert groups into the overall hash table, only if an identical group is not there yet
-		// Groups with overlapping membership (but not identical) may end up in the table
-		for (auto &element : localLDG){
-			const uint32_t elementHash = murMurHash(element.second, indexSeed);
-			if ( ldGroup[elementHash].empty() ){
-				ldGroup[elementHash] = std::move(element.second);
+	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus){
+		size_t iSketch = 0;
+		for (size_t iBand = 0; iBand < nBands; ++iBand){
+			std::vector<uint16_t> bandVec{static_cast<uint16_t>(iBand)};                                           // add the band index to the hash, so that only corresponding bands are compared
+			const size_t firstSketchIdx = iSketch + iLocus * kSketches_;                                           // iSketch tracks band IDs
+			for (size_t iInBand = firstSketchIdx; iInBand < firstSketchIdx + nRowsPerBand; ++iInBand){
+				bandVec.push_back(sketches_[iInBand]);
 			}
+			const uint32_t hash = murMurHash(0, bandVec.size(), bandVec, sketchSeed);
+			ldGroup[hash].push_back(iLocus);
+			iSketch += nRowsPerBand;
 		}
-		iSketch += nRowsPerBand;
 	}
 	// remove groups with one locus
 	auto ldgIt = ldGroup.begin();
@@ -931,6 +927,7 @@ std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(
 			++ldgIt;
 		}
 	}
+	// Then maybe iterate through bands inside a locus, keep searching for the hash until found, if nothing found insert under the first band
 	return ldGroup;
 }
 
