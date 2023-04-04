@@ -89,12 +89,13 @@ void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI
 	intVariables.clear();
 	stringVariables.clear();
 	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
-	const std::array<std::string, 3> optionalStringVariables{"log-file", "out-file", "only-groups"};
+	const std::array<std::string, 4> optionalStringVariables{"log-file", "out-file", "only-groups", "add-locus-names"};
 	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
 	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
 
 	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
-	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"}, {"only-groups", "unset"} };
+	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
+																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };
 
 	if ( parsedCLI.empty() ){
 		throw std::string("No command line flags specified;");
@@ -144,6 +145,7 @@ int main(int argc, char *argv[]){
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"
 		"  --only-groups      if set (with no value), only group IDs are saved for each locus pair. Ignored if --n-rows-per-band or --hash-size is 0.\n"
+		"  --add-locus-names  if set (with no value) adds locus names from the corresponding .bim file to the output (otherwise base-1 indexes are listed)\n"
 		"  Invalid (e.g., non-integer) flag values are replaced by defaults, if available\n";
 	std::unordered_map <std::string, std::string> clInfo;
 	std::unordered_map <std::string, std::string> stringVariables;
@@ -162,14 +164,20 @@ int main(int argc, char *argv[]){
 	try {
 		const size_t kSketches{static_cast<size_t>(intVariables["hash-size"])};
 		const size_t nIndiv{static_cast<size_t>(intVariables["n-individuals"])};
+		const size_t dotPos = stringVariables["input-bed"].rfind('.');
+		std::string bimFileName(stringVariables["input-bed"], 0, dotPos);
+		bimFileName += ".bim";
 		if (kSketches == 0){
 			BayesicSpace::GenoTableBin allJaccard;
 			if (intVariables["threads"] < 1){
 				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"]);
-				allJaccard.allJaccardLD(stringVariables["out-file"]);
 			} else {
 				const auto nThreads = static_cast<size_t>(intVariables["threads"]);
 				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"], nThreads);
+			}
+			if (stringVariables["add-locus-names"] == "set"){
+				allJaccard.allJaccardLD(bimFileName, stringVariables["out-file"]);
+			} else {
 				allJaccard.allJaccardLD(stringVariables["out-file"]);
 			}
 			if (stringVariables["log-file"] != "none"){
@@ -184,13 +192,25 @@ int main(int argc, char *argv[]){
 				groupLD = BayesicSpace::GenoTableHash(stringVariables["input-bed"], nIndiv, kSketches, nThreads, stringVariables["log-file"]);
 			}
 			if (intVariables["n-rows-per-band"] == 0){
-				groupLD.allHashLD(stringVariables["out-file"]);
+				if (stringVariables["add-locus-names"] == "set"){
+					groupLD.allHashLD(bimFileName, stringVariables["out-file"]);
+				} else {
+					groupLD.allHashLD(stringVariables["out-file"]);
+				}
 			} else {
 				const auto rowsPB{static_cast<size_t>(intVariables["n-rows-per-band"])};
-				if (stringVariables["only-groups"] == "set"){
-					groupLD.makeLDgroups(rowsPB, stringVariables["out-file"]);
+				if (stringVariables["add-locus-names"] == "set"){
+					if (stringVariables["only-groups"] == "set"){
+						groupLD.makeLDgroups(rowsPB, bimFileName, stringVariables["out-file"]);
+					} else {
+						groupLD.ldInGroups(rowsPB, bimFileName, stringVariables["out-file"]);
+					}
 				} else {
-					groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
+					if (stringVariables["only-groups"] == "set"){
+						groupLD.makeLDgroups(rowsPB, stringVariables["out-file"]);
+					} else {
+						groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
+					}
 				}
 			}
 			if (stringVariables["log-file"] != "none"){

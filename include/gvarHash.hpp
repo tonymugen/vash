@@ -167,6 +167,17 @@ namespace BayesicSpace {
 		 * \return lower triangle of the LD matrix
 		 */
 		void allJaccardLD(const std::string &ldFileName) const;
+		/** \brief All by all Jaccard similarity LD with locus names
+		 *
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 *
+		 * \param[in] bimFileName name of the _.bim_ file that has locus names
+		 * \param[in] ldFileName name of the output file
+		 */
+		void allJaccardLD(const std::string &bimFileName, const std::string &ldFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -361,6 +372,17 @@ namespace BayesicSpace {
 		 * \param[in] ldFileName name of file to save the results
 		 */
 		void allHashLD(const std::string &ldFileName) const;
+		/** \brief All by all LD from hashes with locus names
+		 *
+		 * Calculates linkage disequilibrium among all loci using a modified OPH.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 *
+		 * \param[in] bimFileName name of the _.bim_ file with locus names
+		 * \param[in] ldFileName name of file to save the results
+		 */
+		void allHashLD(const std::string &bimFileName,  const std::string &ldFileName) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
@@ -370,7 +392,6 @@ namespace BayesicSpace {
 		 * Some locus pairs may end up in more than one group, but no groups are completely identical in locus composition.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 *
 		 * \return locus index hash table
 		 */
 		std::unordered_map< uint32_t, std::vector<size_t> > makeLDgroups(const size_t &nRowsPerBand) const;
@@ -382,14 +403,34 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
-		/** \brief Linkage disequilibrium (LD) in groups
+		/** \brief Assign groups by LD and save to a file with locus names
+		 *
+		 * Assign groups as above and save locus names with their group IDs to a file.
+		 *
+		 * \param[in] nRowsPerBand number of rows per sketch matrix band
+		 * \param[in] bimFileName _.bim_ file name
+		 * \param[in] outFileName output file name
+		 */
+		void makeLDgroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
+		/** \brief LD in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * Output LD (Jaccard similarity) estimates with group IDs and locus indexes.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \param[in] outFileName name of the output file
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
+		/** \brief LD in groups with locus names
+		 *
+		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * Output LD (Jaccard similarity) estimates with group IDs and locus names.
+		 *
+		 * \param[in] nRowsPerBand number of rows per sketch matrix band
+		 * \param[in] bimFileName _.bim_ file name
+		 * \param[in] outFileName name of the output file
+		 */
+		void ldInGroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.

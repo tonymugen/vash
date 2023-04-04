@@ -171,18 +171,44 @@ namespace BayesicSpace {
 	void saveValues(const std::vector<float> &inVec, std::fstream &outputStream);
 	/** \brief Save indexed values 
 	 *
-	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 * Saves each value with group IDs and the pair of indexes, tab delimited.
 	 *
 	 * \param[in] inVec vector of indexed floats to save
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream);
+	/** \brief Save named values 
+	 *
+	 * Saves each value with group IDs and names of locus pairs, tab delimited.
+	 *
+	 * \param[in] inVec vector of indexed floats to save
+	 * \param[in] locusNames vector of locus names
+	 * \param[in, out] outputStream `fstream` to save to
+	 */
+	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream);
 	/** \brief Save indexed LD values 
 	 *
-	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 * Saves LD estimates (Jaccard and \f$r^2\f$) with locus pair indexes, tab delimited.
 	 *
 	 * \param[in] inVec vector of indexed LD values to save
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream);
+	/** \brief Save named LD values 
+	 *
+	 * Saves LD estimates (Jaccard and \f$r^2\f$) with locus pair names, tab delimited.
+	 *
+	 * \param[in] inVec vector of indexed LD values to save
+	 * \param[in] locusNames vector of locus names
+	 * \param[in, out] outputStream `fstream` to save to
+	 */
+	void saveValues(const std::vector<IndexedPairLD> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream);
+	/** \brief Extract locus names 
+	 *
+	 * Extract locus names from a _.bim_ file.
+	 *
+	 * \param[in] bimFileName _.bim_ file name
+	 * \return vector of locus names
+	 */
+	std::vector<std::string> getLocusNames(const std::string &bimFileName);
 }

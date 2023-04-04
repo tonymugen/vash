@@ -353,6 +353,93 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 	}
 }
 
+void GenoTableBin::allJaccardLD(const std::string &bimFileName, const std::string &ldFileName) const {
+	if (nLoci_ > maxNlocusPairs_){
+		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
+			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+
+	logMessages_ += "Getting locus names from the " + bimFileName + " .bim file\n";
+	std::vector<std::string> locusNames{getLocusNames(bimFileName)};
+	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+
+	logMessages_         += "Read " + std::to_string( locusNames.size() ) + " locus names from the .bim file\n";
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairLD) );                                 // use half to leave resources for other operations
+	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
+	logMessages_         += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
+	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
+
+	if (nPairs > maxInRAM){
+		// too many loci to fit the LD matrix in RAM
+		// will work on chunks and save as we go
+		logMessages_ += "calculating in chunks\n";
+		const size_t nChunks        = nPairs / maxInRAM;
+		const size_t remainingPairs = nPairs % maxInRAM;
+		std::fstream output;
+		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "locus1\tlocus2\tjaccard\trSq\n";
+		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
+		size_t overallPairInd = 0;
+		if (nLocusPairsPerThread > 0){
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
+			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
+			threadRanges.back().second = maxInRAM;
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
+				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+				overallPairInd += excessLoci;
+				saveValues(LDmatChunk, locusNames, output);
+			}
+		} else {
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
+				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
+				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
+				overallPairInd += maxInRAM;
+				saveValues(LDmatChunk, locusNames, output);
+			}
+		}
+		overallPairInd = maxInRAM * nChunks;
+		if (remainingPairs > 0){
+			std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
+			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
+			if (nRemainPairsPerThread > 0){
+				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
+				threadRanges.back().second = remainingPairs;
+				overallPairInd = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+			} else {
+				const std::pair<size_t, size_t> remainingRange{0, remainingPairs};
+				jaccardBlock_(remainingRange, overallPairInd, LDmatChunk);
+			}
+			saveValues(LDmatChunk, locusNames, output);
+		}
+		output.close();
+	} else {
+		logMessages_ += "calculating in one go\n";
+		std::vector<IndexedPairLD> LDmat(nPairs);
+		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
+		if (nLocusPairsPerThread > 0){
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
+			threadRanges.back().second = LDmat.size();
+			jaccardThreaded_(threadRanges, 0, LDmat);
+		} else {
+			const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
+			jaccardBlock_(fullRange, 0, LDmat);
+		}
+		std::fstream output;
+		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "locus1\tlocus2\tjaccard\trSq\n";
+		saveValues(LDmat, locusNames, output);
+		output.close();
+	}
+
+}
+
 void GenoTableBin::saveLogFile() const {
 	std::fstream outLog;
 	outLog.open(logFileName_, std::ios::out | std::ios::trunc);
@@ -891,6 +978,90 @@ void GenoTableHash::allHashLD(const std::string &ldFileName) const {
 	}
 }
 
+void GenoTableHash::allHashLD(const std::string &bimFileName,  const std::string &ldFileName) const {
+	if (nLoci_ > maxPairs_){
+		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
+		std::fstream outLog;
+		outLog.open(logFileName_, std::ios::out | std::ios::trunc);
+		outLog << logMessages_;
+		outLog.close();
+		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
+			 std::to_string(maxPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+
+	logMessages_ += "Getting locus names from the " + bimFileName + " .bim file\n";
+	std::vector<std::string> locusNames{getLocusNames(bimFileName)};
+	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
+	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
+	logMessages_         += "Calculating all pairwise LD\n";
+	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
+	if (nPairs > maxInRAM){
+		logMessages_ += "calculating in chunks\n";
+		// too many loci to fit the LD matrix in RAM
+		// will work on chunks and save as we go
+		const size_t nChunks        = nPairs / maxInRAM;
+		const size_t remainingPairs = nPairs % maxInRAM;
+		std::fstream output;
+		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
+		size_t overallPairInd = 0;
+		if (nLocusPairsPerThread > 0){
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
+			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
+			threadRanges.back().second = maxInRAM;
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
+				overallPairInd  = hashJacThreaded_(threadRanges, overallPairInd, LDmatChunk);
+				overallPairInd += excessLoci;
+				saveValues(LDmatChunk, locusNames, output);
+			}
+		} else {
+			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk){
+				std::vector<IndexedPairSimilarity> LDmatChunk(maxInRAM);
+				const std::pair<size_t, size_t> chunkRange(0, maxInRAM);
+				hashJacBlock_(chunkRange, overallPairInd, LDmatChunk);
+				overallPairInd += maxInRAM;
+				saveValues(LDmatChunk, locusNames, output);
+			}
+		}
+		overallPairInd = maxInRAM * nChunks;
+		if (remainingPairs > 0){
+			std::vector<IndexedPairSimilarity> LDmatChunk(remainingPairs);
+			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
+			if (nRemainPairsPerThread > 0){
+				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nRemainPairsPerThread)};
+				threadRanges.back().second = remainingPairs;
+				overallPairInd             = hashJacThreaded_(threadRanges, overallPairInd, LDmatChunk);
+			} else {
+				const std::pair<size_t, size_t> remainRange(0, remainingPairs);
+				hashJacBlock_(remainRange, overallPairInd, LDmatChunk);
+			}
+			saveValues(LDmatChunk, locusNames, output);
+		}
+		output.close();
+	} else {
+		logMessages_ += "calculating in one go\n";
+		std::vector<IndexedPairSimilarity> LDmat(nPairs);
+		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
+		if (nLocusPairsPerThread > 0){
+			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLocusPairsPerThread)};
+			threadRanges.back().second = LDmat.size();
+			hashJacThreaded_(threadRanges, 0, LDmat);
+		} else {
+			std::pair<size_t, size_t> wholeRange( 0, LDmat.size() );
+			hashJacBlock_(wholeRange, 0, LDmat);
+		}
+		std::fstream output;
+		output.open(ldFileName, std::ios::trunc | std::ios::out);
+		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+		saveValues(LDmat, locusNames, output);
+		output.close();
+	}
+}
+
 std::unordered_map< uint32_t, std::vector<size_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
 	assert( (nRowsPerBand != 0) && "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
 	assert( (nRowsPerBand < kSketches_) && "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
@@ -940,6 +1111,25 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &
 	for (const auto &eachGroup : ldGroups){
 		for (const auto &locusIdx : eachGroup.second){
 			out << "G" << eachGroup.first + 1 << "\t" << locusIdx + 1 << "\n";
+		}
+	}
+	out.close();
+}
+
+void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const {
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	logMessages_ += "Saving group IDs only\n";
+
+	logMessages_ += "Getting locus names from the " + bimFileName + " .bim file\n";
+	std::vector<std::string> locusNames{getLocusNames(bimFileName)};
+	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+
+	std::fstream out;
+	out.open(outFileName, std::ios::out | std::ios::trunc);
+	out << "groupID\tlocusIdx\n";
+	for (const auto &eachGroup : ldGroups){
+		for (const auto &locusIdx : eachGroup.second){
+			out << "G" << eachGroup.first + 1 << "\t" << locusNames[locusIdx] << "\n";
 		}
 	}
 	out.close();
@@ -1015,6 +1205,84 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	out.open(outFileName, std::ios::out | std::ios::trunc);
 	out << "groupID\tlocus1\tlocus2\tjaccLD\n";
 	saveValues(hashJacGroups, out);
+	out.close();
+}
+
+void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const {
+	std::unordered_map< uint32_t, std::vector<size_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	
+	// there is a possibility that all retained pairs will not fit in RAM
+	// dealing with this is non-trivial (need the whole thing in RAM to eliminate duplicate pairs), so for now will let the system deal with memory issues
+	logMessages_ += "Estimating LD in groups\n";
+	
+	// identify index pairs that are retained in groups
+	// some will be repeatedly identified by makeLDgroups(), so we will need to eliminate duplicates
+	std::vector<IndexedPairSimilarity> hashJacGroups;
+	uint32_t groupInd = 0;
+	for (auto &ldg : ldGroups){
+		for (size_t iLocus = 0; iLocus < ldg.second.size() - 1; ++iLocus){
+			for (size_t jLocus = iLocus + 1; jLocus < ldg.second.size(); ++jLocus){
+				hashJacGroups.emplace_back(IndexedPairSimilarity{0.0, ldg.second[iLocus], ldg.second[jLocus], groupInd});
+			}
+		}
+		++groupInd;
+		ldg.second.clear();
+	}
+	logMessages_ += "Number of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
+	std::sort(hashJacGroups.begin(), hashJacGroups.end(),
+				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second){
+					return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+				}
+			);
+	auto lastUniqueIt = std::unique(hashJacGroups.begin(), hashJacGroups.end(),
+				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second){
+					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+				}
+			);
+	hashJacGroups.erase( lastUniqueIt, hashJacGroups.end() );
+	hashJacGroups.shrink_to_fit();
+	logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
+
+	logMessages_ += "Getting locus names from the " + bimFileName + " .bim file\n";
+	std::vector<std::string> locusNames{getLocusNames(bimFileName)};
+	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+
+	// estimate locus pair similarities
+	const size_t nPairsPerThread = hashJacGroups.size() / nThreads_;
+	if (nPairsPerThread > 0){
+		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nPairsPerThread)};
+		threadRanges.back().second = hashJacGroups.size(); // assuming the number of threads << number of groups, this should not lead to noticeable thread imbalance
+		std::vector< std::future<void> > tasks;
+		tasks.reserve(nThreads_);
+		for (const auto &eachTR : threadRanges){
+			tasks.emplace_back(
+				std::async([this, &eachTR, &hashJacGroups]{
+					hashJacBlock_(eachTR.first, eachTR.second, hashJacGroups);
+				})
+			);
+		}
+		for (const auto &eachTask : tasks){
+			eachTask.wait();
+		}
+	} else {
+		std::vector< std::future<void> > tasks;
+		tasks.reserve( hashJacGroups.size() );
+		for (size_t iPair = 0; iPair < hashJacGroups.size(); ++iPair){
+			tasks.emplace_back(
+				std::async([this, iPair, &hashJacGroups]{
+					hashJacBlock_(iPair, iPair + 1, hashJacGroups);
+				})
+			);
+		}
+		for (const auto &eachTask : tasks){
+			eachTask.wait();
+		}
+	}
+
+	std::fstream out;
+	out.open(outFileName, std::ios::out | std::ios::trunc);
+	out << "groupID\tlocus1\tlocus2\tjaccLD\n";
+	saveValues(hashJacGroups, locusNames, out);
 	out.close();
 }
 

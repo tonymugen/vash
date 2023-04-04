@@ -310,9 +310,37 @@ void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, s
 	}
 }
 
+void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
+	for (const auto &eachValue : inVec){
+		outputStream << "G" << eachValue.groupID + 1 << "\t" << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
+	}
+}
+
 void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec){
 		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
 	}
+}
+
+void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
+	for (const auto &eachValue : inVec){
+		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
+	}
+}
+
+std::vector<std::string> BayesicSpace::getLocusNames(const std::string &bimFileName) {
+	std::fstream bimStream;
+	std::vector<std::string> locusNames;
+	bimStream.open(bimFileName, std::ios::in);
+	std::string bimLine;
+	std::stringstream lineStream;
+	while ( std::getline(bimStream, bimLine) ){
+		lineStream.str(bimLine);
+		std::string field;
+		lineStream >> field >> field;             // locus name is the second column in the .bim file
+		locusNames.emplace_back(field);
+	}
+	bimStream.close();
+	return locusNames;
 }
 
