@@ -45,7 +45,7 @@ target_link_libraries(ldblocks
 	PRIVATE vash
 )
 target_compile_options(ldblocks
-	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -mpopcnt
+	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow
 )
 set_target_properties(ldblocks PROPERTIES
 	CXX_STANDARD         14
@@ -59,6 +59,7 @@ install(TARGETS ldblocks
 # library
 add_library(vash
 	src/gvarHash.cpp
+	src/vashFunctions.cpp
 	externals/bayesicUtilities/src/random.cpp
 )
 
@@ -70,7 +71,7 @@ set_target_properties(vash PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 )
 target_compile_options(vash
-	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -mpopcnt -pthread
+	PRIVATE -Wall -Wextra -Wconversion -Wpedantic -Wshadow -mbmi -mbmi2 -mpopcnt -pthread
 )
 set_target_properties(vash PROPERTIES
 	CXX_STANDARD         14

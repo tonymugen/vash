@@ -32,218 +32,98 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <array>
 #include <unordered_map>
 #include <cmath>
 #include <stdexcept>
 
 #include "gvarHash.hpp"
-
-void parseCL(int&, char**, std::unordered_map<std::string, std::string> &);
-
-/** \brief Command line parser
- *
- * Maps flags to values. Flags assumed to be of the form `--flag-name value`.
- *
- * \param[in] argc size of the `argv` array
- * \param[in] argv command line input array
- * \param[out] cli map of tags to values
- */
-void parseCL(int &argc, char **argv, std::unordered_map<std::string, std::string> &cli){
-	// set to true after encountering a flag token (the characters after the dash)
-	bool val = false;
-	// store the token value here
-	std::string curFlag;
-
-	for (int iArg = 1; iArg < argc; iArg++) {
-		const char *pchar = argv[iArg];
-		if ( (pchar[0] == '-') && (pchar[1] == '-') ) { // encountered the double dash, look for the token after it
-			if (!pchar[2]) {
-				std::cerr << "WARNING: forgot character after dash. Ignoring.\n";
-				continue;
-			}
-			// what follows the dash?
-			val     = true;
-			curFlag = pchar + 2;
-		} else {
-			if (val) {
-				val = false;
-				cli[curFlag] = pchar;
-			} else {
-				std::cerr << "WARNING: command line value " << pchar << " ignored because it is not preceded by a flag.\n";
-			}
-		}
-	}
-}
+#include "vashFunctions.hpp"
 
 int main(int argc, char *argv[]){
-	std::string inFileName;
-	std::string logFileName;
-	std::string outFileName;
-	constexpr int defaultHashSize{60};
-	int nRowsPerBand{0};
-	int inputKsketches{0};
-	int inputThreads{-1};
-	int Nindv{0};
 
 	// set usage message
-	std::string cliHelp = "Command line flags (in any order):\n" 
+	std::string cliHelp = "Available command line flags (in any order):\n" 
 		"  --input-bed        file_name (input file name; required).\n"
-		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix; required).\n"
-		"                     Set to 0 to get all by all estimates. The value is ignored if hash size is set to 0 (for full Jaccard similarity estimates).\n"
-		"                     This parameter must be smaller than hash size and controls the similarity cut-off; larger values lead to sparser similarity matrices.\n"
 		"  --n-individuals    number_of_individuals (must be 3 or more; required).\n"
+		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix).\n"
+		"                     Set to 0 or omit to get all by all estimates. The value is ignored if hash size is set to 0 (for full Jaccard similarity estimates).\n"
+		"                     This parameter must be smaller than hash size and controls the similarity cut-off; larger values lead to sparser similarity matrices.\n"
 		"  --hash-size        hash_size; must be smaller than the number of individuals.\n"
-		"                     Default is the smaller of " + std::to_string(defaultHashSize) + " and half the number of individuals.\n"
-		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 to obtain precise Jaccard similarity estimates.\n"
+		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 or omit to obtain precise Jaccard similarity estimates.\n"
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
-		"                     No log file is produced for the full Jaccard estimates (this will change in future vesions).\n"
-		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n";
+		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"
+		"  --only-groups      if set (with no value), only group IDs are saved for each locus pair. Ignored if --n-rows-per-band or --hash-size is 0.\n"
+		"  --add-locus-names  if set (with no value) adds locus names from the corresponding .bim file to the output (otherwise base-1 indexes are listed)\n"
+		"  Invalid (e.g., non-integer) flag values are replaced by defaults, if available\n";
 	std::unordered_map <std::string, std::string> clInfo;
-	parseCL(argc, argv, clInfo);
+	std::unordered_map <std::string, std::string> stringVariables;
+	std::unordered_map <std::string, int> intVariables;
+	BayesicSpace::parseCL(argc, argv, clInfo);
 
-	if ( clInfo.empty() ){
-		std::cerr << "Available command line flags:\n";
-		std::cerr << cliHelp;
-		exit(1);
-	}
-	auto clIter = clInfo.begin(); // iterator of the command line flags
-
-	clIter = clInfo.find("input-bed");
-	if ( clIter == clInfo.end() ){ // if not there, complain
-		std::cerr << "ERROR: specification of the input file name is required\n";
-		std::cerr << cliHelp;
-		exit(2);
-	} else {
-		inFileName = clIter->second;
-	}
-
-	clIter = clInfo.find("n-rows-per-band");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		std::cerr << "ERROR: specification of the number of rows per band is required\n";
-		std::cerr << cliHelp;
-		exit(2);
-	} else {
-		try {
-			nRowsPerBand = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia) {
-			std::cerr << "ERROR: Provided number of rows per band is not an integer\n";
-			exit(2);
-		}
-	}
-	if (nRowsPerBand < 0){
-		std::cerr << "ERROR: number of rows per band must be non-negative\n";
-		exit(2);
-	}
-
-	clIter = clInfo.find("n-individuals");
-	if ( clIter == clInfo.end() ){
-		std::cerr << "ERROR: specification of the number of individuals is required\n";
-		std::cerr << cliHelp;
-		exit(2);
-	} else {
-		try {
-			Nindv = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia) {
-			std::cerr << "ERROR: Provided number of individuals is not an integer\n";
-			exit(2);
-		}
-	}
-	if (Nindv < 3){
-		std::cerr << "ERROR: must have at least 3 individuals\n";
-		exit(2);
-	}
-
-	bool hashSizeNotProvided{true};
-	clIter = clInfo.find("hash-size");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		inputKsketches = defaultHashSize;
-	} else {
-		try {
-			inputKsketches = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia) {
-			std::cerr << "ERROR: Provided hash size is not an integer\n";
-			exit(2);
-		}
-		hashSizeNotProvided = false;
-	}
-	if ( (inputKsketches <= 3) && (inputKsketches > 0) ){
-		std::cerr << "ERROR: hash length must be 3 or more, or zero\n";
-		exit(2);
-	}
-	if ( (nRowsPerBand >= inputKsketches) && ( (nRowsPerBand != 0) && (inputKsketches != 0) ) ){
-		std::cerr << "ERROR: number of rows per band must be smaller than hash size\n";
-		exit(2);
-	}
-
-	clIter = clInfo.find("threads");
-	if ( clIter == clInfo.end() ){ // if not there, set to negative value (will be changed to default later)
-		inputThreads = -1;
-	} else {
-		try {
-			inputThreads = stoi(clIter->second);
-		} catch(const std::invalid_argument& ia) {
-			std::cerr << "ERROR: Provided number of threads is not an integer\n";
-			exit(2);
-		}
-	}
-
-	clIter = clInfo.find("log-file");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		logFileName = "ldblocks.log";
-	} else {
-		logFileName = clIter->second;
-	}
-
-	clIter = clInfo.find("out-file");
-	if ( clIter == clInfo.end() ){ // if not there, set to default
-		outFileName = "ldblocksOut.tsv";
-	} else {
-		outFileName = clIter->second;
-	}
-	if ( hashSizeNotProvided && (Nindv <= defaultHashSize) ){
-		inputKsketches = Nindv / 2;
-		if (inputKsketches <= 3){
-			std::cerr << "ERROR: hash length must be 3 or more. Number of individuals provided is " << Nindv << ", and the default hash size is set, implying hash size " << inputKsketches << "\n";
-			exit(2);
-		}
-	}
 	// Proceed to actual analysis
 	try {
-		const size_t kSketches{static_cast<size_t>(inputKsketches)};
-		const size_t nIndiv{static_cast<size_t>(Nindv)};
+		BayesicSpace::extractCLinfo(clInfo, intVariables, stringVariables);
+		const size_t kSketches{static_cast<size_t>(intVariables["hash-size"])};
+		const size_t nIndiv{static_cast<size_t>(intVariables["n-individuals"])};
+		const size_t dotPos = stringVariables["input-bed"].rfind('.');
+		std::string bimFileName(stringVariables["input-bed"], 0, dotPos);
+		bimFileName += ".bim";
 		if (kSketches == 0){
-			if (inputThreads < 1){
-				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv);
-				allJaccard.allJaccardLD(outFileName);
+			BayesicSpace::GenoTableBin allJaccard;
+			if (intVariables["threads"] < 1){
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"]);
 			} else {
-				const auto nThreads = static_cast<size_t>(inputThreads);
-				BayesicSpace::GenoTableBin allJaccard(inFileName, nIndiv, nThreads);
-				allJaccard.allJaccardLD(outFileName);
+				const auto nThreads = static_cast<size_t>(intVariables["threads"]);
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"], nThreads);
+			}
+			if (stringVariables["add-locus-names"] == "set"){
+				allJaccard.allJaccardLD(bimFileName, stringVariables["out-file"]);
+			} else {
+				allJaccard.allJaccardLD(stringVariables["out-file"]);
+			}
+			if (stringVariables["log-file"] != "none"){
+				allJaccard.saveLogFile();
 			}
 		} else {
 			BayesicSpace::GenoTableHash groupLD;
-			if (inputThreads < 1){
-				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, logFileName);
+			if (intVariables["threads"] < 1){
+				groupLD = BayesicSpace::GenoTableHash(stringVariables["input-bed"], nIndiv, kSketches, stringVariables["log-file"]);
 			} else {
-				const auto nThreads{static_cast<size_t>(inputThreads)};
-				groupLD = BayesicSpace::GenoTableHash(inFileName, nIndiv, kSketches, nThreads, logFileName);
+				const auto nThreads{static_cast<size_t>(intVariables["threads"])};
+				groupLD = BayesicSpace::GenoTableHash(stringVariables["input-bed"], nIndiv, kSketches, nThreads, stringVariables["log-file"]);
 			}
-			if (nRowsPerBand == 0){
-				groupLD.allHashLD(outFileName);
-				if (logFileName != "none"){
-					groupLD.saveLogFile();
+			if (intVariables["n-rows-per-band"] == 0){
+				if (stringVariables["add-locus-names"] == "set"){
+					groupLD.allHashLD(bimFileName, stringVariables["out-file"]);
+				} else {
+					groupLD.allHashLD(stringVariables["out-file"]);
 				}
 			} else {
-				const auto rowsPB{static_cast<size_t>(nRowsPerBand)};
-				groupLD.ldInGroups(rowsPB, outFileName);
-				if (logFileName != "none"){
-					groupLD.saveLogFile();
+				const auto rowsPB{static_cast<size_t>(intVariables["n-rows-per-band"])};
+				if (stringVariables["add-locus-names"] == "set"){
+					if (stringVariables["only-groups"] == "set"){
+						groupLD.makeLDgroups(rowsPB, bimFileName, stringVariables["out-file"]);
+					} else {
+						groupLD.ldInGroups(rowsPB, bimFileName, stringVariables["out-file"]);
+					}
+				} else {
+					if (stringVariables["only-groups"] == "set"){
+						groupLD.makeLDgroups(rowsPB, stringVariables["out-file"]);
+					} else {
+						groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
+					}
 				}
+			}
+			if (stringVariables["log-file"] != "none"){
+				groupLD.saveLogFile();
 			}
 		}
-	} catch(std::string problem) {
+	} catch(std::string &problem) {
 		std::cerr << problem << "\n";
-		exit(4);
+		std::cerr << cliHelp;
+		return 4;
 	}
+	return 0;
 }
