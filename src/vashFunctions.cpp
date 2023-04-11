@@ -34,6 +34,7 @@
 #include <fstream>
 #include <vector>
 #include <array>
+#include <unordered_map>
 #include <utility>  // for std::pair
 #include <limits>
 #include <immintrin.h>
@@ -344,3 +345,71 @@ std::vector<std::string> BayesicSpace::getLocusNames(const std::string &bimFileN
 	return locusNames;
 }
 
+void BayesicSpace::parseCL(int &argc, char **argv, std::unordered_map<std::string, std::string> &cli) {
+	// set to true after encountering a flag token (the characters after the dash)
+	bool val = false;
+	// store the token value here
+	std::string curFlag;
+
+	for (int iArg = 1; iArg < argc; iArg++) {
+		const char *pchar = argv[iArg];
+		if ( (pchar[0] == '-') && (pchar[1] == '-') ) { // encountered the double dash, look for the token after it
+			if (val){ // A previous flag had no value
+				cli[curFlag] = "set";
+			}
+			// what follows the dash?
+			val     = true;
+			curFlag = pchar + 2;
+		} else {
+			if (val) {
+				val          = false;
+				cli[curFlag] = pchar;
+			}
+		}
+	}
+}
+
+void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables) {
+	intVariables.clear();
+	stringVariables.clear();
+	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
+	const std::array<std::string, 4> optionalStringVariables{"log-file", "out-file", "only-groups", "add-locus-names"};
+	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
+	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
+
+	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
+	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
+																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };
+
+	if ( parsedCLI.empty() ){
+		throw std::string("No command line flags specified;");
+	}
+	for (const auto &eachFlag : requiredIntVariables){
+		try {
+			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
+		} catch(const std::exception &problem) {
+			throw std::string("ERROR: " + eachFlag + " specification is required and must be an integer");
+		}
+	}
+	for (const auto &eachFlag : optionalIntVariables){
+		try {
+			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
+		} catch(const std::exception &problem) {
+			intVariables[eachFlag] = defaultIntValues.at(eachFlag);
+		}
+	}
+	for (const auto &eachFlag : requiredStringVariables){
+		try {
+			stringVariables[eachFlag] = parsedCLI.at(eachFlag);
+		} catch(const std::exception &problem) {
+			throw std::string("ERROR: " + eachFlag + " specification is required");
+		}
+	}
+	for (const auto &eachFlag : optionalStringVariables){
+		try {
+			stringVariables[eachFlag] = parsedCLI.at(eachFlag);
+		} catch(const std::exception &problem) {
+			stringVariables[eachFlag] = defaultStringValues.at(eachFlag);
+		}
+	}
+}

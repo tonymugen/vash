@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <vector>
 #include <array>
+#include <unordered_map>
 #include <fstream>
 
 #include "random.hpp"
@@ -211,4 +212,22 @@ namespace BayesicSpace {
 	 * \return vector of locus names
 	 */
 	std::vector<std::string> getLocusNames(const std::string &bimFileName);
+	/** \brief Command line parser
+	 *
+	 * Maps flags to values. Flags assumed to be of the form `--flag-name value`.
+	 *
+	 * \param[in] argc size of the `argv` array
+	 * \param[in] argv command line input array
+	 * \param[out] cli map of tags to values
+	 */
+	void parseCL(int &argc, char **argv, std::unordered_map<std::string, std::string> &cli);
+	/** \brief Extract parameters from parsed command line interface flags
+	 *
+	 * Extracts needed variable values, indexed by `std::string` encoded variable names.
+	 *
+	 * \param[in] parsedCLI flag values parsed from the command line
+	 * \param[out] intVariables indexed `int` variables for use by `main()`
+	 * \param[out] stringVariables indexed `std::string` variables for use by `main()`
+	 */
+	void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables);
 }
