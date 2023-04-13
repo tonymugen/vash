@@ -88,7 +88,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -114,7 +114,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -395,6 +395,7 @@ namespace BayesicSpace {
 		 * \return locus index hash table
 		 */
 		std::unordered_map< uint32_t, std::vector<size_t> > makeLDgroups(const size_t &nRowsPerBand) const;
+		std::vector< std::vector<size_t> > makeLDgroupsVec(const size_t &nRowsPerBand) const;
 		/** \brief Assign groups by LD and save to a file
 		 *
 		 * Assign groups as above and save locus indexes with their group IDs to a file.
@@ -421,6 +422,7 @@ namespace BayesicSpace {
 		 * \param[in] outFileName name of the output file
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
+		void ldInGroupsVec(const size_t &nRowsPerBand, const std::string &outFileName) const;
 		/** \brief LD in groups with locus names
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.

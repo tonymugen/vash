@@ -35,20 +35,20 @@ Installation may require root privileges.
 
 `lblocks` is a command line tool that estimates LD among loci in a `plink` `.bed` file. Running it without command line flags prints the flags and their possible values. Most flags are self-explanatory, but setting values to some of them requires special consideration.
 
-    `--hash-size`       -- bigger values result in better estimates of LD, but at the expense of speed.
+    --hash-size       - bigger values result in better estimates of LD, but at the expense of speed.
         Based on some experimentation, minimal recommended value is 40, and 100 seems sufficient.
         Setting this flag to 0 leads to full (not hash-based) Jaccard estimates among all pairs.
 
-    `--n-rows-per-band` -- is the banding parameter that controls sparsity.
+    --n-rows-per-band - is the banding parameter that controls sparsity.
         Setting it high (1/5 the hash size or more) leads to lower probability of
         inclusion of low to moderately similar pairs.
         Setting this flag 0 leads to all pairwise estates to be calculated.
         Beware, since this can result in huge output files.
         The software does its best to not use up RAM, but this has only been tested on Linux.
 
-    `--only-groups`     -- no LD calculations are performed and only groups
+    --only-groups     - no LD calculations are performed and only groups
         and the loci they contain is saved to a file.
-    `--add-locus-names` -- locus names from the corresponding `.bim` file are outputinstead
+    --add-locus-names - locus names from the corresponding `.bim` file are outputinstead
         instead the default (base-1) locus indexes. This may result in larger output files.
 
 Output files are tab-delimited and include group IDs, locus pair indexes, and Jaccard similarity estimates. If full Jaccard estimates are produced, group IDs are not included, but \f$r^2\f$ as well as Jaccard similarity estimates are output.
