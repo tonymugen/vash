@@ -42,6 +42,96 @@
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
+namespace BayesicSpace {
+	/** \brief Full Jaccard estimates 
+	 *
+	 * Run the full Jaccard estimates after binary conversion.
+	 *
+	 * \param[in] stringVariables string-valued input flag variables
+	 * \param[in] intVariables integer-valued input flag variables
+	 * \param[in] bimFileName .bim file name
+	 *
+	 */
+	void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
+		const size_t nIndiv{static_cast<size_t>( intVariables.at("n-individuals") )};
+		BayesicSpace::GenoTableBin allJaccard;
+		try {
+			if (intVariables.at("threads") < 1) {
+				allJaccard = BayesicSpace::GenoTableBin( stringVariables.at("input-bed"), nIndiv, stringVariables.at("log-file") );
+			} else {
+				const auto nThreads = static_cast<size_t>( intVariables.at("threads") );
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, stringVariables.at("log-file"), nThreads);
+			}
+			if (stringVariables.at("add-locus-names") == "set") {
+				allJaccard.allJaccardLD( bimFileName, stringVariables.at("out-file") );
+			} else {
+				allJaccard.allJaccardLD( stringVariables.at("out-file") );
+			}
+			if (stringVariables.at("log-file") != "none") {
+				allJaccard.saveLogFile();
+			}
+		} catch(std::string &problem) {
+			if (stringVariables.at("log-file") != "none") {
+				allJaccard.saveLogFile();
+			}
+			throw std::move(problem);
+		}
+	}
+	/** \brief Hash-based Jaccard estimates 
+	 *
+	 * Run the hash-based Jaccard estimates after binary conversion, possibly in groups.
+	 *
+	 * \param[in] stringVariables string-valued input flag variables
+	 * \param[in] intVariables integer-valued input flag variables
+	 * \param[in] bimFileName .bim file name
+	 *
+	 */
+	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
+		const size_t nIndiv{static_cast<size_t>( intVariables.at("n-individuals") )};
+		const size_t kSketches{static_cast<size_t>( intVariables.at("hash-size") )};
+		BayesicSpace::GenoTableHash groupLD;
+		try {
+			if (intVariables.at("threads") < 1) {
+				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), nIndiv, kSketches, stringVariables.at("log-file") );
+			} else {
+				const auto nThreads{static_cast<size_t>( intVariables.at("threads") )};
+				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), nIndiv, kSketches, nThreads, stringVariables.at("log-file") );
+			}
+			if (intVariables.at("n-rows-per-band") == 0) {
+				if (stringVariables.at("add-locus-names") == "set") {
+					groupLD.allHashLD( bimFileName, stringVariables.at("out-file") );
+				} else {
+					groupLD.allHashLD( stringVariables.at("out-file") );
+				}
+			} else {
+				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
+				if (stringVariables.at("add-locus-names") == "set") {
+					if (stringVariables.at("only-groups") == "set") {
+						groupLD.makeLDgroups( rowsPB, bimFileName, stringVariables.at("out-file") );
+					} else {
+						groupLD.ldInGroups( rowsPB, bimFileName, stringVariables.at("out-file") );
+					}
+				} else {
+					if (stringVariables.at("only-groups") == "set") {
+						groupLD.makeLDgroups( rowsPB, stringVariables.at("out-file") );
+					} else {
+						groupLD.ldInGroups( rowsPB, stringVariables.at("out-file") );
+					}
+				}
+			}
+			if (stringVariables.at("log-file") != "none") {
+				groupLD.saveLogFile();
+			}
+		} catch(std::string &problem) {
+			if (stringVariables.at("log-file") != "none") {
+				groupLD.saveLogFile();
+			}
+			throw std::move(problem);
+		}
+	}
+}
+
+
 int main(int argc, char *argv[]) {
 
 	// set usage message
@@ -59,6 +149,7 @@ int main(int argc, char *argv[]) {
 		"  --only-groups      if set (with no value), only group IDs are saved for each locus pair. Ignored if --n-rows-per-band or --hash-size is 0.\n"
 		"  --add-locus-names  if set (with no value) adds locus names from the corresponding .bim file to the output (otherwise base-1 indexes are listed).\n"
 		"  Invalid (e.g., non-integer) flag values are replaced by defaults, if available\n";
+
 	try {
 		std::unordered_map <std::string, std::string> clInfo;
 		std::unordered_map <std::string, std::string> stringVariables;
@@ -66,78 +157,13 @@ int main(int argc, char *argv[]) {
 		BayesicSpace::parseCL(argc, argv, clInfo);
 		BayesicSpace::extractCLinfo(clInfo, intVariables, stringVariables);
 
-		const size_t kSketches{static_cast<size_t>(intVariables["hash-size"])};
-		const size_t nIndiv{static_cast<size_t>(intVariables["n-individuals"])};
-		const size_t dotPos = stringVariables["input-bed"].rfind('.');
-		std::string bimFileName(stringVariables["input-bed"], 0, dotPos);
+		const size_t dotPos = stringVariables.at("input-bed").rfind('.');
+		std::string bimFileName(stringVariables.at("input-bed"), 0, dotPos);
 		bimFileName += ".bim";
-		if (kSketches == 0) {
-			BayesicSpace::GenoTableBin allJaccard;
-			if (intVariables["threads"] < 1) {
-				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"]);
-			} else {
-				const auto nThreads = static_cast<size_t>(intVariables["threads"]);
-				allJaccard = BayesicSpace::GenoTableBin(stringVariables["input-bed"], nIndiv, stringVariables["log-file"], nThreads);
-			}
-			if (stringVariables["add-locus-names"] == "set") {
-				allJaccard.allJaccardLD(bimFileName, stringVariables["out-file"]);
-			} else {
-				allJaccard.allJaccardLD(stringVariables["out-file"]);
-			}
-			if (stringVariables["log-file"] != "none") {
-				allJaccard.saveLogFile();
-			}
+		if (intVariables.at("hash-size") == 0) {
+			BayesicSpace::fullJaccard(stringVariables, intVariables, bimFileName);
 		} else {
-			BayesicSpace::GenoTableHash groupLD;
-			if (intVariables["threads"] < 1) {
-				groupLD = BayesicSpace::GenoTableHash(stringVariables["input-bed"], nIndiv, kSketches, stringVariables["log-file"]);
-			} else {
-				const auto nThreads{static_cast<size_t>(intVariables["threads"])};
-				groupLD = BayesicSpace::GenoTableHash(stringVariables["input-bed"], nIndiv, kSketches, nThreads, stringVariables["log-file"]);
-			}
-			if (intVariables["n-rows-per-band"] == 0) {
-				if (stringVariables["add-locus-names"] == "set") {
-					groupLD.allHashLD(bimFileName, stringVariables["out-file"]);
-				} else {
-					groupLD.allHashLD(stringVariables["out-file"]);
-				}
-			} else {
-				const auto rowsPB{static_cast<size_t>(intVariables["n-rows-per-band"])};
-				if (stringVariables["add-locus-names"] == "set") {
-					if (stringVariables["only-groups"] == "set") {
-						groupLD.makeLDgroups(rowsPB, bimFileName, stringVariables["out-file"]);
-					} else {
-						groupLD.ldInGroups(rowsPB, bimFileName, stringVariables["out-file"]);
-					}
-				} else {
-					if (stringVariables["only-groups"] == "set") {
-						//groupLD.makeLDgroups(rowsPB, stringVariables["out-file"]);
-						auto time1 = std::chrono::high_resolution_clock::now();
-						std::unordered_map< uint32_t, std::vector<size_t> > res1{groupLD.makeLDgroups(rowsPB)};
-						auto time2 = std::chrono::high_resolution_clock::now();
-						std::chrono::duration<float, std::milli> mapTime = time2 - time1;
-						time1 = std::chrono::high_resolution_clock::now();
-						std::vector< std::vector<size_t> > res2{groupLD.makeLDgroupsVec(rowsPB)};
-						time2 = std::chrono::high_resolution_clock::now();
-						std::chrono::duration<float, std::milli> vecTime = time2 - time1;
-						std::cout << mapTime.count() << "\t" << vecTime.count() << "\n";
-					} else {
-						//groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
-						auto time1 = std::chrono::high_resolution_clock::now();
-						groupLD.ldInGroups(rowsPB, stringVariables["out-file"]);
-						auto time2 = std::chrono::high_resolution_clock::now();
-						std::chrono::duration<float, std::milli> mapTime = time2 - time1;
-						time1 = std::chrono::high_resolution_clock::now();
-						groupLD.ldInGroupsVec(rowsPB, stringVariables["out-file"]);
-						time2 = std::chrono::high_resolution_clock::now();
-						std::chrono::duration<float, std::milli> vecTime = time2 - time1;
-						std::cout << mapTime.count() << "\t" << vecTime.count() << "\n";
-					}
-				}
-			}
-			if (stringVariables["log-file"] != "none") {
-				groupLD.saveLogFile();
-			}
+			BayesicSpace::hashJaccard(stringVariables, intVariables, bimFileName);
 		}
 	} catch(std::string &problem) {
 		std::cerr << problem << "\n";

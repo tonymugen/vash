@@ -52,8 +52,8 @@ namespace BayesicSpace {
 	 */
 	struct IndexedPairSimilarity {
 		float similarityValue;
-		size_t element1ind;
-		size_t element2ind;
+		uint32_t element1ind;
+		uint32_t element2ind;
 		uint32_t groupID;
 	};
 
@@ -64,8 +64,8 @@ namespace BayesicSpace {
 	struct IndexedPairLD {
 		float jaccard;
 		float rSq;
-		size_t element1ind;
-		size_t element2ind;
+		uint32_t element1ind;
+		uint32_t element2ind;
 	};
 
 	/** \brief Class to store binary compressed genotype tables
@@ -388,14 +388,13 @@ namespace BayesicSpace {
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
 		 * Locus pairs are included in the pair hash table if all rows in at least one band match.
 		 * The resulting hash table has groups with at least two loci per group (indexed by a hash of the index vector in the group).
-		 * Locus indexes are in increasing order within each group.
+		 * Locus indexes are in increasing order within each group. Groups are sorted by first and second locus indexes.
 		 * Some locus pairs may end up in more than one group, but no groups are completely identical in locus composition.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \return locus index hash table
 		 */
-		std::unordered_map< uint32_t, std::vector<size_t> > makeLDgroups(const size_t &nRowsPerBand) const;
-		std::vector< std::vector<size_t> > makeLDgroupsVec(const size_t &nRowsPerBand) const;
+		std::vector< std::vector<uint32_t> > makeLDgroups(const size_t &nRowsPerBand) const;
 		/** \brief Assign groups by LD and save to a file
 		 *
 		 * Assign groups as above and save locus indexes with their group IDs to a file.
@@ -422,7 +421,6 @@ namespace BayesicSpace {
 		 * \param[in] outFileName name of the output file
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
-		void ldInGroupsVec(const size_t &nRowsPerBand, const std::string &outFileName) const;
 		/** \brief LD in groups with locus names
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
