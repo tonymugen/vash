@@ -569,7 +569,17 @@ namespace BayesicSpace {
 		 * \param[in] blockEndVec index of the block end
 		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector< IndexedPairSimilarity > &indexedJacc) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &indexedJacc) const;
+		/** \brief Hash-based similarity among loci in a block
+		 *
+		 * Pairwise hash-estimated Jaccard similarities among loci in a block.
+		 * Locus indexes are already pre-loaded into the `IndexedPairSimilarity` vector.
+		 * 
+		 * \param[in] blockStart block start iterator
+		 * \param[in] blockEnd block end iterator
+		 *
+		 */
+		void hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const;
 		/** \brief Hash-based similarity using multiple threads
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.

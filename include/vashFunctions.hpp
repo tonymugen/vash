@@ -162,6 +162,17 @@ namespace BayesicSpace {
 	 */
 	void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus);
+	/** \brief Create pair vector from groups 
+	 *
+	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.
+	 *
+	 * \param[in] firstGrpIdx index of the first group in the range
+	 * \param[in] grpBlockStart iterator of the first group in the block
+	 * \param[in] grpBlockEnd iterator of (one past the) end group in the block
+	 * \return vector of pair indexes with group IDs
+	 */
+	std::vector<IndexedPairSimilarity> vectorizeGroups(const uint32_t &firstGrpIdx,
+				const std::vector< std::vector<uint32_t> >::const_iterator grpBlockStart, const std::vector< std::vector<uint32_t> >::const_iterator grpBlockEnd);
 	/** \brief Save values 
 	 *
 	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.

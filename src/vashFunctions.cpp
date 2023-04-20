@@ -299,6 +299,24 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	}
 }
 
+std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t &firstGrpIdx,
+				const std::vector< std::vector<uint32_t> >::const_iterator grpBlockStart, const std::vector< std::vector<uint32_t> >::const_iterator grpBlockEnd) {
+	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
+	uint32_t groupID{firstGrpIdx};
+	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
+		assert( (eachGrpIt->size() > 1) && "ERROR: groups cannot be empty in vectorizeGroups()");
+		for (size_t iRow = 0; iRow < eachGrpIt->size() - 1; ++iRow) {
+			for (size_t jCol = iRow + 1; jCol < eachGrpIt->size(); ++jCol) {
+				indexedSimilarityVec.emplace_back(
+							IndexedPairSimilarity{0.0, static_cast<uint32_t>(iRow), static_cast<uint32_t>(jCol), groupID}
+						);
+			}
+		}
+		++groupID;
+	}
+	return indexedSimilarityVec;
+}
+
 void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec) {
 		outputStream << eachValue << " ";
