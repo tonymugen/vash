@@ -591,6 +591,16 @@ namespace BayesicSpace {
 		 * \return new block start index
 		 */
 		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
+		/** \brief Hash-based indexed similarity using multiple threads
+		 *
+		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
+		 * The ranges of indexes refer to a vectorized by column lower triangle of a similarity matrix.
+		 * Row and column indexes are already pre-calculated and stored in the provided vector. The function adds Jaccard estimates.
+		 *
+		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
+		 * \param[in,out] hashJacVec vector of similarity values with associated locus indexes and group IDs
+		 */
+		void hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 	};
 }
 
