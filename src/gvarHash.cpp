@@ -1086,7 +1086,6 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	
 	logMessages_         += "Estimating LD in groups\n";
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );                          // use half to leave resources for other operations
-	//const size_t maxInRAM{50000};
 	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
 	std::vector<size_t> groupSizes;                                                                               // number of locus pair in each group
 	size_t totalPairNumber{0};                                                                                    // total number of pairs
