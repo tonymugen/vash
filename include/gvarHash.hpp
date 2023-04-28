@@ -52,8 +52,8 @@ namespace BayesicSpace {
 	 */
 	struct IndexedPairSimilarity {
 		float similarityValue;
-		size_t element1ind;
-		size_t element2ind;
+		uint32_t element1ind;
+		uint32_t element2ind;
 		uint32_t groupID;
 	};
 
@@ -64,8 +64,8 @@ namespace BayesicSpace {
 	struct IndexedPairLD {
 		float jaccard;
 		float rSq;
-		size_t element1ind;
-		size_t element2ind;
+		uint32_t element1ind;
+		uint32_t element2ind;
 	};
 
 	/** \brief Class to store binary compressed genotype tables
@@ -88,7 +88,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -114,7 +114,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ){};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -388,13 +388,13 @@ namespace BayesicSpace {
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
 		 * Locus pairs are included in the pair hash table if all rows in at least one band match.
 		 * The resulting hash table has groups with at least two loci per group (indexed by a hash of the index vector in the group).
-		 * Locus indexes are in increasing order within each group.
+		 * Locus indexes are in increasing order within each group. Groups are sorted by first and second locus indexes.
 		 * Some locus pairs may end up in more than one group, but no groups are completely identical in locus composition.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \return locus index hash table
 		 */
-		std::unordered_map< uint32_t, std::vector<size_t> > makeLDgroups(const size_t &nRowsPerBand) const;
+		std::vector< std::vector<uint32_t> > makeLDgroups(const size_t &nRowsPerBand) const;
 		/** \brief Assign groups by LD and save to a file
 		 *
 		 * Assign groups as above and save locus indexes with their group IDs to a file.
@@ -569,7 +569,17 @@ namespace BayesicSpace {
 		 * \param[in] blockEndVec index of the block end
 		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector< IndexedPairSimilarity > &indexedJacc) const;
+		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &indexedJacc) const;
+		/** \brief Hash-based similarity among loci in a block
+		 *
+		 * Pairwise hash-estimated Jaccard similarities among loci in a block.
+		 * Locus indexes are already pre-loaded into the `IndexedPairSimilarity` vector.
+		 * 
+		 * \param[in] blockStart block start iterator
+		 * \param[in] blockEnd block end iterator
+		 *
+		 */
+		void hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const;
 		/** \brief Hash-based similarity using multiple threads
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
@@ -581,6 +591,16 @@ namespace BayesicSpace {
 		 * \return new block start index
 		 */
 		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
+		/** \brief Hash-based indexed similarity using multiple threads
+		 *
+		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
+		 * The ranges of indexes refer to a vectorized by column lower triangle of a similarity matrix.
+		 * Row and column indexes are already pre-calculated and stored in the provided vector. The function adds Jaccard estimates.
+		 *
+		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
+		 * \param[in,out] hashJacVec vector of similarity values with associated locus indexes and group IDs
+		 */
+		void hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 	};
 }
 

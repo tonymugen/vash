@@ -35,24 +35,24 @@ Installation may require root privileges.
 
 `lblocks` is a command line tool that estimates LD among loci in a `plink` `.bed` file. Running it without command line flags prints the flags and their possible values. Most flags are self-explanatory, but setting values to some of them requires special consideration.
 
-    `--hash-size`       -- bigger values result in better estimates of LD, but at the expense of speed.
+    --hash-size       - bigger values result in better estimates of LD, but at the expense of speed.
         Based on some experimentation, minimal recommended value is 40, and 100 seems sufficient.
         Setting this flag to 0 leads to full (not hash-based) Jaccard estimates among all pairs.
 
-    `--n-rows-per-band` -- is the banding parameter that controls sparsity.
+    --n-rows-per-band - is the banding parameter that controls sparsity.
         Setting it high (1/5 the hash size or more) leads to lower probability of
         inclusion of low to moderately similar pairs.
         Setting this flag 0 leads to all pairwise estates to be calculated.
         Beware, since this can result in huge output files.
         The software does its best to not use up RAM, but this has only been tested on Linux.
 
-    `--only-groups`     -- no LD calculations are performed and only groups
+    --only-groups     - no LD calculations are performed and only groups
         and the loci they contain is saved to a file.
-    `--add-locus-names` -- locus names from the corresponding `.bim` file are outputinstead
+    --add-locus-names - locus names from the corresponding `.bim` file are outputinstead
         instead the default (base-1) locus indexes. This may result in larger output files.
 
 Output files are tab-delimited and include group IDs, locus pair indexes, and Jaccard similarity estimates. If full Jaccard estimates are produced, group IDs are not included, but \f$r^2\f$ as well as Jaccard similarity estimates are output.
 
-Even using sparse estimates, running the software on whole genomes with millions of loci can still tax RAM and disk space. Mitigating these problems is the primary focus of development at the moment. I recommend using the `--only-groups` flags in preliminary runs to get a sense of the number of locus pairs that will result given a set of parameters. The number of pairs is the sum \f$\sum_i N_i (N_i - 1)/2 \f$ over all groups. However, some groups may include the same pairs, which are eliminated prior to similarity evaluation, so this is an imprecise estimate.
+Running the software on whole genomes with millions of loci should not tax RAM (the software keeps track of free memory and only uses about half available RAM), but can still tax disk space. In addition, some pairs can be assigned to more than one group. Removal of these duplicates requires in-memory operations, so if partial results are written to disk some of these duplicates are retained. I recommend using the `--only-groups` flags in preliminary runs to get a sense of the number of locus pairs that will result given a set of parameters. Analyzing a single chromosome at a time also speeds up the analyses.
 
 Library interface documentation can be found [here](https://www.bayesicresearch.org/softwareDocs/vash/html/index.html).

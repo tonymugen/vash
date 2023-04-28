@@ -58,13 +58,13 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec) {
 	uint64_t totSet{0};
 	const size_t nWholeWords{inVec.size() & roundMask};
 	size_t iByte{0};
-	while (iByte < nWholeWords){
+	while (iByte < nWholeWords) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, wordSize);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 		iByte += wordSize;
 	}
-	if ( nWholeWords < inVec.size() ){
+	if ( nWholeWords < inVec.size() ) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, inVec.size() - nWholeWords);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
@@ -79,13 +79,13 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const siz
 	const size_t roundLength{length & roundMask};
 	const size_t nWholeWords{start + roundLength};
 	size_t iByte{start};
-	while (iByte < nWholeWords){
+	while (iByte < nWholeWords) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, wordSize);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 		iByte += wordSize;
 	}
-	if (roundLength < length){
+	if (roundLength < length) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, length - roundLength);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
@@ -95,13 +95,13 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const siz
 
 size_t BayesicSpace::getAvailableRAM() {
 	constexpr size_t defaultSize{2147483648};
-	if ( std::ifstream("/proc/meminfo").good() ){
+	if ( std::ifstream("/proc/meminfo").good() ) {
 		constexpr size_t bytesInKb{1024};
 		constexpr size_t memTokenLength{13};
 		std::string memLine;
 		std::fstream memInfoStream;
 		memInfoStream.open("/proc/meminfo", std::ios::in);
-		while ( getline(memInfoStream, memLine) ){
+		while ( getline(memInfoStream, memLine) ) {
 			if (memLine.compare(0, memTokenLength, "MemAvailable:") == 0) {
 				break;
 			}
@@ -116,7 +116,7 @@ size_t BayesicSpace::getAvailableRAM() {
 	return defaultSize;
 }
 
-uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed){
+uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed) {
 	constexpr uint32_t const1{0xcc9e2d51};
 	constexpr uint32_t const2{0x1b873593};
 	constexpr size_t   nBlocks32{sizeof(size_t) / sizeof(uint32_t)};    // number of 32 bit blocks in size_t
@@ -131,7 +131,7 @@ uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed){
 	memcpy(blocks.data(), &key, keyLen);
 
 	// body
-	for (auto &eachBlock : blocks){
+	for (auto &eachBlock : blocks) {
 		eachBlock *= const1;
 		eachBlock  = (eachBlock << blockShifts[0]) | (eachBlock >> blockShifts[1]);
 		eachBlock *= const2;
@@ -143,7 +143,7 @@ uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed){
 	return hash;
 }
 
-uint32_t BayesicSpace::murMurHashFinalizer(const uint32_t &inputHash){
+uint32_t BayesicSpace::murMurHashFinalizer(const uint32_t &inputHash) {
 	constexpr uint32_t keyLen{sizeof(size_t)};                          // key length 
 	constexpr std::array<uint32_t, 2> finalizeShifts{16, 13};
 	constexpr std::array<uint32_t, 2> finalizeMult{0x85ebca6b, 0xc2b2ae35};
@@ -159,7 +159,7 @@ uint32_t BayesicSpace::murMurHashFinalizer(const uint32_t &inputHash){
 	return hash;
 }
 
-uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
+uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed) {
 	uint32_t hash{murMurHashMixer(key, seed)};
 	hash = murMurHashFinalizer(hash);
 
@@ -168,7 +168,7 @@ uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed){
 
 uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t &seed) {
 	uint32_t hash{seed};
-	for (const auto &eachIdx : key){
+	for (const auto &eachIdx : key) {
 		hash = murMurHashMixer(eachIdx, hash);
 	}
 	hash = murMurHashFinalizer(hash);
@@ -185,13 +185,13 @@ uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, con
 	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" );
 
 	size_t keyIdx{start};
-	while (keyIdx < wholeEnd){
+	while (keyIdx < wholeEnd) {
 		size_t keyBlock{0};
 		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
 		hash    = murMurHashMixer(keyBlock, hash);
 		keyIdx += keysPerWord;
 	}
-	if (end > wholeEnd){  // if there is a tail
+	if (end > wholeEnd) {  // if there is a tail
 		size_t keyBlock{0};
 		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
 		hash = murMurHashMixer(keyBlock, hash);
@@ -202,21 +202,21 @@ uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, con
 
 void BayesicSpace::testBedMagicBytes(std::array<char, 3> &bytesToTest) {
 	constexpr std::array<char, 3> magicBytes{0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
-	if (bytesToTest[0] != magicBytes[0]){
+	if (bytesToTest[0] != magicBytes[0]) {
 		throw std::string("ERROR: first magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (bytesToTest[1] != magicBytes[1]){
+	if (bytesToTest[1] != magicBytes[1]) {
 		throw std::string("ERROR: second magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (bytesToTest[2] != magicBytes[2]){
+	if (bytesToTest[2] != magicBytes[2]) {
 		throw std::string("ERROR: third magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 }
 
-std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread){
+std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread) {
 	std::vector< std::pair<size_t, size_t> > threadRanges;
 	size_t bedInd = 0;
-	for (size_t iThread = 0; iThread < nThreads; ++iThread){
+	for (size_t iThread = 0; iThread < nThreads; ++iThread) {
 		threadRanges.emplace_back(bedInd, bedInd + nElementsPerThread);
 		bedInd += nElementsPerThread;
 	}
@@ -238,7 +238,7 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	uint32_t setCount{0};
 	uint32_t missingCount{0};
 	size_t iBedByte{bedIdx};
-	while (iBedByte < nEvenBedBytes + bedIdx){
+	while (iBedByte < nEvenBedBytes + bedIdx) {
 		uint64_t bedWord{0};
 		memcpy(&bedWord, bedLocus.data() + iBedByte, word64size);
 		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
@@ -255,7 +255,7 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 		binWords.push_back(binBits);
 		iBedByte += word64size;
 	}
-	if (bedLocusSize > nEvenBedBytes){
+	if (bedLocusSize > nEvenBedBytes) {
 		const size_t nTrailingBedBytes{bedLocusSize - nEvenBedBytes};
 		uint64_t bedWord{0};
 		memcpy(&bedWord, bedLocus.data() + iBedByte, nTrailingBedBytes);
@@ -274,9 +274,9 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	}
 	// test if the set bits are minor alleles and flip them if not
 	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" );
-	if ( (2UL * setCount) > (nIndividuals - missingCount) ){
+	if ( (2UL * setCount) > (nIndividuals - missingCount) ) {
 		size_t missWordIdx{0};
-		for (auto &eachBinWord : binWords){
+		for (auto &eachBinWord : binWords) {
 			eachBinWord = (~eachBinWord) & (~missWords[missWordIdx]);                                            // flip the bits in the binary vector and reset the missing bits to 0
 			++missWordIdx;
 		}
@@ -288,43 +288,61 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	const size_t nEvenBinBytes{binLocusSize & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
 	size_t iBinByte{binIdx};
 	size_t iBinWord{0};
-	while (iBinByte < nEvenBinBytes + binIdx){
+	while (iBinByte < nEvenBinBytes + binIdx) {
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
 		iBinByte += word32size;
 		++iBinWord;
 	}
-	if (binLocusSize > nEvenBinBytes){
+	if (binLocusSize > nEvenBinBytes) {
 		const size_t nTrailingBinBytes{binLocusSize - nEvenBinBytes};
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], nTrailingBinBytes);
 	}
 }
 
+std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t &firstGrpIdx,
+				const std::vector< std::vector<uint32_t> >::const_iterator grpBlockStart, const std::vector< std::vector<uint32_t> >::const_iterator grpBlockEnd) {
+	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
+	uint32_t groupID{firstGrpIdx};
+	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
+		assert( (eachGrpIt->size() > 1) && "ERROR: groups cannot be empty in vectorizeGroups()");
+		for (size_t iRow = 0; iRow < eachGrpIt->size() - 1; ++iRow) {
+			for (size_t jCol = iRow + 1; jCol < eachGrpIt->size(); ++jCol) {
+				indexedSimilarityVec.emplace_back(
+							IndexedPairSimilarity{0.0, static_cast<uint32_t>(iRow), static_cast<uint32_t>(jCol), groupID}
+						);
+			}
+		}
+		++groupID;
+	}
+	return indexedSimilarityVec;
+}
+
 void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec){
+	for (const auto &eachValue : inVec) {
 		outputStream << eachValue << " ";
 	}
 }
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec){
+	for (const auto &eachValue : inVec) {
 		outputStream << "G" << eachValue.groupID + 1 << "\t" << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.similarityValue << "\n";
 	}
 }
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec){
+	for (const auto &eachValue : inVec) {
 		outputStream << "G" << eachValue.groupID + 1 << "\t" << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
 	}
 }
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec){
+	for (const auto &eachValue : inVec) {
 		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
 	}
 }
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec){
+	for (const auto &eachValue : inVec) {
 		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
 	}
 }
@@ -335,7 +353,7 @@ std::vector<std::string> BayesicSpace::getLocusNames(const std::string &bimFileN
 	bimStream.open(bimFileName, std::ios::in);
 	std::string bimLine;
 	std::stringstream lineStream;
-	while ( std::getline(bimStream, bimLine) ){
+	while ( std::getline(bimStream, bimLine) ) {
 		lineStream.str(bimLine);
 		std::string field;
 		lineStream >> field >> field;             // locus name is the second column in the .bim file
@@ -354,7 +372,7 @@ void BayesicSpace::parseCL(int &argc, char **argv, std::unordered_map<std::strin
 	for (int iArg = 1; iArg < argc; iArg++) {
 		const char *pchar = argv[iArg];
 		if ( (pchar[0] == '-') && (pchar[1] == '-') ) { // encountered the double dash, look for the token after it
-			if (val){ // A previous flag had no value
+			if (val) { // A previous flag had no value
 				cli[curFlag] = "set";
 			}
 			// what follows the dash?
@@ -381,31 +399,31 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
 																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };
 
-	if ( parsedCLI.empty() ){
+	if ( parsedCLI.empty() ) {
 		throw std::string("No command line flags specified;");
 	}
-	for (const auto &eachFlag : requiredIntVariables){
+	for (const auto &eachFlag : requiredIntVariables) {
 		try {
 			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
 		} catch(const std::exception &problem) {
 			throw std::string("ERROR: " + eachFlag + " specification is required and must be an integer");
 		}
 	}
-	for (const auto &eachFlag : optionalIntVariables){
+	for (const auto &eachFlag : optionalIntVariables) {
 		try {
 			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
 		} catch(const std::exception &problem) {
 			intVariables[eachFlag] = defaultIntValues.at(eachFlag);
 		}
 	}
-	for (const auto &eachFlag : requiredStringVariables){
+	for (const auto &eachFlag : requiredStringVariables) {
 		try {
 			stringVariables[eachFlag] = parsedCLI.at(eachFlag);
 		} catch(const std::exception &problem) {
 			throw std::string("ERROR: " + eachFlag + " specification is required");
 		}
 	}
-	for (const auto &eachFlag : optionalStringVariables){
+	for (const auto &eachFlag : optionalStringVariables) {
 		try {
 			stringVariables[eachFlag] = parsedCLI.at(eachFlag);
 		} catch(const std::exception &problem) {
