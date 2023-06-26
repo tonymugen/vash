@@ -37,8 +37,6 @@
 #include <cmath>
 #include <stdexcept>
 
-#include <chrono>
-
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
