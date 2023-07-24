@@ -43,8 +43,19 @@
 
 namespace BayesicSpace {
 	struct IndexedPairSimilarity; 
+	struct IndexedPairLD; 
 	class GenoTableBin;
 	class GenoTableHash;
+	struct LocationWithLength;
+
+	/** \brief Window location and extent
+	 *
+	 * Groups the start index and length (in number of elements) of a window spanning container elements.
+	 */
+	struct LocationWithLength {
+		size_t start;
+		size_t length;
+	};
 
 	/** \brief Jaccard value with indexes
 	 *
@@ -223,21 +234,19 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] bedLocusIndRange indexes of the first and last locus in the _.bed_ vector
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] locusSpan window with the overall index of the first locus in the range and locus length
 		 */
-		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength);
+		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &locusSpan);
 		/** \brief Multi-threaded binarization of _.bed_ file input 
 		 *
 		 * Binarizes loci from a _.bed_ file using multiple threads.
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] threadRanges vector of locus index ranges, one per thread
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] locusSpan window with the overall index of the first locus in the range and locus length
 		 * \return new value of `firstLocusInd`
 		 */
-		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength);
+		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &locusSpan);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -513,29 +522,27 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] bedData _.bed_ file input
 		 * \param[in] bedLocusIndRange range of locus indexes in the block
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] locusLength number of bytes in each locus
+		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &bedLocusSpan,
+									const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from _.bed_ file input using multiple threads
 		 *
 		 * Hashes input from a _.bed_ file using multiple threads.
 		 *
 		 * \param[in] bedData _.bed_ file input
 		 * \param[in] threadRanges vector of locus ranges, one per thread
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] locusLength number of bytes in each locus
+		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \return new value of `firstLocusInd`
 		 */
-		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
+							const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).

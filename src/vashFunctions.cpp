@@ -72,22 +72,22 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec) {
 	return totSet;
 }
 
-uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length) {
+uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const LocationWithLength &window) {
 	constexpr size_t wordSize{8};
 	constexpr uint64_t roundMask{0xfffffffffffffff8};
 	uint64_t totSet{0};
-	const size_t roundLength{length & roundMask};
-	const size_t nWholeWords{start + roundLength};
-	size_t iByte{start};
+	const size_t roundLength{window.length & roundMask};
+	const size_t nWholeWords{window.start + roundLength};
+	size_t iByte{window.start};
 	while (iByte < nWholeWords) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, wordSize);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 		iByte += wordSize;
 	}
-	if (roundLength < length) {
+	if (roundLength < window.length) {
 		uint64_t chunk{0};
-		memcpy(&chunk, inVec.data() + iByte, length - roundLength);
+		memcpy(&chunk, inVec.data() + iByte, window.length - roundLength);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
 	}
 	return totSet;
@@ -223,8 +223,8 @@ std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const si
 	return threadRanges;
 }
 
-void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus) {
+void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
+														RanDraw &prng, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
 	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
 	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
@@ -232,13 +232,13 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 	constexpr auto word32mask{static_cast<uint64_t>(-word32size)};                             // for rounding down to nearest divisible by 4 number 
 	constexpr uint64_t secondBitMask{0xaaaaaaaaaaaaaaaa};                                      // all bed second bits set
 	constexpr uint64_t firstBitMask{~secondBitMask};                                           // all bed first bits set
-	const size_t nEvenBedBytes{bedLocusSize & word64mask};                                     // number of bed bytes that fully fit into 64-bit words
+	const size_t nEvenBedBytes{bedLocusWindow.length & word64mask};                            // number of bed bytes that fully fit into 64-bit words
 	std::vector<uint32_t> missWords;                                                           // 32-bit words with missing genotype masks
 	std::vector<uint32_t> binWords;                                                            // 32-bit words with binarized data
 	uint32_t setCount{0};
 	uint32_t missingCount{0};
-	size_t iBedByte{bedIdx};
-	while (iBedByte < nEvenBedBytes + bedIdx) {
+	size_t iBedByte{bedLocusWindow.start};
+	while (iBedByte < nEvenBedBytes + bedLocusWindow.start) {
 		uint64_t bedWord{0};
 		memcpy(&bedWord, bedLocus.data() + iBedByte, word64size);
 		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
@@ -255,8 +255,8 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 		binWords.push_back(binBits);
 		iBedByte += word64size;
 	}
-	if (bedLocusSize > nEvenBedBytes) {
-		const size_t nTrailingBedBytes{bedLocusSize - nEvenBedBytes};
+	if (bedLocusWindow.length > nEvenBedBytes) {
+		const size_t nTrailingBedBytes{bedLocusWindow.length - nEvenBedBytes};
 		uint64_t bedWord{0};
 		memcpy(&bedWord, bedLocus.data() + iBedByte, nTrailingBedBytes);
 		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
@@ -285,16 +285,16 @@ void BayesicSpace::binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocus
 		binWords.back() = binWords.back() & lastWordMask;
 	}
 	// copy over the binary bits to the locus vector
-	const size_t nEvenBinBytes{binLocusSize & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
-	size_t iBinByte{binIdx};
+	const size_t nEvenBinBytes{binLocusWindow.length & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
+	size_t iBinByte{binLocusWindow.start};
 	size_t iBinWord{0};
-	while (iBinByte < nEvenBinBytes + binIdx) {
+	while (iBinByte < nEvenBinBytes + binLocusWindow.start) {
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
 		iBinByte += word32size;
 		++iBinWord;
 	}
-	if (binLocusSize > nEvenBinBytes) {
-		const size_t nTrailingBinBytes{binLocusSize - nEvenBinBytes};
+	if (binLocusWindow.length > nEvenBinBytes) {
+		const size_t nTrailingBinBytes{binLocusWindow.length - nEvenBinBytes};
 		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], nTrailingBinBytes);
 	}
 }

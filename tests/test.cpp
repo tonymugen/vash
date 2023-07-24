@@ -27,7 +27,7 @@
 #include <chrono>
 #include <cmath>
 
-#include "../src/gvarHash.hpp"
+#include "gvarHash.hpp"
 
 using namespace BayesicSpace;
 

@@ -61,11 +61,10 @@ namespace BayesicSpace {
 	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
 	 *
 	 * \param[in] inVec input vector
-	 * \param[in] start staring index
-	 * \param[in] length number of bytes to process
+	 * \param[in] window vector window in bytes
 	 * \return number of bits set
 	 */
-	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length);
+	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const LocationWithLength &window);
 	/** \brief Get available RAM
 	 *
 	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.
@@ -151,17 +150,15 @@ namespace BayesicSpace {
 	 *
 	 * If the number of individuals is not divisible by eight, the last binary byte is padded with 0s.
 	 *
-	 * \param[in] bedIdx index of the first byte in the `bedLocus` vector
-	 * \param[in] bedLocusSize number of bytes in the _.bed_ locus
+	 * \param[in] bedLocusWindow _.bed_ locus window
 	 * \param[in] bedLocus vector of _.bed_ format bytes
 	 * \param[in] nIndividuals number of individuals
 	 * \param[in,out] prng (pseudo-)random number generator (for resolving heterozygotes)
-	 * \param[in] binIdx index of the first binary byte
-	 * \param[in] binLocusSize number of bytes in the binary locus
+	 * \param[in] binLocusWindow binary locus window
 	 * \param[out] binLocus vector of binary format bytes
 	 */
-	void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus);
+	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
+														RanDraw &prng, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
 	/** \brief Create pair vector from groups 
 	 *
 	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.
