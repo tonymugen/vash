@@ -549,13 +549,12 @@ namespace BayesicSpace {
 		 * The vector portion corresponds to a block of loci.
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] startLocusInd index of the first locus in block
-		 * \param[in] endLocusInd index of one past the last locus in block
+		 * \param[in] locusBlock locus block start and size
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
+		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.

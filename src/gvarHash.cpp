@@ -727,8 +727,11 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
-			locusInd += excessLoci;
+			LocationWithLength bedLocusSpan{0, 0};
+			bedLocusSpan.start  = locusInd;
+			bedLocusSpan.length = nBedBytesPerLocus;
+			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
+			locusInd           += excessLoci;
 		}
 	} else {
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
@@ -736,7 +739,10 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, 1)};
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
+			LocationWithLength bedLocusSpan{0, 0};
+			bedLocusSpan.start  = locusInd;
+			bedLocusSpan.length = nBedBytesPerLocus;
+			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
 		}
 	}
 	if (remainingLoci > 0) {
@@ -749,11 +755,17 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, nLociPerThread)};
 			const size_t excessLoci = remainingLoci - threadRanges.back().second;
 			threadRanges.back().second = remainingLoci;
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
-			locusInd += excessLoci;
+			LocationWithLength bedLocusSpan{0, 0};
+			bedLocusSpan.start  = locusInd;
+			bedLocusSpan.length = nBedBytesPerLocus;
+			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
+			locusInd           += excessLoci;
 		} else {
 			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(nThreads_, 1)};
-			locusInd = bed2ophThreaded_(bedChunkToRead, threadRanges, locusInd, nBedBytesPerLocus, ranInts, addIndv, seeds);
+			LocationWithLength bedLocusSpan{0, 0};
+			bedLocusSpan.start  = locusInd;
+			bedLocusSpan.length = nBedBytesPerLocus;
+			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
 		}
 	}
 	inStr.close();
@@ -826,7 +838,10 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 		for (const auto &eachTR : threadRanges) {
 			tasks.emplace_back(
 				std::async([this, &maCounts, &eachTR, ranVecSize, &ranInts, &seeds]{
-					mac2ophBlk_(maCounts, eachTR.first, eachTR.second, ranVecSize, ranInts, seeds);
+					LocationWithLength threadLoci{0, 0};
+					threadLoci.start  = eachTR.first;
+					threadLoci.length = eachTR.second - eachTR.first;
+					mac2ophBlk_(maCounts, threadLoci, ranVecSize, ranInts, seeds);
 				})
 			);
 		}
@@ -834,7 +849,9 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 			eachTask.wait();
 		}
 	} else {
-		mac2ophBlk_(maCounts, 0, nLoci_, ranVecSize, ranInts, seeds);
+		LocationWithLength allLoci{0, 0};
+		allLoci.length = nLoci_;
+		mac2ophBlk_(maCounts, allLoci, ranVecSize, ranInts, seeds);
 	}
 }
 
@@ -1508,7 +1525,7 @@ size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const s
 	return locusInd;
 }
 
-void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds) {
+void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	uint64_t locSeed{0};
@@ -1524,8 +1541,9 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 	remainderInd               = byteSize_ - remainderInd;
 	// Create a vector to store random bytes for stochastic heterozygote resolution
 	std::vector<uint64_t> rand(randVecLen);
-	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
-	for (size_t iLocus = startLocusInd; iLocus < endLocusInd; ++iLocus) {
+	auto *randBytes          = reinterpret_cast<uint8_t*>( rand.data() );
+	const size_t endLocusInd = locusBlock.start + locusBlock.length;
+	for (size_t iLocus = locusBlock.start; iLocus < endLocusInd; ++iLocus) {
 		// Fill the random byte vector
 		for (auto &randValue : rand) {
 			randValue = locPRNG.ranInt();
@@ -1535,7 +1553,7 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 		std::vector<uint8_t> missMasks(locusSize_, 0);
 		std::vector<uint8_t> binLocus(locusSize_, 0);
 		size_t i0Byte = 0;                                                                         // to index the missMasks vector
-		for (size_t iByte = 0; iByte < locusSize_ - 1; ++iByte) {                                   // treat the last byte separately
+		for (size_t iByte = 0; iByte < locusSize_ - 1; ++iByte) {                                  // treat the last byte separately
 			for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte) {
 				auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
 				curIndiv                 &= middleMask;                                            // mask everything in the middle
@@ -1565,7 +1583,7 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const size_t &s
 			++iIndiv;
 		}
 		const float maf = static_cast<float>( countSetBits(binLocus) ) / static_cast<float>(nIndividuals_);
-		if (maf > 0.5) { // always want the alternative to be the minor allele
+		if (maf > 0.5F) { // always want the alternative to be the minor allele
 			for (size_t iBL = 0; iBL < locusSize_; ++iBL) {
 				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
 			}
