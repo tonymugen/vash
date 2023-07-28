@@ -40,6 +40,10 @@
 #include "gvarHash.hpp"
 
 namespace BayesicSpace {
+	/** \brief Number of 32-bit values in `size_t` */
+	constexpr size_t SIZE_OF_SIZET{sizeof(size_t) / sizeof(uint32_t)};
+	/** \brief Number of test bytes in a _.bed_ file */
+	constexpr size_t N_BED_TEST_BYTES{3};
 	/** \brief Count set bits in a 16-bit word
 	 *
 	 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
@@ -81,7 +85,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHashMixer(const size_t &key, const uint32_t &seed);
+	uint32_t murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash finalizer
 	 *
 	 * MurMurHash3 finalizer for a hash value.
@@ -100,7 +104,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHash(const size_t &key, const uint32_t &seed);
+	uint32_t murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
 	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
@@ -115,30 +119,28 @@ namespace BayesicSpace {
 	 *
 	 * Generates a 32-bit hash of a vector of `uint16_t` values using the MurMurHash3 algorithm.
 	 *
-	 * \param[in] start start index
-	 * \param[in] length number of elements to hash
 	 * \param[in] key the vector to be hashed
+	 * \param[in] keyWindow the range of elements in the key to hash
 	 * \param[in] seed the hash seed
 	 *
 	 * \return hash value
 	 */
-	uint32_t murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed);
+	uint32_t murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed);
 	/** \brief Test .bed magic bytes
 	 *
 	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
 	 *
 	 * \param[in] bytesToTest the byte set to test
 	 */
-	void testBedMagicBytes(std::array<char, 3> &bytesToTest);
+	void testBedMagicBytes(std::array<char, N_BED_TEST_BYTES> &bytesToTest);
 	/** \brief Build thread ranges
 	 *
 	 * Build index ranges to use within each thread.
 	 *
-	 * \param[in] nThreads number of threads
-	 * \param[in] nElementsPerThread number of elements per thread
+	 * \param[in] threadPoolSizes number of threads and number of loci per thread
 	 * \return vector of index ranges
 	 */
-	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread);
+	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.

@@ -42,11 +42,13 @@
 #include "random.hpp"
 
 namespace BayesicSpace {
+	struct LocationWithLength;
+	struct CountAndSize;
+	struct InOutFileNames;
 	struct IndexedPairSimilarity; 
 	struct IndexedPairLD; 
 	class GenoTableBin;
 	class GenoTableHash;
-	struct LocationWithLength;
 
 	/** \brief Window location and extent
 	 *
@@ -55,6 +57,24 @@ namespace BayesicSpace {
 	struct LocationWithLength {
 		size_t start;
 		size_t length;
+	};
+
+	/** \brief Number of items and their size
+	 *
+	 * Groups the number of items with size of each.
+	 */
+	struct CountAndSize {
+		size_t count;
+		size_t size;
+	};
+
+	/** \brief Input and output file names
+	 *
+	 * Groups input and output file names.
+	 */
+	struct InOutFileNames {
+		std::string inputFileName;
+		std::string outputFileName;
 	};
 
 	/** \brief Jaccard value with indexes
@@ -185,10 +205,9 @@ namespace BayesicSpace {
 		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
-		 * \param[in] bimFileName name of the _.bim_ file that has locus names
-		 * \param[in] ldFileName name of the output file
+		 * \param[in] bimAndLDnames name of the input _.bim_ file that has locus names and the output LD value file name
 		 */
-		void allJaccardLD(const std::string &bimFileName, const std::string &ldFileName) const;
+		void allJaccardLD(const InOutFileNames &bimAndLDnames) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -388,10 +407,9 @@ namespace BayesicSpace {
 		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
-		 * \param[in] bimFileName name of the _.bim_ file with locus names
-		 * \param[in] ldFileName name of file to save the results
+		 * \param[in] bimAndLDnames name of the _.bim_ file with locus names and the output LD results file
 		 */
-		void allHashLD(const std::string &bimFileName,  const std::string &ldFileName) const;
+		void allHashLD(const InOutFileNames &bimAndLDnames) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
@@ -417,10 +435,9 @@ namespace BayesicSpace {
 		 * Assign groups as above and save locus names with their group IDs to a file.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] bimFileName _.bim_ file name
-		 * \param[in] outFileName output file name
+		 * \param[in] bimAndGroupNames _.bim_ and output group file name
 		 */
-		void makeLDgroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
+		void makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const;
 		/** \brief LD in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
@@ -436,10 +453,10 @@ namespace BayesicSpace {
 		 * Output LD (Jaccard similarity) estimates with group IDs and locus names.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] bimFileName _.bim_ file name
+		 * \param[in] bimAndLDnames _.bim_ and output LD file names
 		 * \param[in] outFileName name of the output file
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
+		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -571,11 +588,10 @@ namespace BayesicSpace {
 		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
 		 * The index vector contains indexes of locus pairs included in LD calculations.
 		 *
-		 * \param[in] blockStartVec index of the block start
-		 * \param[in] blockEndVec index of the block end
+		 * \param[in] blockRange index of the block start and block length
 		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
 		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &indexedJacc) const;
+		void hashJacBlock_(const LocationWithLength &blockRange, std::vector<IndexedPairSimilarity> &indexedJacc) const;
 		/** \brief Hash-based similarity among loci in a block
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci in a block.

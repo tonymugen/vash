@@ -116,22 +116,17 @@ size_t BayesicSpace::getAvailableRAM() {
 	return defaultSize;
 }
 
-uint32_t BayesicSpace::murMurHashMixer(const size_t &key, const uint32_t &seed) {
+uint32_t BayesicSpace::murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed) {
 	constexpr uint32_t const1{0xcc9e2d51};
 	constexpr uint32_t const2{0x1b873593};
-	constexpr size_t   nBlocks32{sizeof(size_t) / sizeof(uint32_t)};    // number of 32 bit blocks in size_t
-	constexpr uint32_t keyLen{sizeof(size_t)};                          // key length 
 	constexpr uint32_t hashMultiplier{5};
 	constexpr uint32_t hashAdder{0xe6546b64};
-
 	constexpr std::array<uint32_t, 4> blockShifts{15, 17, 13, 19};
 
 	uint32_t hash{seed};
-	std::array<uint32_t, nBlocks32> blocks{0};
-	memcpy(blocks.data(), &key, keyLen);
 
 	// body
-	for (auto &eachBlock : blocks) {
+	for (auto eachBlock : key) {
 		eachBlock *= const1;
 		eachBlock  = (eachBlock << blockShifts[0]) | (eachBlock >> blockShifts[1]);
 		eachBlock *= const2;
@@ -159,7 +154,7 @@ uint32_t BayesicSpace::murMurHashFinalizer(const uint32_t &inputHash) {
 	return hash;
 }
 
-uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed) {
+uint32_t BayesicSpace::murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed) {
 	uint32_t hash{murMurHashMixer(key, seed)};
 	hash = murMurHashFinalizer(hash);
 
@@ -168,40 +163,41 @@ uint32_t BayesicSpace::murMurHash(const size_t &key, const uint32_t &seed) {
 
 uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t &seed) {
 	uint32_t hash{seed};
-	for (const auto &eachIdx : key) {
-		hash = murMurHashMixer(eachIdx, hash);
+	for (const auto eachIdx : key) {
+		std::array<uint32_t, SIZE_OF_SIZET> eachKey{};
+		memcpy(eachKey.data(), &eachIdx, SIZE_OF_SIZET);
+		hash = murMurHashMixer(eachKey, hash);
 	}
 	hash = murMurHashFinalizer(hash);
 	return hash;
 }
 
-uint32_t BayesicSpace::murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed) {
-	constexpr size_t keysPerWord{sizeof(size_t) / sizeof(uint16_t)};
-	constexpr auto roundMask = static_cast<size_t>( -(keysPerWord) );
+uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed) {
+	constexpr auto roundMask = static_cast<size_t>(-SIZE_OF_SIZET);
 	uint32_t hash{seed};
-	const size_t end{start + length};
+	const size_t end{keyWindow.start + keyWindow.length};
 	const size_t wholeEnd{end & roundMask};
 
 	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" );
 
-	size_t keyIdx{start};
+	size_t keyIdx{keyWindow.start};
 	while (keyIdx < wholeEnd) {
-		size_t keyBlock{0};
-		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
+		std::array<uint32_t, SIZE_OF_SIZET> keyBlock{};
+		memcpy(keyBlock.data(), key.data() + keyIdx, SIZE_OF_SIZET);
 		hash    = murMurHashMixer(keyBlock, hash);
-		keyIdx += keysPerWord;
+		keyIdx += SIZE_OF_SIZET;
 	}
 	if (end > wholeEnd) {  // if there is a tail
-		size_t keyBlock{0};
-		memcpy(&keyBlock, key.data() + keyIdx, keysPerWord);
+		std::array<uint32_t, SIZE_OF_SIZET> keyBlock{};
+		memcpy(keyBlock.data(), key.data() + keyIdx, SIZE_OF_SIZET);
 		hash = murMurHashMixer(keyBlock, hash);
 	}
 	hash = murMurHashFinalizer(hash);
 	return hash;
 }
 
-void BayesicSpace::testBedMagicBytes(std::array<char, 3> &bytesToTest) {
-	constexpr std::array<char, 3> magicBytes{0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
+void BayesicSpace::testBedMagicBytes(std::array<char, N_BED_TEST_BYTES> &bytesToTest) {
+	constexpr std::array<char, N_BED_TEST_BYTES> magicBytes{0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
 	if (bytesToTest[0] != magicBytes[0]) {
 		throw std::string("ERROR: first magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -213,12 +209,12 @@ void BayesicSpace::testBedMagicBytes(std::array<char, 3> &bytesToTest) {
 	}
 }
 
-std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread) {
+std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const CountAndSize &threadPoolSizes) {
 	std::vector< std::pair<size_t, size_t> > threadRanges;
 	size_t bedInd = 0;
-	for (size_t iThread = 0; iThread < nThreads; ++iThread) {
-		threadRanges.emplace_back(bedInd, bedInd + nElementsPerThread);
-		bedInd += nElementsPerThread;
+	for (size_t iThread = 0; iThread < threadPoolSizes.count; ++iThread) {
+		threadRanges.emplace_back(bedInd, bedInd + threadPoolSizes.size);
+		bedInd += threadPoolSizes.size;
 	}
 	return threadRanges;
 }
