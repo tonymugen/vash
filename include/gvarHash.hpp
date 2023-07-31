@@ -44,6 +44,7 @@
 namespace BayesicSpace {
 	struct LocationWithLength;
 	struct CountAndSize;
+	struct IndividualAndSketchCounts;
 	struct InOutFileNames;
 	struct IndexedPairSimilarity; 
 	struct IndexedPairLD; 
@@ -66,6 +67,15 @@ namespace BayesicSpace {
 	struct CountAndSize {
 		size_t count;
 		size_t size;
+	};
+
+	/** \brief Number of individuals and sketches
+	 *
+	 * Groups the number of individuals with sketch numbers for hashing.
+	 */
+	struct IndividualAndSketchCounts {
+		size_t nIndividuals;
+		size_t kSketches;
 	};
 
 	/** \brief Input and output file names
@@ -312,12 +322,11 @@ namespace BayesicSpace {
 		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
 		 *
 		 * \param[in] inputFileName input file name
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -329,12 +338,11 @@ namespace BayesicSpace {
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] inputFileName input file name
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
-							GenoTableHash( inputFileName, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
+							GenoTableHash( inputFileName, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -348,12 +356,11 @@ namespace BayesicSpace {
 		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -365,12 +372,11 @@ namespace BayesicSpace {
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
-				GenoTableHash( maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
+				GenoTableHash( maCounts, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &toCopy) = delete;

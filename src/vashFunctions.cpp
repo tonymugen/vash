@@ -173,7 +173,7 @@ uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t
 }
 
 uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed) {
-	constexpr auto roundMask = static_cast<size_t>(-SIZE_OF_SIZET);
+	constexpr size_t roundMask{-SIZE_OF_SIZET};
 	uint32_t hash{seed};
 	const size_t end{keyWindow.start + keyWindow.length};
 	const size_t wholeEnd{end & roundMask};
@@ -224,8 +224,8 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
 	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
-	constexpr auto word64mask{static_cast<uint64_t>(-word64size)};                             // for rounding down to nearest divisible by 8 number 
-	constexpr auto word32mask{static_cast<uint64_t>(-word32size)};                             // for rounding down to nearest divisible by 4 number 
+	constexpr size_t word64mask{-word64size};                                                  // for rounding down to nearest divisible by 8 number 
+	constexpr size_t word32mask{-word32size};                                                  // for rounding down to nearest divisible by 4 number 
 	constexpr uint64_t secondBitMask{0xaaaaaaaaaaaaaaaa};                                      // all bed second bits set
 	constexpr uint64_t firstBitMask{~secondBitMask};                                           // all bed first bits set
 	const size_t nEvenBedBytes{bedLocusWindow.length & word64mask};                            // number of bed bytes that fully fit into 64-bit words
@@ -402,7 +402,7 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 		try {
 			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
 		} catch(const std::exception &problem) {
-			throw std::string("ERROR: " + eachFlag + " specification is required and must be an integer");
+			throw std::string("ERROR: ") + eachFlag + std::string(" specification is required and must be an integer");
 		}
 	}
 	for (const auto &eachFlag : optionalIntVariables) {
@@ -416,7 +416,7 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 		try {
 			stringVariables[eachFlag] = parsedCLI.at(eachFlag);
 		} catch(const std::exception &problem) {
-			throw std::string("ERROR: " + eachFlag + " specification is required");
+			throw std::string("ERROR: ") + eachFlag + std::string(" specification is required");
 		}
 	}
 	for (const auto &eachFlag : optionalStringVariables) {

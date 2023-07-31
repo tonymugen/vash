@@ -656,16 +656,16 @@ constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                         
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName)
-								: kSketches_{kSketches}, fSketches_{static_cast<float>(kSketches)}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName)
+								: kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)}, nLoci_{0}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime{std::time(nullptr)};
 	struct tm buf{};
 	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a .bed file started on " + logStream.str() + "\n";
 	logStream.clear();
-	if (nIndividuals <= 1) {
-		logMessages_ += "ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too small; aborting\n";
+	if (indivSketchCounts.nIndividuals <= 1) {
+		logMessages_ += "ERROR: the number of individuals (" + std::to_string(indivSketchCounts.nIndividuals) + ") is too small; aborting\n";
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (kSketches_ < 3) {
@@ -673,7 +673,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		throw std::string("ERROR: sketch number must be at least three in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	// Round up the number of individuals to nearest divisible by kSketches_
-	sketchSize_   = nIndividuals / kSketches_ + static_cast<size_t>( (nIndividuals % kSketches_) > 0 );
+	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
 	if (sketchSize_ >= emptyBinToken_) {
 		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too big; aborting\n";
@@ -681,7 +681,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t nBedBytes = nIndividuals / bedGenoPerByte_ + static_cast<size_t>( (nIndividuals % bedGenoPerByte_) > 0 );
+	const size_t nBedBytes = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % bedGenoPerByte_) > 0 );
 	if (nThreads_ == 0) {
 		nThreads_ = 1;
 	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
@@ -707,7 +707,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
 		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	logMessages_ += "Number of individuals: "         + std::to_string(nIndividuals) + "\n";
+	logMessages_ += "Number of individuals: "         + std::to_string(indivSketchCounts.nIndividuals) + "\n";
 	logMessages_ += "Number of individuals to hash: " + std::to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: "                + std::to_string(nLoci_) + "\n";
 	logMessages_ += "Hash size: "                     + std::to_string(kSketches_) + "\n";
@@ -720,7 +720,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	inStr.read( magicBuf.data(), magicBuf.size() );
 	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
-	const size_t nBedBytesPerLocus = nIndividuals / bedGenoPerByte_ + static_cast<size_t>(nIndividuals % bedGenoPerByte_ > 0);
+	const size_t nBedBytesPerLocus = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
 	const size_t ramSize           = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
 	size_t nBedLociToRead          = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
 	nBedLociToRead                 = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
@@ -737,8 +737,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 
 	// Sample with replacement additional individuals to pad out the total
 	std::vector< std::pair<size_t, size_t> > addIndv;
-	for (size_t iAddIndiv = nIndividuals; iAddIndiv < nIndividuals_; ++iAddIndiv) {
-		addIndv.emplace_back( iAddIndiv, rng_.sampleInt(nIndividuals) );
+	for (size_t iAddIndiv = indivSketchCounts.nIndividuals; iAddIndiv < nIndividuals_; ++iAddIndiv) {
+		addIndv.emplace_back( iAddIndiv, rng_.sampleInt(indivSketchCounts.nIndividuals) );
 	}
 	if ( !addIndv.empty() ) {
 		std::string addIndexes;
@@ -816,8 +816,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const size_t &nIn
 	inStr.close();
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName) 
-		: nIndividuals_{nIndividuals}, kSketches_{kSketches}, fSketches_{static_cast<float>(kSketches)}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) 
+		: nIndividuals_{indivSketchCounts.nIndividuals}, kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)}, nLoci_{maCounts.size() / indivSketchCounts.nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
@@ -828,14 +828,14 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
 		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (nIndividuals <= 1) {
-		logMessages_ += "ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too small; aborting\n";
+	if (indivSketchCounts.nIndividuals <= 1) {
+		logMessages_ += "ERROR: the number of individuals (" + std::to_string(indivSketchCounts.nIndividuals) + ") is too small; aborting\n";
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if ( (maCounts.size() % nIndividuals) > 0) {
+	if ( (maCounts.size() % indivSketchCounts.nIndividuals) > 0) {
 		logMessages_ += "ERROR: minor allele vector size (" + std::to_string( maCounts.size() ) + ") is not evenly divisible by the number of individuals (" + std::to_string(nIndividuals_) + "); aborting\n";
 		throw std::string("ERROR: length of allele count vector (") + std::to_string( maCounts.size() ) + std::string(" is not divisible by the provided number of individuals (") +
-			std::to_string(nIndividuals) + std::string( ") in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+			std::to_string(indivSketchCounts.nIndividuals) + std::string( ") in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if ( maCounts.empty() ) {
 		logMessages_ += "ERROR: minor allele count vector is empty; aborting\n";
@@ -850,7 +850,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const size_t &nIn
 	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
 		nThreads_ = std::thread::hardware_concurrency();
 	}
-	sketchSize_   = nIndividuals / kSketches_ + static_cast<size_t>( (nIndividuals % kSketches_) > 0 );
+	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
 	if (sketchSize_ >= emptyBinToken_) {
 		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too small; aborting\n";
