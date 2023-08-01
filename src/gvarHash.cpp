@@ -35,6 +35,7 @@
 #include <string>
 #include <sstream>
 #include <fstream>
+#include <ios>
 #include <vector>
 #include <unordered_map>
 #include <array>
@@ -140,7 +141,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
 		threadRanges.back().second = nBedLociToRead;
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			LocationWithLength currentLocusSpan{0, 0};
 			currentLocusSpan.start  = locusInd;
@@ -154,7 +155,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		threadCounts.size  = 1;
 		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::streamsize::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			LocationWithLength currentLocusSpan{0, 0};
 			currentLocusSpan.start  = locusInd;
@@ -164,7 +165,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	}
 	if (remainingLoci > 0) {
 		bedChunkToRead.resize(remainingBytes);
-		assert( ( remainingBytes < std::streamsize::max() ) && "ERROR: remainingBytes exceeds maximum streamsize in GenoTableBin constructor" );
+		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) && "ERROR: remainingBytes exceeds maximum streamsize in GenoTableBin constructor" );
 		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
 		nLociPerThread = remainingLoci / nThreads_;
 		if (nLociPerThread > 0) {
@@ -276,7 +277,7 @@ GenoTableBin& GenoTableBin::operator=(GenoTableBin &&toMove) noexcept {
 
 void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 	std::fstream out;
-	assert( ( binGenotypes_.size() < std::streamsize::max() ) && "ERROR: binGenotypes_ size exceeds maximum streamsize in GenoTableBin.saveGenoBinary()");
+	assert( ( binGenotypes_.size() < std::numeric_limits<std::streamsize>::max() ) && "ERROR: binGenotypes_ size exceeds maximum streamsize in GenoTableBin.saveGenoBinary()");
 	out.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);
 	out.write( reinterpret_cast<const char*>( binGenotypes_.data() ), static_cast<std::streamsize>( binGenotypes_.size() ) ); // OK because we are casting to const char*
 	out.close();

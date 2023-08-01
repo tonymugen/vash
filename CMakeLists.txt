@@ -18,8 +18,11 @@ if(isMultiConfig)
 	if(NOT "Profile" IN_LIST CMAKE_CONFIGURATION_TYPES)
 		list(APPEND CMAKE_CONFIGURATION_TYPES Profile)
 	endif()
+	if(NOT "Test" IN_LIST CMAKE_CONFIGURATION_TYPES)
+		list(APPEND CMAKE_CONFIGURATION_TYPES Test)
+	endif()
 else()
-	set(allowedBuildTypes Debug Release Profile)
+	set(allowedBuildTypes Debug Release Profile Test)
 	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY
 		STRINGS "${allowedBuildTypes}"
 	)
@@ -194,6 +197,7 @@ if(BUILD_TESTS)
 	)
 	target_include_directories(tests
 		PRIVATE include
+		PRIVATE externals/bayesicUtilities/include
 	)
 	include(CTest)
 	include(Catch)
