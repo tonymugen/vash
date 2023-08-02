@@ -178,7 +178,7 @@ uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const Locati
 	const size_t end{keyWindow.start + keyWindow.length};
 	const size_t wholeEnd{end & roundMask};
 
-	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" );
+	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" ); // NOLINT
 
 	size_t keyIdx{keyWindow.start};
 	while (keyIdx < wholeEnd) {
@@ -269,7 +269,7 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 		binWords.push_back(binBits);
 	}
 	// test if the set bits are minor alleles and flip them if not
-	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" );
+	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" ); // NOLINT
 	if ( (2UL * setCount) > (nIndividuals - missingCount) ) {
 		size_t missWordIdx{0};
 		for (auto &eachBinWord : binWords) {
@@ -300,7 +300,7 @@ std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t 
 	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
 	uint32_t groupID{firstGrpIdx};
 	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
-		assert( (eachGrpIt->size() > 1) && "ERROR: groups cannot be empty in vectorizeGroups()");
+		assert( (eachGrpIt->size() > 1) && "ERROR: groups cannot be empty in vectorizeGroups()" ); // NOLINT
 		for (size_t iRow = 0; iRow < eachGrpIt->size() - 1; ++iRow) {
 			for (size_t jCol = iRow + 1; jCol < eachGrpIt->size(); ++jCol) {
 				indexedSimilarityVec.emplace_back(
