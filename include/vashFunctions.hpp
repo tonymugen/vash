@@ -132,7 +132,7 @@ namespace BayesicSpace {
 	 *
 	 * \param[in] bytesToTest the byte set to test
 	 */
-	void testBedMagicBytes(std::array<char, N_BED_TEST_BYTES> &bytesToTest);
+	void testBedMagicBytes(const std::array<char, N_BED_TEST_BYTES> &bytesToTest);
 	/** \brief Build thread ranges
 	 *
 	 * Build index ranges to use within each thread.

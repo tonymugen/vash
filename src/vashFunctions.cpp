@@ -196,7 +196,7 @@ uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const Locati
 	return hash;
 }
 
-void BayesicSpace::testBedMagicBytes(std::array<char, N_BED_TEST_BYTES> &bytesToTest) {
+void BayesicSpace::testBedMagicBytes(const std::array<char, N_BED_TEST_BYTES> &bytesToTest) {
 	constexpr std::array<char, N_BED_TEST_BYTES> magicBytes{0x6c, 0x1b, 0x01};   // Leading bytes for .bed files
 	if (bytesToTest[0] != magicBytes[0]) {
 		throw std::string("ERROR: first magic byte in input .bed file is not the expected value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );

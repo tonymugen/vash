@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <vector>
 #include <array>
+#include <string>
 
 #include <iostream>
 
@@ -27,6 +28,8 @@
 #include "vashFunctions.hpp"
 
 #include "catch2/catch_test_macros.hpp"
+#include "catch2/matchers/catch_matchers.hpp"
+#include "catch2/matchers/catch_matchers_string.hpp"
 
 TEST_CASE("Can count set bits correctly", "[countSetBits]") { // NOLINT
 	constexpr uint16_t oneWord{0b11001110'01101001};
@@ -89,4 +92,19 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") { // NOLINT
 		vector16bit.at(keyWindow.start + 2)++;
 		REQUIRE(BayesicSpace::murMurHash(vector16bit, keyWindow, mmHashSeed)  != correct16bitHash);
 	}
+}
+
+TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
+	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
+	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{0x6d, 0x1b, 0x01};
+	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{0x6c, 0x0b, 0x01};
+	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{0x6c, 0x1b, 0x11};
+	REQUIRE_NOTHROW( BayesicSpace::testBedMagicBytes(correctBedBytes) );
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith( "ERROR: first magic byte in input .bed file") );
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith( "ERROR: second magic byte in input .bed file") );
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith( "ERROR: third magic byte in input .bed file") );
+	const std::string bimFileName("../tests/ind200_10K.bim");
+	std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
+	REQUIRE(locusNames.at(1) == "14155618");
+	REQUIRE(locusNames.back() == "14632195");
 }
