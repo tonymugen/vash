@@ -129,7 +129,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	logMessages_               += "RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes\n";
 	logMessages_               += ".bed file will be read in " + std::to_string(nChunks) + " chunk(s)\n";
 	std::vector<char> bedChunkToRead(nBedBytesToRead, 0);
-	assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() )
+	assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) //NOLINT
 			&& "ERROR: remainingBytes larger than maximum streamsize in GenoTableBin constructor");
 
 	size_t locusInd = 0;
@@ -141,7 +141,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
 		threadRanges.back().second = nBedLociToRead;
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+					&& "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			LocationWithLength currentLocusSpan{0, 0};
 			currentLocusSpan.start  = locusInd;
@@ -155,7 +156,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		threadCounts.size  = 1;
 		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) && "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+					&& "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			LocationWithLength currentLocusSpan{0, 0};
 			currentLocusSpan.start  = locusInd;
@@ -165,7 +167,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	}
 	if (remainingLoci > 0) {
 		bedChunkToRead.resize(remainingBytes);
-		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) && "ERROR: remainingBytes exceeds maximum streamsize in GenoTableBin constructor" );
+		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+				&& "ERROR: remainingBytes exceeds maximum streamsize in GenoTableBin constructor" );
 		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
 		nLociPerThread = remainingLoci / nThreads_;
 		if (nLociPerThread > 0) {
@@ -277,7 +280,8 @@ GenoTableBin& GenoTableBin::operator=(GenoTableBin &&toMove) noexcept {
 
 void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 	std::fstream out;
-	assert( ( binGenotypes_.size() < std::numeric_limits<std::streamsize>::max() ) && "ERROR: binGenotypes_ size exceeds maximum streamsize in GenoTableBin.saveGenoBinary()");
+	assert( ( binGenotypes_.size() < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+			&& "ERROR: binGenotypes_ size exceeds maximum streamsize in GenoTableBin.saveGenoBinary()");
 	out.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);
 	out.write( reinterpret_cast<const char*>( binGenotypes_.data() ), static_cast<std::streamsize>( binGenotypes_.size() ) ); // OK because we are casting to const char*
 	out.close();
@@ -376,7 +380,8 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
 
 	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+	assert( (locusNames.size() == nLoci_) // NOLINT
+			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 
 	logMessages_         += "Read " + std::to_string( locusNames.size() ) + " locus names from the .bim file\n";
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairLD) );                                 // use half to leave resources for other operations
@@ -761,7 +766,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
 		threadRanges.back().second = nBedLociToRead;
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			LocationWithLength bedLocusSpan{0, 0};
@@ -772,7 +777,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		}
 	} else {
 		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() )
+			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
 					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
 			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
 			CountAndSize threadCounts{0, 0};
@@ -787,7 +792,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	}
 	if (remainingLoci > 0) {
 		bedChunkToRead.resize(remainingBytes);
-		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() )
+		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) // NOLINT
 				&& "ERROR: amount left to read larger than maximum streamsize in GenoTableHash constructor");
 		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
 		nLociPerThread = remainingLoci / nThreads_;
@@ -1026,7 +1031,8 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames) const {
 
 	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+	assert( (locusNames.size() == nLoci_) // NOLINT
+			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
@@ -1107,11 +1113,13 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames) const {
 }
 
 std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
-	assert( (nRowsPerBand != 0) && "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
-	assert( (nRowsPerBand < kSketches_) && "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
+	assert( (nRowsPerBand != 0) // NOLINT
+			&& "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
+	assert( (nRowsPerBand < kSketches_) // NOLINT
+			&& "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
 	const size_t nBands = kSketches_ / nRowsPerBand;                                                               // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
-	assert( ( nBands >= std::numeric_limits<uint16_t>::max() ) &&
-			"ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
+	assert( ( nBands >= std::numeric_limits<uint16_t>::max() ) // NOLINT
+			&& "ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
 
 	logMessages_ += "Grouping loci\n";
 	logMessages_ += "Number of rows per band: " + std::to_string(nRowsPerBand) + "\n";
@@ -1177,7 +1185,8 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 
 	logMessages_ += "Getting locus names from the " + bimAndGroupNames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndGroupNames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_");
+	assert( (locusNames.size() == nLoci_) // NOLINT
+			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 
 	std::fstream out;
 	out.open(bimAndGroupNames.outputFileName, std::ios::out | std::ios::trunc);
@@ -1201,7 +1210,8 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 	std::vector<size_t> groupSizes;                                                                               // number of locus pair in each group
 	size_t totalPairNumber{0};                                                                                    // total number of pairs
 	for (const auto &eachGrp : ldGroups) {
-		assert( (eachGrp.size() > 1) && "ERROR: groups cannot be empty in ldInGroups" );
+		assert( (eachGrp.size() > 1) // NOLINT
+				&& "ERROR: groups cannot be empty in ldInGroups" );
 		const size_t nPairs = eachGrp.size() * (eachGrp.size() - 1) / 2;
 		groupSizes.push_back(nPairs);
 		totalPairNumber += nPairs;
@@ -1313,7 +1323,8 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 	std::vector<size_t> groupSizes;                                                                               // number of locus pair in each group
 	size_t totalPairNumber{0};                                                                                    // total number of pairs
 	for (const auto &eachGrp : ldGroups) {
-		assert( (eachGrp.size() > 1) && "ERROR: groups cannot be empty in ldInGroups" );
+		assert( (eachGrp.size() > 1) // NOLINT
+				&& "ERROR: groups cannot be empty in ldInGroups" );
 		const size_t nPairs = eachGrp.size() * (eachGrp.size() - 1) / 2;
 		groupSizes.push_back(nPairs);
 		totalPairNumber += nPairs;
@@ -1321,7 +1332,8 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "; ";
 	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) && "ERROR: number of loci in the .bim file not the same as nLoci_" );
+	assert( (locusNames.size() == nLoci_) // NOLINT
+			&& "ERROR: number of loci in the .bim file not the same as nLoci_" );
 	if (totalPairNumber > maxInRAM) {
 		logMessages_ += "calculating in chunks\n";
 		// too many loci to fit the LD matrix in RAM
@@ -1491,7 +1503,8 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 		uint64_t nSumUnsetBits{0};
 		while ( (nWordUnsetBits == wordSizeInBits_) && ( iByte < binLocus.size() ) ) {
 			uint64_t locusChunk{allBitsSet_};
-			assert( ( iByte < binLocus.size() ) && "ERROR: iByte must be less than locus size in bytes in locusOPH_()" );
+			assert( ( iByte < binLocus.size() ) // NOLINT
+					&& "ERROR: iByte must be less than locus size in bytes in locusOPH_()" );
 			const size_t nRemainingBytes{binLocus.size() - iByte};
 			locusChunkSize = static_cast<size_t>(nRemainingBytes >= llWordSize_) * llWordSize_ + static_cast<size_t>(nRemainingBytes < llWordSize_) * nRemainingBytes;
 			memcpy(&locusChunk, binLocus.data() + iByte, locusChunkSize);

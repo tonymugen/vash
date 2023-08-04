@@ -24,6 +24,7 @@
 
 #include <iostream>
 
+#include "random.hpp"
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
@@ -103,8 +104,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith( "ERROR: first magic byte in input .bed file") );
 	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith( "ERROR: second magic byte in input .bed file") );
 	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith( "ERROR: third magic byte in input .bed file") );
-	const std::string bimFileName("../tests/ind200_10K.bim");
+	const std::string bimFileName("../tests/ind197.bim");
 	std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
-	REQUIRE(locusNames.at(1) == "14155618");
+	REQUIRE(locusNames.at(1)  == "14155618");
 	REQUIRE(locusNames.back() == "14632195");
+	constexpr size_t nIndividuals{17};
+	constexpr size_t nIndivPerBedByte{4};
+	constexpr size_t nIndivPerBinByte{8};
+	constexpr size_t nBedBytes{5};
+	constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
 }
