@@ -18,11 +18,14 @@
  */
 
 #include <cstdint>
+#include <numeric>
 #include <vector>
 #include <array>
 #include <string>
+#include <algorithm>
 
 #include <iostream>
+#include <bitset>
 
 #include "random.hpp"
 #include "gvarHash.hpp"
@@ -108,9 +111,42 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 	std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
 	REQUIRE(locusNames.at(1)  == "14155618");
 	REQUIRE(locusNames.back() == "14632195");
+	constexpr size_t nBitsInByte{8};
 	constexpr size_t nIndividuals{17};
 	constexpr size_t nIndivPerBedByte{4};
 	constexpr size_t nIndivPerBinByte{8};
 	constexpr size_t nBedBytes{5};
+	constexpr size_t nBinBytes{3};
 	constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
+	constexpr std::array<uint8_t, nBinBytes> correctBinBytes{0b00011010, 0b01001010, 0b00000001};
+	constexpr uint64_t seed{2153025619};
+	BayesicSpace::RanDraw prng(seed);
+	BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
+	std::vector<char> bedByteVec{bedBytes.begin(), bedBytes.end()};
+	std::vector<uint8_t> binBytes(nBinBytes, 0);
+	BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
+	BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, prng, binWindow, binBytes);
+	REQUIRE( nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2 );
+	REQUIRE( std::equal( binBytes.cbegin(), binBytes.cend(), correctBinBytes.cbegin(), correctBinBytes.cend() ) );
+	std::vector< std::vector<uint32_t> > groups;
+	constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
+	constexpr size_t correctVGsize{86};
+	groups.reserve( groupSizes.size() );
+	for (const auto &iGrpSize : groupSizes) {
+		groups.emplace_back(iGrpSize);
+	}
+	std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.begin(), groups.end())};
+	REQUIRE(vectorizedGroups.size() == correctVGsize);
+	REQUIRE(std::all_of(
+				vectorizedGroups.begin(),
+				vectorizedGroups.end(),
+				[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue == 0.0F;}
+			)
+	);
+	REQUIRE(std::is_sorted(
+				vectorizedGroups.begin(),
+				vectorizedGroups.end(), 
+				[](BayesicSpace::IndexedPairSimilarity obj1, BayesicSpace::IndexedPairSimilarity obj2){return obj1.groupID < obj2.groupID;}
+			)
+	);
 }

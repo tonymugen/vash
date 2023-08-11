@@ -269,15 +269,15 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 		binWords.push_back(binBits);
 	}
 	// test if the set bits are minor alleles and flip them if not
-	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" ); // NOLINT
+	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" );      // NOLINT
 	if ( (2UL * setCount) > (nIndividuals - missingCount) ) {
 		size_t missWordIdx{0};
 		for (auto &eachBinWord : binWords) {
-			eachBinWord = (~eachBinWord) & (~missWords[missWordIdx]);                                            // flip the bits in the binary vector and reset the missing bits to 0
+			eachBinWord = (~eachBinWord) & (~missWords[missWordIdx]);                                                     // flip the bits in the binary vector and reset the missing bits to 0
 			++missWordIdx;
 		}
 		const auto padShift{static_cast<uint32_t>( (binWords.size() * word32sizeInBits) % nIndividuals )};
-		const uint32_t lastWordMask{std::numeric_limits<uint32_t>::max() >> padShift};                           // clear the padding bits after the flip
+		const uint32_t lastWordMask{std::numeric_limits<uint32_t>::max() >> padShift};                                    // clear the padding bits after the flip
 		binWords.back() = binWords.back() & lastWordMask;
 	}
 	// copy over the binary bits to the locus vector
