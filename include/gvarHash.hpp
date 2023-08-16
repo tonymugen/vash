@@ -45,6 +45,7 @@ namespace BayesicSpace {
 	struct LocationWithLength;
 	struct CountAndSize;
 	struct IndividualAndSketchCounts;
+	struct BedDataStats;
 	struct InOutFileNames;
 	struct IndexedPairSimilarity; 
 	struct IndexedPairLD; 
@@ -78,6 +79,18 @@ namespace BayesicSpace {
 		size_t kSketches;
 	};
 
+	/** \brief Attributes of _.bed_ format loci
+	 *
+	 * Data attributes of locus groups for reading _.bed_ files.
+	 */
+	struct BedDataStats {
+		size_t firstLocusIdx;
+		size_t nLociPerThread;
+		size_t nBytesPerLocus;
+		size_t nBytesToRead;
+		size_t nLociToRead;
+		size_t nMemChunks;     // number of chunks to read into memory
+	};
 	/** \brief Input and output file names
 	 *
 	 * Groups input and output file names.
@@ -129,7 +142,8 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : 
+						GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -155,7 +169,8 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) :
+						GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -268,7 +283,7 @@ namespace BayesicSpace {
 		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &locusSpan);
 		/** \brief Multi-threaded binarization of _.bed_ file input 
 		 *
-		 * Binarizes loci from a _.bed_ file using multiple threads.
+		 * Binarizes loci from a _.bed_ format byte-vector using multiple threads.
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] threadRanges vector of locus index ranges, one per thread
@@ -276,6 +291,15 @@ namespace BayesicSpace {
 		 * \return new value of `firstLocusInd`
 		 */
 		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &locusSpan);
+		/** \brief Wraps _.bed_ file binarization 
+		 *
+		 * Wraps _.bed_ format lossy conversion to binary (with one bit per locus).
+		 *
+		 * \param[in] locusGroupStats _.bed_ locus group attributes
+		 * \param[in,out] bedStream _.bed_ file to be converted
+		 * \return new start individual index
+		 */
+		size_t bed2bin_(const BedDataStats &locusGroupStats, std::fstream &bedStream);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -551,7 +575,7 @@ namespace BayesicSpace {
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
 		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &bedLocusSpan,
-									const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+									const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from _.bed_ file input using multiple threads
 		 *
 		 * Hashes input from a _.bed_ file using multiple threads.
@@ -565,7 +589,20 @@ namespace BayesicSpace {
 		 * \return new value of `firstLocusInd`
 		 */
 		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
-							const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		/** \brief Wraps _.bed_ file to binarization 
+		 *
+		 * Wraps _.bed_ format hashing.
+		 *
+		 * \param[in] locusGroupStats _.bed_ locus group attributes
+		 * \param[in,out] bedStream _.bed_ file to be converted
+		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
+		 * \param[in,out] seeds random number seeds for empty bin filling
+		 * \return new start individual index
+		 */
+		size_t bed2oph_(const BedDataStats &locusGroupStats, std::fstream &bedStream, const std::vector<size_t> &permutation,
+							const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).

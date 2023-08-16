@@ -81,11 +81,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		throw std::string("ERROR: the number of individuals (") + std::to_string(nIndividuals) + 
 			std::string( ") is too big to make a square relationship matrix in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (nThreads_ == 0) {
-		nThreads_ = 1;
-	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
-		nThreads_ = std::thread::hardware_concurrency();
-	}
+	nThreads_ = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
+	nThreads_ = std::max(nThreads_, 1UL);
 	const size_t nBedBytesPerLocus = nIndividuals_ / bedGenoPerByte_ + static_cast<size_t>( (nIndividuals_ % bedGenoPerByte_) > 0);
 	std::fstream inStr;
 	// Start by measuring file size
@@ -117,82 +114,30 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	// Generate the binary genotype table while reading the .bed file
 	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
-	const size_t ramSize        = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
-	size_t nBedLociToRead       = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
-	nBedLociToRead              = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
-	const size_t remainingLoci  = nLoci_ % nBedLociToRead;
-	const size_t remainingBytes = remainingLoci * nBedBytesPerLocus;
-	const size_t nChunks        = nLoci_ / nBedLociToRead;
-	size_t nBedBytesToRead      = nBedLociToRead * nBedBytesPerLocus;
-	nBedBytesToRead             = (nBedBytesToRead > std::numeric_limits<std::streamsize>::max() ? std::numeric_limits<std::streamsize>::max() : nBedBytesToRead);
-	size_t nLociPerThread       = nBedLociToRead / nThreads_;
-	logMessages_               += "RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes\n";
-	logMessages_               += ".bed file will be read in " + std::to_string(nChunks) + " chunk(s)\n";
-	std::vector<char> bedChunkToRead(nBedBytesToRead, 0);
+	BedDataStats locusGroupAttributes{};
+	const size_t ramSize                = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
+	locusGroupAttributes.nLociToRead    = std::min(ramSize / nBedBytesPerLocus, nLoci_);         // number of .bed loci to read at a time
+	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
+	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
+	const size_t remainingBytes         = remainingLoci * nBedBytesPerLocus;
+	locusGroupAttributes.nBytesToRead   = std::min( locusGroupAttributes.nLociToRead * nBedBytesPerLocus,
+													static_cast<size_t>( std::numeric_limits<std::streamsize>::max() ) );
+	locusGroupAttributes.nLociPerThread = std::max(locusGroupAttributes.nLociToRead / nThreads_, 1UL);
+	logMessages_                       += "RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes\n";
+	logMessages_                       += ".bed file will be read in " + std::to_string(locusGroupAttributes.nMemChunks) + " chunk(s)\n";
 	assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) //NOLINT
 			&& "ERROR: remainingBytes larger than maximum streamsize in GenoTableBin constructor");
 
-	size_t locusInd = 0;
-	if (nLociPerThread > 0) {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = nLociPerThread;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
-		threadRanges.back().second = nBedLociToRead;
-		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-					&& "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
-			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			LocationWithLength currentLocusSpan{0, 0};
-			currentLocusSpan.start  = locusInd;
-			currentLocusSpan.length = nBedBytesPerLocus;
-			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
-			locusInd += excessLoci;
-		}
-	} else {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = 1;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-					&& "ERROR: nBedBytesToRead exceeds maximum streamsize in GenoTableBin constructor" );
-			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			LocationWithLength currentLocusSpan{0, 0};
-			currentLocusSpan.start  = locusInd;
-			currentLocusSpan.length = nBedBytesPerLocus;
-			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
-		}
-	}
+	locusGroupAttributes.firstLocusIdx = 0;
+	locusGroupAttributes.firstLocusIdx = bed2bin_(locusGroupAttributes, inStr);
 	if (remainingLoci > 0) {
-		bedChunkToRead.resize(remainingBytes);
 		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) // NOLINT
 				&& "ERROR: remainingBytes exceeds maximum streamsize in GenoTableBin constructor" );
-		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
-		nLociPerThread = remainingLoci / nThreads_;
-		if (nLociPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLociPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			const size_t excessLoci = remainingLoci - threadRanges.back().second;
-			threadRanges.back().second = remainingLoci;
-			LocationWithLength currentLocusSpan{0, 0};
-			currentLocusSpan.start  = locusInd;
-			currentLocusSpan.length = nBedBytesPerLocus;
-			locusInd  = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
-			locusInd += excessLoci;
-		} else {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = remainingLoci;
-			threadCounts.size  = 1;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			LocationWithLength currentLocusSpan{0, 0};
-			currentLocusSpan.start  = locusInd;
-			currentLocusSpan.length = nBedBytesPerLocus;
-			locusInd = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
-		}
+		locusGroupAttributes.nLociPerThread = std::max(remainingLoci / nThreads_, 1UL);
+		locusGroupAttributes.nBytesToRead   = remainingBytes;
+		locusGroupAttributes.nLociToRead    = remainingLoci;
+		locusGroupAttributes.nMemChunks     = 1;
+		bed2bin_(locusGroupAttributes, inStr);
 	}
 	inStr.close();
 }
@@ -511,6 +456,30 @@ size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const st
 	return locusInd;
 }
 
+size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream &bedStream) {
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = locusGroupStats.nLociPerThread;
+	size_t locusInd    = locusGroupStats.firstLocusIdx;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	assert( (locusGroupStats.nLociToRead >= threadRanges.back().second) // NOLINT
+								&& "ERROR: nLociToRead smaller than threadRanges.back().second in bed2bin_" );
+	const size_t excessLoci    = locusGroupStats.nLociToRead - threadRanges.back().second;
+	threadRanges.back().second = locusGroupStats.nLociToRead;
+	std::vector<char> bedChunkToRead(locusGroupStats.nBytesToRead, 0);
+	for (size_t iChunk = 0; iChunk < locusGroupStats.nMemChunks; ++iChunk) {
+		assert( ( locusGroupStats.nBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+								&& "ERROR: nBedBytesToRead exceeds maximum streamsize in bed2bin_" );
+		bedStream.read( bedChunkToRead.data(), static_cast<std::streamsize>(locusGroupStats.nBytesToRead) );
+		LocationWithLength currentLocusSpan{0, 0};
+		currentLocusSpan.start  = locusInd;
+		currentLocusSpan.length = locusGroupStats.nBytesPerLocus;
+		locusInd                = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
+		locusInd               += excessLoci;
+	}
+	return locusInd;
+}
+
 void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
@@ -687,12 +656,9 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t nBedBytes = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % bedGenoPerByte_) > 0 );
-	if (nThreads_ == 0) {
-		nThreads_ = 1;
-	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
-		nThreads_ = std::thread::hardware_concurrency();
-	}
+	const size_t nBedBytes{indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % bedGenoPerByte_) > 0 )};
+	nThreads_     = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
+	nThreads_     = std::max(nThreads_, 1UL);
 	logMessages_ += "Number of threads used: " + std::to_string(nThreads_) + "\n";
 	std::fstream inStr;
 	// Start by measuring file size
@@ -701,13 +667,13 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		logMessages_ += "ERROR: failed to open file " + inputFileName + "; aborting\n";
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const std::streamoff endPosition = inStr.tellg();
-	if ( endPosition < static_cast<std::streamoff>(nMagicBytes_) ) {
+	const auto endPosition{static_cast<size_t>( inStr.tellg() )};
+	if (endPosition < nMagicBytes_) {
 		logMessages_ += "ERROR: no loci in the input .bed file " + inputFileName + "; aborting\n";
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	inStr.close();
-	const size_t fileSize  = static_cast<uint64_t>(endPosition) - nMagicBytes_;
+	const size_t fileSize{endPosition - nMagicBytes_};
 	nLoci_ = fileSize / nBedBytes;
 	if ( nLoci_ > std::numeric_limits<uint32_t>::max() ) {
 		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
@@ -726,20 +692,19 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	inStr.read( magicBuf.data(), magicBuf.size() );
 	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
-	const size_t nBedBytesPerLocus = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
-	const size_t ramSize           = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
-	size_t nBedLociToRead          = ramSize / nBedBytesPerLocus;                           // number of .bed loci to read at a time
-	nBedLociToRead                 = (nBedLociToRead < nLoci_ ? nBedLociToRead : nLoci_);
-	const size_t remainingLoci     = nLoci_ % nBedLociToRead;
-	const size_t remainingBytes    = remainingLoci * nBedBytesPerLocus;
-	const size_t nChunks           = nLoci_ / nBedLociToRead;
-	size_t nBedBytesToRead         = nBedLociToRead * nBedBytesPerLocus;
-	nBedBytesToRead                = (nBedBytesToRead > std::numeric_limits<std::streamsize>::max() ? std::numeric_limits<std::streamsize>::max() : nBedBytesToRead);
-	size_t nLociPerThread          = nBedLociToRead / nThreads_;
-	std::vector<char> bedChunkToRead(nBedBytesToRead, 0);
+	BedDataStats locusGroupAttributes{};
+	locusGroupAttributes.nBytesPerLocus = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
+	const size_t ramSize                = getAvailableRAM() / 2UL;                                   // measuring here, after all the major allocations; use half to leave resources for other operations
+	locusGroupAttributes.nLociToRead    = std::min(ramSize / locusGroupAttributes.nBytesPerLocus, nLoci_);       // number of .bed loci to read at a time
+	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
+	const size_t remainingBytes         = remainingLoci * locusGroupAttributes.nBytesPerLocus;
+	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
+	locusGroupAttributes.nBytesToRead   = std::min( locusGroupAttributes.nLociToRead * locusGroupAttributes.nBytesPerLocus,
+													static_cast<size_t>( std::numeric_limits<std::streamsize>::max() ) );
+	locusGroupAttributes.nLociPerThread = locusGroupAttributes.nLociToRead / nThreads_;
 
 	logMessages_ += "RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes\n";
-	logMessages_ += ".bed file will be read in "                + std::to_string(nChunks) + " chunk(s)\n";
+	logMessages_ += ".bed file will be read in "                + std::to_string(locusGroupAttributes.nMemChunks) + " chunk(s)\n";
 
 	// Sample with replacement additional individuals to pad out the total
 	std::vector< std::pair<size_t, size_t> > addIndv;
@@ -757,73 +722,21 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	std::vector<size_t> ranInts{rng_.fyIndexesUp(nIndividuals_)};
 	std::vector<uint32_t> seeds{static_cast<uint32_t>( rng_.ranInt() )};
 
-	size_t locusInd = 0;
-	if (nLociPerThread > 0) {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = nLociPerThread;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		const size_t excessLoci = nBedLociToRead - threadRanges.back().second;
-		threadRanges.back().second = nBedLociToRead;
-		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
-			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			LocationWithLength bedLocusSpan{0, 0};
-			bedLocusSpan.start  = locusInd;
-			bedLocusSpan.length = nBedBytesPerLocus;
-			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
-			locusInd           += excessLoci;
-		}
-	} else {
-		for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-			assert( ( nBedBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-					&& "ERROR: amount to read larger than maximum streamsize in GenoTableHash constructor");
-			inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(nBedBytesToRead) );
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = 1;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			LocationWithLength bedLocusSpan{0, 0};
-			bedLocusSpan.start  = locusInd;
-			bedLocusSpan.length = nBedBytesPerLocus;
-			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
-		}
-	}
+	locusGroupAttributes.firstLocusIdx = 0;
+	locusGroupAttributes.firstLocusIdx = bed2oph_(locusGroupAttributes, inStr, ranInts, addIndv, seeds);
 	if (remainingLoci > 0) {
-		bedChunkToRead.resize(remainingBytes);
-		assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-				&& "ERROR: amount left to read larger than maximum streamsize in GenoTableHash constructor");
-		inStr.read( bedChunkToRead.data(), static_cast<std::streamsize>(remainingBytes) );
-		nLociPerThread = remainingLoci / nThreads_;
-		if (nLociPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLociPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			const size_t excessLoci = remainingLoci - threadRanges.back().second;
-			threadRanges.back().second = remainingLoci;
-			LocationWithLength bedLocusSpan{0, 0};
-			bedLocusSpan.start  = locusInd;
-			bedLocusSpan.length = nBedBytesPerLocus;
-			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
-			locusInd           += excessLoci;
-		} else {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = 1;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			LocationWithLength bedLocusSpan{0, 0};
-			bedLocusSpan.start  = locusInd;
-			bedLocusSpan.length = nBedBytesPerLocus;
-			locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, ranInts, addIndv, seeds);
-		}
+		locusGroupAttributes.nLociPerThread = std::max(remainingLoci / nThreads_, 1UL);
+		locusGroupAttributes.nBytesToRead   = remainingBytes;
+		locusGroupAttributes.nLociToRead    = remainingLoci;
+		locusGroupAttributes.nMemChunks     = 1;
+		bed2oph_(locusGroupAttributes, inStr, ranInts, addIndv, seeds);
 	}
 	inStr.close();
 }
 
 GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) 
-		: nIndividuals_{indivSketchCounts.nIndividuals}, kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)}, nLoci_{maCounts.size() / indivSketchCounts.nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+		: nIndividuals_{indivSketchCounts.nIndividuals}, kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)},
+				nLoci_{maCounts.size() / indivSketchCounts.nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
@@ -839,7 +752,8 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if ( (maCounts.size() % indivSketchCounts.nIndividuals) > 0) {
-		logMessages_ += "ERROR: minor allele vector size (" + std::to_string( maCounts.size() ) + ") is not evenly divisible by the number of individuals (" + std::to_string(nIndividuals_) + "); aborting\n";
+		logMessages_ += "ERROR: minor allele vector size (" + std::to_string( maCounts.size() ) + ") is not evenly divisible by the number of individuals (" +
+							std::to_string(nIndividuals_) + "); aborting\n";
 		throw std::string("ERROR: length of allele count vector (") + std::to_string( maCounts.size() ) + std::string(" is not divisible by the provided number of individuals (") +
 			std::to_string(indivSketchCounts.nIndividuals) + std::string( ") in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -1117,7 +1031,7 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 			&& "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
 	assert( (nRowsPerBand < kSketches_) // NOLINT
 			&& "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
-	const size_t nBands = kSketches_ / nRowsPerBand;                                                               // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
+	const size_t nBands = kSketches_ / nRowsPerBand;                                                          // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
 	assert( ( nBands >= std::numeric_limits<uint16_t>::max() ) // NOLINT
 			&& "ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
 
@@ -1126,13 +1040,13 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 	logMessages_ += "Number of bands: "         + std::to_string(nBands) + "\n";
 
 	const auto sketchSeed = static_cast<uint32_t>( rng_.ranInt() );
-	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                                // the hash table
+	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                           // the hash table
 
 	for (uint32_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
 		size_t iSketch = 0;
 		for (size_t iBand = 0; iBand < nBands; ++iBand) {
-			std::vector<uint16_t> bandVec{static_cast<uint16_t>(iBand)};                                           // add the band index to the hash, so that only corresponding bands are compared
-			const size_t firstSketchIdx = iSketch + iLocus * kSketches_;                                           // iSketch tracks band IDs
+			std::vector<uint16_t> bandVec{static_cast<uint16_t>(iBand)};                                      // add the band index to the hash, so that only corresponding bands are compared
+			const size_t firstSketchIdx = iSketch + iLocus * kSketches_;                                      // iSketch tracks band IDs
 			for (size_t iInBand = firstSketchIdx; iInBand < firstSketchIdx + nRowsPerBand; ++iInBand) {
 				bandVec.push_back(sketches_[iInBand]);
 			}
@@ -1558,7 +1472,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 }
 
 void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t>&bedLocusIndRange, const LocationWithLength &bedLocusSpan,
-									const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
+									const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	uint64_t locSeed{0};
@@ -1601,7 +1515,7 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 }
 
 size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
-											const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
+											const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
 	size_t locusInd = bedLocusSpan.start;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
@@ -1620,6 +1534,30 @@ size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const s
 		eachTask.wait();
 	}
 	return locusInd;
+}
+
+size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream &bedStream, const std::vector<size_t> &permutation,
+								const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds) {
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = locusGroupStats.nLociPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	assert( (locusGroupStats.nLociToRead >= threadRanges.back().second) // NOLINT
+				&& "ERROR: nLociToRead smaller than threadRanges.back().second in bed2oph_()");
+	const size_t excessLoci = locusGroupStats.nLociToRead - threadRanges.back().second;
+	threadRanges.back().second = locusGroupStats.nLociToRead;
+	std::vector<char> bedChunkToRead(locusGroupStats.nBytesToRead, 0);
+	size_t locusInd{locusGroupStats.firstLocusIdx};
+	for (size_t iChunk = 0; iChunk < locusGroupStats.nMemChunks; ++iChunk) {
+		assert( ( locusGroupStats.nBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+				&& "ERROR: amount to read larger than maximum streamsize in bed2oph_()");
+		bedStream.read( bedChunkToRead.data(), static_cast<std::streamsize>(locusGroupStats.nBytesToRead) );
+		LocationWithLength bedLocusSpan{0, 0};
+		bedLocusSpan.start  = locusInd;
+		bedLocusSpan.length = locusGroupStats.nBytesPerLocus;
+		locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, permutation, padIndiv, seeds);
+		locusInd           += excessLoci;
+	}
 }
 
 void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds) {
