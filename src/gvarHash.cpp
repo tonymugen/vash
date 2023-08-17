@@ -1130,74 +1130,32 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 		groupSizes.push_back(nPairs);
 		totalPairNumber += nPairs;
 	}
-	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "; ";
-	if (totalPairNumber > maxInRAM) {
-		logMessages_ += "calculating in chunks\n";
-		// too many loci to fit the LD matrix in RAM
-		// will work on chunks and save as we go
-		std::fstream output;
-		output.open(outFileName, std::ios::trunc | std::ios::out);
-		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		auto groupIt   = ldGroups.cbegin();
-		auto grpSizeIt = groupSizes.cbegin();
-		uint16_t iChunk{1};
-		while ( groupIt != ldGroups.cend() ) {
-			size_t nPairs{0};
-			auto blockEndIt = groupIt;
-			while ( (nPairs <= maxInRAM) && ( blockEndIt != ldGroups.cend() ) ) {
-				nPairs += *grpSizeIt;
-				++grpSizeIt;
-				++blockEndIt;
-			}
-			std::vector<IndexedPairSimilarity> hashJacGroups{
-				vectorizeGroups( static_cast<uint32_t>( std::distance(groupIt, blockEndIt) ), groupIt, blockEndIt )
-			};
-			logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
-			logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
-			std::sort(hashJacGroups.begin(), hashJacGroups.end(),
-						[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-							return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
-						}
-					);
-			auto lastUniqueIt = std::unique(hashJacGroups.begin(), hashJacGroups.end(),
-						[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-							return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
-						}
-					);
-			hashJacGroups.erase( lastUniqueIt, hashJacGroups.end() );
-			hashJacGroups.shrink_to_fit();
-			logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
-			// estimate locus pair similarities
-			const size_t nPairsPerThread = hashJacGroups.size() / nThreads_;
-			if (nPairsPerThread > 0) {
-				CountAndSize threadCounts{0, 0};
-				threadCounts.count = nThreads_;
-				threadCounts.size  = nPairsPerThread;
-				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-				// assuming the number of threads << number of groups, this should not lead to noticeable thread imbalance
-				threadRanges.back().second = hashJacGroups.size();
-				hashJacThreaded_(threadRanges, hashJacGroups);
-			} else {
-				hashJacBlock_( hashJacGroups.begin(), hashJacGroups.end() );
-			}
-
-			saveValues(hashJacGroups, output);
-			groupIt = blockEndIt;
-			++iChunk;
+	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
+	std::fstream output;
+	output.open(outFileName, std::ios::trunc | std::ios::out);
+	output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+	auto groupIt   = ldGroups.cbegin();
+	auto grpSizeIt = groupSizes.cbegin();
+	uint16_t iChunk{1};
+	while ( groupIt != ldGroups.cend() ) {
+		size_t nPairs{0};
+		auto blockEndIt = groupIt;
+		while ( (nPairs <= maxInRAM) && ( blockEndIt != ldGroups.cend() ) ) {
+			nPairs += *grpSizeIt;
+			++grpSizeIt;
+			++blockEndIt;
 		}
-		output.close();
-	} else {
-		logMessages_ += "calculating in one go\n";
-		// identify index pairs that are retained in groups
-		// some will be repeatedly identified by makeLDgroups(), so we will need to eliminate duplicates
-		const uint32_t groupIdx{0};
-		std::vector<IndexedPairSimilarity> hashJacGroups{vectorizeGroups( groupIdx, ldGroups.cbegin(), ldGroups.cend() )};
-		logMessages_ += "Number of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
+		std::vector<IndexedPairSimilarity> hashJacGroups{
+			vectorizeGroups( static_cast<uint32_t>( std::distance(groupIt, blockEndIt) ), groupIt, blockEndIt )
+		};
+		logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
+		logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
 		std::sort(hashJacGroups.begin(), hashJacGroups.end(),
 					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
 						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
 					}
 				);
+		// some locus pairs are present in multiple groups, so we eliminate duplicates
 		auto lastUniqueIt = std::unique(hashJacGroups.begin(), hashJacGroups.end(),
 					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
 						return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
@@ -1220,12 +1178,11 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &ou
 			hashJacBlock_( hashJacGroups.begin(), hashJacGroups.end() );
 		}
 
-		std::fstream out;
-		out.open(outFileName, std::ios::out | std::ios::trunc);
-		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		saveValues(hashJacGroups, out);
-		out.close();
+		saveValues(hashJacGroups, output);
+		groupIt = blockEndIt;
+		++iChunk;
 	}
+	output.close();
 }
 
 void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames) const {
@@ -1243,73 +1200,33 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 		groupSizes.push_back(nPairs);
 		totalPairNumber += nPairs;
 	}
-	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "; ";
+	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
 	assert( (locusNames.size() == nLoci_) // NOLINT
 			&& "ERROR: number of loci in the .bim file not the same as nLoci_" );
-	if (totalPairNumber > maxInRAM) {
-		logMessages_ += "calculating in chunks\n";
-		// too many loci to fit the LD matrix in RAM
-		// will work on chunks and save as we go
-		std::fstream output;
-		output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-		output << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		auto groupIt   = ldGroups.cbegin();
-		auto grpSizeIt = groupSizes.cbegin();
-		uint16_t iChunk{1};
-		while ( groupIt != ldGroups.cend() ) {
-			size_t nPairs{0};
-			auto blockEndIt = groupIt;
-			while ( (nPairs <= maxInRAM) && ( blockEndIt != ldGroups.cend() ) ) {
-				nPairs += *grpSizeIt;
-				++grpSizeIt;
-				++blockEndIt;
-			}
-			std::vector<IndexedPairSimilarity> hashJacGroups{
-				vectorizeGroups( static_cast<uint32_t>( std::distance(groupIt, blockEndIt) ), groupIt, blockEndIt )
-			};
-			logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
-			logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
-			std::sort(hashJacGroups.begin(), hashJacGroups.end(),
-						[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-							return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
-						}
-					);
-			auto lastUniqueIt = std::unique(hashJacGroups.begin(), hashJacGroups.end(),
-						[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-							return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
-						}
-					);
-			hashJacGroups.erase( lastUniqueIt, hashJacGroups.end() );
-			hashJacGroups.shrink_to_fit();
-			logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
-			// estimate locus pair similarities
-			const size_t nPairsPerThread = hashJacGroups.size() / nThreads_;
-			if (nPairsPerThread > 0) {
-				CountAndSize threadCounts{0, 0};
-				threadCounts.count = nThreads_;
-				threadCounts.size  = nPairsPerThread;
-				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-				// assuming the number of threads << number of groups, this should not lead to noticeable thread imbalance
-				threadRanges.back().second = hashJacGroups.size();
-				hashJacThreaded_(threadRanges, hashJacGroups);
-			} else {
-				hashJacBlock_( hashJacGroups.begin(), hashJacGroups.end() );
-			}
-
-			saveValues(hashJacGroups, locusNames, output);
-			groupIt = blockEndIt;
-			++iChunk;
+	logMessages_ += "calculating in chunks\n";
+	// too many loci to fit the LD matrix in RAM
+	// will work on chunks and save as we go
+	std::fstream output;
+	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+	auto groupIt   = ldGroups.cbegin();
+	auto grpSizeIt = groupSizes.cbegin();
+	uint16_t iChunk{1};
+	while ( groupIt != ldGroups.cend() ) {
+		size_t nPairs{0};
+		auto blockEndIt = groupIt;
+		while ( (nPairs <= maxInRAM) && ( blockEndIt != ldGroups.cend() ) ) {
+			nPairs += *grpSizeIt;
+			++grpSizeIt;
+			++blockEndIt;
 		}
-		output.close();
-	} else {
-		logMessages_ += "calculating in one go\n";
-		// identify index pairs that are retained in groups
-		// some will be repeatedly identified by makeLDgroups(), so we will need to eliminate duplicates
-		const uint32_t groupIdx{0};
-		std::vector<IndexedPairSimilarity> hashJacGroups{vectorizeGroups( groupIdx, ldGroups.cbegin(), ldGroups.cend() )};
-		logMessages_ += "Number of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
+		std::vector<IndexedPairSimilarity> hashJacGroups{
+			vectorizeGroups( static_cast<uint32_t>( std::distance(groupIt, blockEndIt) ), groupIt, blockEndIt )
+		};
+		logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
+		logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
 		std::sort(hashJacGroups.begin(), hashJacGroups.end(),
 					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
 						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
@@ -1323,7 +1240,6 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 		hashJacGroups.erase( lastUniqueIt, hashJacGroups.end() );
 		hashJacGroups.shrink_to_fit();
 		logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
-
 		// estimate locus pair similarities
 		const size_t nPairsPerThread = hashJacGroups.size() / nThreads_;
 		if (nPairsPerThread > 0) {
@@ -1338,12 +1254,11 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 			hashJacBlock_( hashJacGroups.begin(), hashJacGroups.end() );
 		}
 
-		std::fstream out;
-		out.open(bimAndLDnames.outputFileName, std::ios::out | std::ios::trunc);
-		out << "groupID\tlocus1\tlocus2\tjaccLD\n";
-		saveValues(hashJacGroups, locusNames, out);
-		out.close();
+		saveValues(hashJacGroups, locusNames, output);
+		groupIt = blockEndIt;
+		++iChunk;
 	}
+	output.close();
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1439,34 +1354,29 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 		iByte      = bitsDone / byteSize_;
 		sketchTail = bitsDone % byteSize_;
 	}
-	size_t iSeed = 0;                                             // index into the seed vector
-	if (filledIndexes.size() == 1) {
-		for (size_t iSk = 0; iSk < kSketches_; ++iSk) { // this will overwrite the one assigned sketch, but the wasted operation should be swamped by the rest
+	assert( (filledIndexes.size() <= kSketches_) // NOLINT
+					&& "ERROR: filledIndexes.size() must not be greater than sketch number (kSketches_) in locusOPH_()" );
+	size_t iSeed = 0;                                           // index into the seed vector
+	if ( filledIndexes.empty() ) {                              // if the whole locus is monomorphic, pick a random index as filled
+		filledIndexes.push_back( rng_.sampleInt(kSketches_) );
+	}
+	size_t emptyCount = kSketches_ - filledIndexes.size();
+	while (emptyCount > 0) {
+		for (const auto eachFI : filledIndexes) {
+			std::array<uint32_t, SIZE_OF_SIZET> key{};
+			memcpy(key.data(), &eachFI, sketchSize_);
+			auto newIdx = static_cast<uint32_t>(murMurHash(key, seeds[iSeed]) % kSketches_ + sketchBeg);
 			// should be safe: each thread accesses different vector elements
-			sketches_[sketchBeg + iSk] = sketches_[filledIndexes[0] + sketchBeg];
-		}
-	} else if (filledIndexes.size() != kSketches_) {
-		if ( filledIndexes.empty() ) { // in the case where the whole locus is monomorphic, pick a random index as filled
-			filledIndexes.push_back( rng_.sampleInt(kSketches_) );
-		}
-		size_t emptyCount = kSketches_ - filledIndexes.size();
-		while (emptyCount > 0) {
-			for (const auto eachFI : filledIndexes) {
-				std::array<uint32_t, SIZE_OF_SIZET> key{};
-				memcpy(key.data(), &eachFI, sketchSize_);
-				auto newIdx = static_cast<uint32_t>(murMurHash(key, seeds[iSeed]) % kSketches_ + sketchBeg);
-				// should be safe: each thread accesses different vector elements
-				if (sketches_[newIdx] == emptyBinToken_) {
-					sketches_[newIdx] = sketches_[eachFI + sketchBeg];
-					--emptyCount;
-					break;
-				}
+			if (sketches_[newIdx] == emptyBinToken_) {
+				sketches_[newIdx] = sketches_[eachFI + sketchBeg];
+				--emptyCount;
+				break;
 			}
-			++iSeed;
-			std::lock_guard<std::mutex> lock(mtx_);      // lock before measuring to ensure that the size is valid
-			if ( iSeed == seeds.size() ) {
-				seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
-			}
+		}
+		++iSeed;
+		std::lock_guard<std::mutex> lock(mtx_);      // lock before measuring to ensure that the size is valid
+		if ( iSeed == seeds.size() ) {
+			seeds.push_back( static_cast<uint32_t>( rng_.ranInt() ) );
 		}
 	}
 }
@@ -1558,6 +1468,7 @@ size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream
 		locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, permutation, padIndiv, seeds);
 		locusInd           += excessLoci;
 	}
+	return locusInd;
 }
 
 void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds) {
