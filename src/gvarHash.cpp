@@ -514,12 +514,12 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 				auto curIndiv            = static_cast<uint8_t>(macData[begIndiv + iIndiv]);       // cramming down to one byte because I do not care what the actual value is
 				curIndiv                 &= middleMask;                                            // mask everything in the middle
 				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
-				missMasks[i0Byte]        |= (missingMask << iInByte);
+				missMasks[i0Byte]        |= static_cast<uint8_t>(missingMask << iInByte);
 				curIndiv                 &= endTwoBitMask;
 				const uint8_t randMask    = (randBytes[iRB] >> iInByte) & oneBit_;                 // 0b00000000 or 0b00000001 with equal chance
 				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
-				binByte                  |= curBitMask << iInByte;
+				binByte                  |= static_cast<uint8_t>(curBitMask << iInByte);
 				++iIndiv;
 			}
 			// should be safe: each thread accesses different vector elements
@@ -533,13 +533,13 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 			auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
 			curIndiv                 &= middleMask;                                                // mask everything in the middle
 			const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
-			missMasks.back()         |= (missingMask << iRem);
+			missMasks.back()         |= static_cast<uint8_t>(missingMask << iRem);
 			curIndiv                 &= endTwoBitMask;                                                
 			const uint8_t randMask    = (randBytes[binLocusSize_ - 1] >> iRem) & oneBit_;          // 0b00000000 or 0b00000001 with equal chance
 			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 			curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
 
-			lastBinByte              |= curBitMask << iRem;
+			lastBinByte              |= static_cast<uint8_t>(curBitMask << iRem);
 			++iIndiv;
 		}
 		// should be safe: each thread accesses different vector elements
@@ -1283,7 +1283,7 @@ void GenoTableHash::permuteBits_(const std::vector<size_t> &permutationIdx, std:
 			const auto mask          = static_cast<uint16_t>(oneBit_ << iInLocusByte);
 			const auto perMask       = static_cast<uint8_t>(oneBit_ << permInByteInd);
 			const auto shiftDistance = static_cast<uint16_t>( (byteSize_ - iInLocusByte) + permInByteInd );                // subtraction is safe b/c byteSize is the loop terminator
-			const uint16_t temp1     = ( bytePair ^ (bytePair >> shiftDistance) ) & mask;
+			const auto temp1         = static_cast<uint16_t>( ( bytePair ^ (bytePair >> shiftDistance) ) & mask );
 			const auto temp2         = static_cast<uint16_t>(temp1 << shiftDistance);
 			bytePair                ^= temp1 ^ temp2;
 			// Transfer bits using the trick in Hacker's Delight Chapter 2-20 (do not need the full swap, just transfer from the byte pair to binLocus)
@@ -1306,7 +1306,7 @@ void GenoTableHash::permuteBits_(const std::vector<size_t> &permutationIdx, std:
 		const auto mask          = static_cast<uint16_t>(oneBit_ << iInLocusByte);
 		const auto perMask       = static_cast<uint8_t>(oneBit_ << permInByteInd);
 		const auto shiftDistance = static_cast<uint16_t>( (byteSize_ - iInLocusByte) + permInByteInd );           // subtraction is safe b/c byteSize is the loop terminator
-		const uint16_t temp1     = ( bytePair ^ (bytePair >> shiftDistance) ) & mask;
+		const auto temp1         = static_cast<uint16_t>( ( bytePair ^ (bytePair >> shiftDistance) ) & mask );
 		const auto temp2         = static_cast<uint16_t>(temp1 << shiftDistance);
 		bytePair                ^= temp1 ^ temp2;
 		// Transfer bits using the trick in Hacker's Delight Chapter 2-20 (do not need the full swap, just transfer from the byte pair to binLocus)
@@ -1412,7 +1412,7 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 			bytePair                |= static_cast<uint16_t>(binLocus[permByteInd] << byteSize_);
 			const auto mask          = static_cast<uint16_t>(1 << iInLocByte);
 			const auto shiftDistance = static_cast<uint16_t>( (byteSize_ - iInLocByte) + permInByteInd );                        // subtraction is safe b/c iInLocByte is modulo byteSize
-			const uint16_t temp1     = ( bytePair ^ (bytePair >> shiftDistance) ) & mask;
+			const auto temp1         = static_cast<uint16_t>( ( bytePair ^ (bytePair >> shiftDistance) ) & mask );
 			const auto temp2         = static_cast<uint16_t>(temp1 << shiftDistance);
 			bytePair                ^= temp1 ^ temp2;
 			// Transfer bits using the trick in Hacker's Delight Chapter 2-20 (do not need the full swap, just transfer from the byte pair to binLocus1)
@@ -1504,12 +1504,12 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationW
 				auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
 				curIndiv                 &= middleMask;                                            // mask everything in the middle
 				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
-				missMasks[i0Byte]        |= (missingMask << iInByte);
+				missMasks[i0Byte]        |= static_cast<uint8_t>(missingMask << iInByte);
 				curIndiv                 &= endTwoBitMask;
 				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
 				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
-				binLocus[iByte]          |= curBitMask << iInByte;
+				binLocus[iByte]          |= static_cast<uint8_t>(curBitMask << iInByte);
 				++iIndiv;
 			}
 			++i0Byte;
@@ -1519,13 +1519,13 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationW
 			auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
 			curIndiv                 &= middleMask;                                                // mask everything in the middle
 			const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
-			missMasks.back()         |= (missingMask << iRem);
+			missMasks.back()         |= static_cast<uint8_t>(missingMask << iRem);
 			curIndiv                 &= endTwoBitMask;                                                
 			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;             // 0b00000000 or 0b00000001 with equal chance
 			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
 			curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
 
-			binLocus.back()          |= curBitMask << iRem;
+			binLocus.back()          |= static_cast<uint8_t>(curBitMask << iRem);
 			++iIndiv;
 		}
 		const float maf = static_cast<float>( countSetBits(binLocus) ) / static_cast<float>(nIndividuals_);
