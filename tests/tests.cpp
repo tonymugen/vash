@@ -158,3 +158,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 		);
 	}
 }
+
+TEST_CASE("GenoTableBin methods work" "[gtBin]") { // NOLINT
+}
