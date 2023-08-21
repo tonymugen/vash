@@ -5,4 +5,5 @@ tests/*
 !tests/*.bed
 !tests/*.bim
 !tests/*.fam
+!tests/*.txt
 Doxyfile

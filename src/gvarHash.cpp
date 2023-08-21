@@ -92,7 +92,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const uint64_t endPosition = static_cast<uint64_t>( inStr.tellg() );
-	if (endPosition < nMagicBytes_) {
+	if (endPosition <= nMagicBytes_) {
 		logMessages_ += "ERROR: no genotype records in file " + inputFileName + "\n";
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}

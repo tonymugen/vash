@@ -18,6 +18,7 @@
  */
 
 #include <cstdint>
+#include <limits>
 #include <numeric>
 #include <vector>
 #include <array>
@@ -107,13 +108,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{0x6c, 0x0b, 0x01};
 	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{0x6c, 0x1b, 0x11};
 	REQUIRE_NOTHROW( BayesicSpace::testBedMagicBytes(correctBedBytes) );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith( "ERROR: first magic byte in input .bed file") );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith( "ERROR: second magic byte in input .bed file") );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith( "ERROR: third magic byte in input .bed file") );
-	const std::string bimFileName("../tests/ind197.bim");
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith("ERROR: second magic byte in input .bed file") );
+	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith("ERROR: third magic byte in input .bed file") );
+	const std::string bimFileName("../tests/ind197_397.bim");
 	std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
 	REQUIRE(locusNames.at(1)  == "14155618");
-	REQUIRE(locusNames.back() == "14632195");
+	REQUIRE(locusNames.back() == "14168708");
 	constexpr size_t nBitsInByte{8};
 	constexpr size_t nIndividuals{17};
 	constexpr size_t nIndivPerBedByte{4};
@@ -159,5 +160,26 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 	}
 }
 
-TEST_CASE("GenoTableBin methods work" "[gtBin]") { // NOLINT
+TEST_CASE("GenoTableBin methods work", "[gtBin]") { // NOLINT
+	const std::string logFileName("binTest.log");
+	const std::string inputBedName("../tests/ind197_397.bed");
+	constexpr size_t nIndividuals{197};
+	constexpr size_t nThreads{4};
+	SECTION("Failed GenoTableBin constructors") {
+		constexpr size_t smallNind{1};
+		constexpr size_t largeNind{std::numeric_limits<size_t>::max() - 3};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, smallNind, logFileName, nThreads),
+				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, largeNind, logFileName, nThreads),
+				Catch::Matchers::ContainsSubstring("is too big to make a square relationship matrix") );
+		const std::string absentFileName("../tests/noSuchFile.bed");
+		const std::string noLociFile("../tests/threeByte.bed");
+		const std::string wrongMagicBytes("../tests/wrongMB.bed");
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(absentFileName, nIndividuals, logFileName, nThreads),
+				Catch::Matchers::StartsWith("ERROR: failed to open file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(noLociFile, nIndividuals, logFileName, nThreads),
+				Catch::Matchers::StartsWith("ERROR: no genotype records in file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(wrongMagicBytes, nIndividuals, logFileName, nThreads),
+				Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+	}
 }
