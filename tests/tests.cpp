@@ -181,5 +181,17 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") { // NOLINT
 				Catch::Matchers::StartsWith("ERROR: no genotype records in file") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(wrongMagicBytes, nIndividuals, logFileName, nThreads),
 				Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+		const std::vector<int> smallMACvec(13, 0);
+		const std::vector<int> emptyMACvec{};
+		constexpr size_t undivNind{5};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(emptyMACvec, nIndividuals, logFileName),
+				Catch::Matchers::StartsWith("ERROR: empty vector of minor allele counts") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, smallNind, logFileName),
+				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, undivNind, logFileName),
+				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
+	}
+	SECTION("GenoTableBin constructors and methods with correct data") {
+		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, nThreads);
 	}
 }

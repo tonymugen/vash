@@ -168,11 +168,8 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndi
 		logMessages_ += "ERROR: empty vector of minor allele counts\n";
 		throw std::string("ERROR: empty vector of minor allele counts in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	if (nThreads_ == 0) {
-		nThreads_ = 1;
-	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
-		nThreads_ = std::thread::hardware_concurrency();
-	}
+	nThreads_     = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
+	nThreads_     = std::max(nThreads_, 1UL);
 	logMessages_ += "Number of individuals: " + std::to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: " + std::to_string(nLoci_) + "\n";
 	logMessages_ += "Number of threads: " + std::to_string(nThreads_) + "\n";
