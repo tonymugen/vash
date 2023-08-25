@@ -234,7 +234,7 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	uint32_t setCount{0};
 	uint32_t missingCount{0};
 	size_t iBedByte{bedLocusWindow.start};
-	while (iBedByte < nEvenBedBytes + bedLocusWindow.start) {
+	while (iBedByte < bedLocusWindow.start + nEvenBedBytes) {
 		uint64_t bedWord{0};
 		memcpy(&bedWord, bedLocus.data() + iBedByte, word64size);
 		auto binBits{static_cast<uint32_t>( _pext_u64(bedWord, firstBitMask) )};
@@ -284,14 +284,14 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	const size_t nEvenBinBytes{binLocusWindow.length & word32mask};                                                       // number of bin bytes that fully fit into 32-bit words
 	size_t iBinByte{binLocusWindow.start};
 	size_t iBinWord{0};
-	while (iBinByte < nEvenBinBytes + binLocusWindow.start) {
-		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], word32size);
+	while (iBinByte < binLocusWindow.start + nEvenBinBytes) {
+		memcpy(binLocus.data() + iBinByte, binWords.data() + iBinWord, word32size);
 		iBinByte += word32size;
 		++iBinWord;
 	}
 	if (binLocusWindow.length > nEvenBinBytes) {
 		const size_t nTrailingBinBytes{binLocusWindow.length - nEvenBinBytes};
-		memcpy(binLocus.data() + iBinByte, &binWords[iBinWord], nTrailingBinBytes);
+		memcpy(binLocus.data() + iBinByte, binWords.data() + iBinWord, nTrailingBinBytes);
 	}
 }
 

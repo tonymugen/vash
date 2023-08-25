@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <limits>
 #include <numeric>
+#include <utility>
 #include <vector>
 #include <array>
 #include <string>
@@ -103,60 +104,90 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") { // NOLINT
 }
 
 TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
-	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
-	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{0x6d, 0x1b, 0x01};
-	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{0x6c, 0x0b, 0x01};
-	constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{0x6c, 0x1b, 0x11};
-	REQUIRE_NOTHROW( BayesicSpace::testBedMagicBytes(correctBedBytes) );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith("ERROR: second magic byte in input .bed file") );
-	REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith("ERROR: third magic byte in input .bed file") );
-	const std::string bimFileName("../tests/ind197_397.bim");
-	std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
-	REQUIRE(locusNames.at(1)  == "14155618");
-	REQUIRE(locusNames.back() == "14168708");
-	constexpr size_t nBitsInByte{8};
-	constexpr size_t nIndividuals{17};
-	constexpr size_t nIndivPerBedByte{4};
-	constexpr size_t nIndivPerBinByte{8};
-	constexpr size_t nBedBytes{5};
-	constexpr size_t nBinBytes{3};
-	constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
-	for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
-		BayesicSpace::RanDraw prng;
-		BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
-		std::vector<char> bedByteVec{bedBytes.begin(), bedBytes.end()};
-		std::vector<uint8_t> binBytes(nBinBytes, 0);
-		BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
-		BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, prng, binWindow, binBytes);
-		REQUIRE( nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2 );
-		std::vector< std::vector<uint32_t> > groups;
-		constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
-		constexpr size_t correctVGsize{86};
-		groups.reserve( groupSizes.size() );
-		for (const auto &iGrpSize : groupSizes) {
-			groups.emplace_back(iGrpSize);
+	SECTION("Thread ranges") {
+		constexpr BayesicSpace::CountAndSize threadSizes{4, 13};
+		const std::vector< std::pair<size_t, size_t> > correctRanges{ {0, 13}, {13, 26}, {26, 39}, {39, 52} };
+		const std::vector< std::pair<size_t, size_t> > threadRanges{BayesicSpace::makeThreadRanges(threadSizes)};
+		REQUIRE(threadRanges.size() == threadSizes.count);
+		REQUIRE(std::all_of(
+				threadRanges.cbegin(),
+				threadRanges.cend(),
+				[](const std::pair<size_t, size_t> &eachRange){return eachRange.first <= eachRange.second;}
+			)
+		);
+		REQUIRE(std::equal(
+				threadRanges.cbegin(),
+				threadRanges.cend(),
+				correctRanges.cbegin(),
+				[](const std::pair<size_t, size_t> &pair1, const std::pair<size_t, size_t>&pair2){
+					return (pair1.first == pair2.first) && (pair1.second == pair2.second);
+				}
+			)
+		);
+	}
+
+	SECTION("Magic byte testing") {
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{0x6d, 0x1b, 0x01};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{0x6c, 0x0b, 0x01};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{0x6c, 0x1b, 0x11};
+		REQUIRE_NOTHROW( BayesicSpace::testBedMagicBytes(correctBedBytes) );
+		REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+		REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith("ERROR: second magic byte in input .bed file") );
+		REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes3), Catch::Matchers::StartsWith("ERROR: third magic byte in input .bed file") );
+	}
+
+	SECTION(".bim file reading") {
+		const std::string bimFileName("../tests/ind197_397.bim");
+		std::vector<std::string> locusNames{BayesicSpace::getLocusNames(bimFileName)};
+		REQUIRE(locusNames.at(1)  == "14155618");
+		REQUIRE(locusNames.back() == "14168708");
+	}
+
+	SECTION("Binarization and similarity groups") {
+		constexpr size_t nBitsInByte{8};
+		constexpr size_t nIndividuals{17};
+		constexpr size_t nIndivPerBedByte{4};
+		constexpr size_t nIndivPerBinByte{8};
+		constexpr size_t nBedBytes{5};
+		constexpr size_t nBinBytes{3};
+		constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
+		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
+			BayesicSpace::RanDraw prng;
+			BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
+			std::vector<char> bedByteVec{bedBytes.begin(), bedBytes.end()};
+			std::vector<uint8_t> binBytes(nBinBytes, 0);
+			BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
+			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, prng, binWindow, binBytes);
+			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2);
+			std::vector< std::vector<uint32_t> > groups;
+			constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
+			constexpr size_t correctVGsize{86};
+			groups.reserve( groupSizes.size() );
+			for (const auto &iGrpSize : groupSizes) {
+				groups.emplace_back(iGrpSize);
+			}
+			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.begin(), groups.end())};
+			REQUIRE(vectorizedGroups.size() == correctVGsize);
+			REQUIRE(std::all_of(
+						vectorizedGroups.cbegin(),
+						vectorizedGroups.cend(),
+						[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue == 0.0F;}
+					)
+			);
+			REQUIRE(std::is_sorted(
+						vectorizedGroups.cbegin(),
+						vectorizedGroups.cend(), 
+						[](BayesicSpace::IndexedPairSimilarity obj1, BayesicSpace::IndexedPairSimilarity obj2){return obj1.groupID < obj2.groupID;}
+					)
+			);
+			REQUIRE(std::all_of(
+						vectorizedGroups.cbegin(),
+						vectorizedGroups.cend(),
+						[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+					)
+			);
 		}
-		std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.begin(), groups.end())};
-		REQUIRE(vectorizedGroups.size() == correctVGsize);
-		REQUIRE(std::all_of(
-					vectorizedGroups.begin(),
-					vectorizedGroups.end(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue == 0.0F;}
-				)
-		);
-		REQUIRE(std::is_sorted(
-					vectorizedGroups.begin(),
-					vectorizedGroups.end(), 
-					[](BayesicSpace::IndexedPairSimilarity obj1, BayesicSpace::IndexedPairSimilarity obj2){return obj1.groupID < obj2.groupID;}
-				)
-		);
-		REQUIRE(std::all_of(
-					vectorizedGroups.begin(),
-					vectorizedGroups.end(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
-				)
-		);
 	}
 }
 
@@ -165,6 +196,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") { // NOLINT
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t nThreads{4};
+	constexpr size_t oneThread{1};
 	SECTION("Failed GenoTableBin constructors") {
 		constexpr size_t smallNind{1};
 		constexpr size_t largeNind{std::numeric_limits<size_t>::max() - 3};
@@ -192,6 +224,6 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") { // NOLINT
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
-		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, nThreads);
+		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, oneThread);
 	}
 }

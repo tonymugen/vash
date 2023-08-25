@@ -49,6 +49,8 @@
 #include <thread>
 #include <immintrin.h>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -430,6 +432,7 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 		LocationWithLength binWindow{0, 0};
 		binWindow.start  = begByte;
 		binWindow.length = binLocusSize_;
+		std::cout << bedWindow.start << " " << bedWindow.length << "; " << binWindow.start << " " << binWindow.length << "\n";
 		binarizeBedLocus(bedWindow, bedData, nIndividuals_, locPRNG, binWindow, binGenotypes_);
 		begByte += binLocusSize_;
 	}
