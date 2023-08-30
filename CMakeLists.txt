@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.11)
+cmake_minimum_required(VERSION 3.21)
 project(vash
 	VERSION 0.1
 	LANGUAGES CXX
@@ -76,16 +76,18 @@ option(BUILD_TESTS
 	"Build tests"
 	OFF
 )
-if(BUILD_TESTS)
+if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	Include(FetchContent)
+	set (FETCHCONTENT_QUIET FALSE)
 
 	FetchContent_Declare(
 	  Catch2
 	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
 	  GIT_TAG        v3.4.0 # or a later release
+	  GIT_PROGRESS   TRUE
+	  SYSTEM                # to disable Catch2 warnings
 	)
 	FetchContent_MakeAvailable(Catch2)
-	list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 endif()
 #
 # Find active available sanitizers
@@ -180,7 +182,6 @@ add_library(vash
 	src/vashFunctions.cpp
 	externals/bayesicUtilities/src/random.cpp
 )
-
 target_include_directories(vash
 	PRIVATE externals/bayesicUtilities/include
 	PRIVATE include
@@ -197,7 +198,7 @@ set_target_properties(vash PROPERTIES
 # no install for now
 
 # tests
-if(BUILD_TESTS)
+if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	add_executable(tests
 		tests/tests.cpp
 	)

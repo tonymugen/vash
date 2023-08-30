@@ -40,7 +40,7 @@
 // Number of times tests of random events will be run
 static constexpr uint16_t N_RAN_ITERATIONS{10};
 
-TEST_CASE("Can count set bits correctly", "[countSetBits]") { // NOLINT
+TEST_CASE("Can count set bits correctly", "[countSetBits]") {
 	constexpr uint16_t oneWord{0b11001110'01101001};
 	constexpr uint16_t wCorrectCount{9};
 	const uint16_t wordBitCount{BayesicSpace::countSetBits(oneWord)};
@@ -60,7 +60,7 @@ TEST_CASE("Can count set bits correctly", "[countSetBits]") { // NOLINT
 	REQUIRE(vectorWindowCount == correctVectorWindowCount);
 }
 
-TEST_CASE("MurMurHash works properly", "[MurMurHash]") { // NOLINT
+TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 	constexpr uint32_t mmHashSeed{2153025618};
 	constexpr std::array<uint32_t, BayesicSpace::SIZE_OF_SIZET> arrayKey{335636695, 4242517348};
 	constexpr uint32_t correctArrayHash{2730141477};
@@ -103,7 +103,7 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") { // NOLINT
 	}
 }
 
-TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
+TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 	SECTION("Thread ranges") {
 		constexpr BayesicSpace::CountAndSize threadSizes{4, 13};
 		const std::vector< std::pair<size_t, size_t> > correctRanges{ {0, 13}, {13, 26}, {26, 39}, {39, 52} };
@@ -191,7 +191,7 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") { // NOLINT
 	}
 }
 
-TEST_CASE("GenoTableBin methods work", "[gtBin]") { // NOLINT
+TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	const std::string logFileName("binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
