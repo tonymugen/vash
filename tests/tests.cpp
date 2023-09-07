@@ -192,7 +192,7 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {
-	const std::string logFileName("binTest.log");
+	const std::string logFileName("../tests/binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t nThreads{4};
@@ -224,6 +224,6 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
-		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, oneThread);
+		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, nThreads);
 	}
 }
