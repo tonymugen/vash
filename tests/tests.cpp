@@ -25,6 +25,7 @@
 #include <array>
 #include <string>
 #include <algorithm>
+#include <fstream>
 
 #include <iostream>
 #include <bitset>
@@ -224,6 +225,16 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
-		BayesicSpace::GenoTableBin testGTB(inputBedName, nIndividuals, logFileName, nThreads);
+		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
+		const std::string alleleCountsFile("../tests/alleleCounts.txt");
+		std::fstream inAlleleCounts;
+		std::string eachLine;
+		inAlleleCounts.open(alleleCountsFile, std::ios::in);
+		std::vector<int> macVector;
+		while ( std::getline(inAlleleCounts, eachLine) ) {
+			macVector.push_back( std::stoi(eachLine) );
+		}
+		inAlleleCounts.close();
+		BayesicSpace::GenoTableBin(macVector, nIndividuals, logFileName);
 	}
 }

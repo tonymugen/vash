@@ -230,6 +230,24 @@ void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 	out.close();
 }
 
+std::vector<IndexedPairLD> GenoTableBin::allJaccardLD() const {
+	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
+	std::vector<IndexedPairLD> LDmat(nPairs);
+	const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
+	if (nLocusPairsPerThread > 0) {
+		CountAndSize threadCounts{0, 0};
+		threadCounts.count = nThreads_;
+		threadCounts.size  = nLocusPairsPerThread;
+		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+		threadRanges.back().second = LDmat.size();
+		jaccardThreaded_(threadRanges, 0, LDmat);
+	} else {
+		const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
+		jaccardBlock_(fullRange, 0, LDmat);
+	}
+	return LDmat;
+}
+
 void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 	if (nLoci_ > maxNlocusPairs_) {
 		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
@@ -293,19 +311,7 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		output.close();
 	} else {
 		logMessages_ += "calculating in one go\n";
-		std::vector<IndexedPairLD> LDmat(nPairs);
-		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
-		if (nLocusPairsPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLocusPairsPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			threadRanges.back().second = LDmat.size();
-			jaccardThreaded_(threadRanges, 0, LDmat);
-		} else {
-			const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
-			jaccardBlock_(fullRange, 0, LDmat);
-		}
+		std::vector<IndexedPairLD> LDmat{this->allJaccardLD()};
 		std::fstream output;
 		output.open(ldFileName, std::ios::trunc | std::ios::out);
 		output << "locus1\tlocus2\tjaccard\trSq\n";
@@ -385,19 +391,7 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
 		output.close();
 	} else {
 		logMessages_ += "calculating in one go\n";
-		std::vector<IndexedPairLD> LDmat(nPairs);
-		const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
-		if (nLocusPairsPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLocusPairsPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			threadRanges.back().second = LDmat.size();
-			jaccardThreaded_(threadRanges, 0, LDmat);
-		} else {
-			const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
-			jaccardBlock_(fullRange, 0, LDmat);
-		}
+		std::vector<IndexedPairLD> LDmat{this->allJaccardLD()};
 		std::fstream output;
 		output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 		output << "locus1\tlocus2\tjaccard\trSq\n";

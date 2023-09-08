@@ -212,23 +212,33 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const std::string &outFileName) const;
-		/** \brief All by all Jaccard similarity LD
+		/** \brief All by all Jaccard similarity in memory 
 		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
+		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
+		 */
+		std::vector<IndexedPairLD> allJaccardLD() const;
+		/** \brief All by all Jaccard similarity LD
+		 *
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
+		 *
 		 * \param[in] ldFileName name of the output file
-		 * \return lower triangle of the LD matrix
 		 */
 		void allJaccardLD(const std::string &ldFileName) const;
 		/** \brief All by all Jaccard similarity LD with locus names
 		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
+		 * Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
 		 *
 		 * \param[in] bimAndLDnames name of the input _.bim_ file that has locus names and the output LD value file name
 		 */
