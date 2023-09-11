@@ -226,6 +226,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
+		std::vector<BayesicSpace::IndexedPairLD> bedLD{bedGTB.allJaccardLD()};
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
 		std::fstream inAlleleCounts;
 		std::string eachLine;

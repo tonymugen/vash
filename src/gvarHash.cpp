@@ -231,20 +231,21 @@ void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 }
 
 std::vector<IndexedPairLD> GenoTableBin::allJaccardLD() const {
-	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
-	std::vector<IndexedPairLD> LDmat(nPairs);
-	const size_t nLocusPairsPerThread = LDmat.size() / nThreads_;
-	if (nLocusPairsPerThread > 0) {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = nLocusPairsPerThread;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		threadRanges.back().second = LDmat.size();
-		jaccardThreaded_(threadRanges, 0, LDmat);
-	} else {
-		const std::pair<size_t, size_t> fullRange{0, LDmat.size()};
-		jaccardBlock_(fullRange, 0, LDmat);
+	if (nLoci_ > maxNlocusPairs_) {
+		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
+		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
+			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates and passing the result to the calling function\n";
+	const size_t nPairs{nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2)};
+	std::vector<IndexedPairLD> LDmat(nPairs);
+	const size_t nLocusPairsPerThread = std::max( LDmat.size() / nThreads_, static_cast<size_t>(1) );
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = nLocusPairsPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	threadRanges.back().second = LDmat.size();
+	jaccardThreaded_(threadRanges, 0, LDmat);
 	return LDmat;
 }
 
@@ -254,70 +255,45 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
 			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
-	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
-	logMessages_         += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
-	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
-	if (nPairs > maxInRAM) {
-		// too many loci to fit the LD matrix in RAM
-		// will work on chunks and save as we go
-		logMessages_ += "calculating in chunks\n";
-		const size_t nChunks        = nPairs / maxInRAM;
-		const size_t remainingPairs = nPairs % maxInRAM;
-		std::fstream output;
-		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\trSq\n";
-		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
-		size_t overallPairInd = 0;
-		if (nLocusPairsPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLocusPairsPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
-			threadRanges.back().second = maxInRAM;
-			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
-				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-				overallPairInd += excessLoci;
-				saveValues(LDmatChunk, output);
-			}
-		} else {
-			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
-				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
-				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
-				overallPairInd += maxInRAM;
-				saveValues(LDmatChunk, output);
-			}
-		}
-		overallPairInd = maxInRAM * nChunks;
-		if (remainingPairs > 0) {
-			std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
-			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
-			if (nRemainPairsPerThread > 0) {
-				CountAndSize threadCounts{0, 0};
-				threadCounts.count = nThreads_;
-				threadCounts.size  = nRemainPairsPerThread;
-				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-				threadRanges.back().second = remainingPairs;
-				overallPairInd = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-			} else {
-				const std::pair<size_t, size_t> remainingRange{0, remainingPairs};
-				jaccardBlock_(remainingRange, overallPairInd, LDmatChunk);
-			}
-			saveValues(LDmatChunk, output);
-		}
-		output.close();
-	} else {
-		logMessages_ += "calculating in one go\n";
-		std::vector<IndexedPairLD> LDmat{this->allJaccardLD()};
-		std::fstream output;
-		output.open(ldFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\trSq\n";
-		saveValues(LDmat, output);
-		output.close();
+
+	const size_t maxInRAM       = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
+	const size_t nPairs         = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
+	const size_t nChunks        = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
+	const size_t chunkSize      = std::min(nPairs, maxInRAM);
+	const size_t remainingPairs = nPairs % nChunks;
+
+	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
+	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
+	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
+
+	std::fstream output;
+	output.open(ldFileName, std::ios::trunc | std::ios::out);
+	output << "locus1\tlocus2\tjaccard\trSq\n";
+	const size_t nLocusPairsPerThread = std::max( chunkSize / nThreads_, static_cast<size_t>(1) );
+	size_t overallPairInd{0};
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = nLocusPairsPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	const size_t excessLoci    = maxInRAM - threadRanges.back().second;
+	threadRanges.back().second = maxInRAM;
+	for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
+		std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
+		overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+		overallPairInd += excessLoci;
+		saveValues(LDmatChunk, output);
 	}
+	if (remainingPairs > 0) {
+		std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
+		const size_t nRemainPairsPerThread = std::max( remainingPairs / nThreads_, static_cast<size_t>(1) );
+		threadCounts.count                 = nThreads_;
+		threadCounts.size                  = nRemainPairsPerThread;
+		threadRanges                       = makeThreadRanges(threadCounts);
+		threadRanges.back().second         = remainingPairs;
+		overallPairInd                     = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+		saveValues(LDmatChunk, output);
+	}
+	output.close();
 }
 
 void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
@@ -327,78 +303,50 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
 			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 
+	const size_t maxInRAM       = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
+	const size_t nPairs         = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
+	const size_t nChunks        = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
+	const size_t chunkSize      = std::min(nPairs, maxInRAM);
+	const size_t remainingPairs = nPairs % nChunks;
+
+	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
+	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
+	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
+
 	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
 	assert( (locusNames.size() == nLoci_) // NOLINT
 			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+	logMessages_ += "Read " + std::to_string( locusNames.size() ) + " locus names from the .bim file\n";
 
-	logMessages_         += "Read " + std::to_string( locusNames.size() ) + " locus names from the .bim file\n";
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(IndexedPairLD) );                                 // use half to leave resources for other operations
-	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
-	logMessages_         += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
-	logMessages_         += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
-
-	if (nPairs > maxInRAM) {
-		// too many loci to fit the LD matrix in RAM
-		// will work on chunks and save as we go
-		logMessages_ += "calculating in chunks\n";
-		const size_t nChunks        = nPairs / maxInRAM;
-		const size_t remainingPairs = nPairs % maxInRAM;
-		std::fstream output;
-		output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\trSq\n";
-		const size_t nLocusPairsPerThread = maxInRAM / nThreads_;
-		size_t overallPairInd = 0;
-		if (nLocusPairsPerThread > 0) {
-			CountAndSize threadCounts{0, 0};
-			threadCounts.count = nThreads_;
-			threadCounts.size  = nLocusPairsPerThread;
-			std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-			const size_t excessLoci    = maxInRAM - threadRanges.back().second;
-			threadRanges.back().second = maxInRAM;
-			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
-				overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-				overallPairInd += excessLoci;
-				saveValues(LDmatChunk, locusNames, output);
-			}
-		} else {
-			for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-				std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
-				const std::pair<size_t, size_t> ramRange{0, maxInRAM};
-				jaccardBlock_(ramRange, overallPairInd, LDmatChunk);
-				overallPairInd += maxInRAM;
-				saveValues(LDmatChunk, locusNames, output);
-			}
-		}
-		overallPairInd = maxInRAM * nChunks;
-		if (remainingPairs > 0) {
-			std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
-			const size_t nRemainPairsPerThread = remainingPairs / nThreads_;
-			if (nRemainPairsPerThread > 0) {
-				CountAndSize threadCounts{0, 0};
-				threadCounts.count = nThreads_;
-				threadCounts.size  = nRemainPairsPerThread;
-				std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-				threadRanges.back().second = remainingPairs;
-				overallPairInd = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-			} else {
-				const std::pair<size_t, size_t> remainingRange{0, remainingPairs};
-				jaccardBlock_(remainingRange, overallPairInd, LDmatChunk);
-			}
-			saveValues(LDmatChunk, locusNames, output);
-		}
-		output.close();
-	} else {
-		logMessages_ += "calculating in one go\n";
-		std::vector<IndexedPairLD> LDmat{this->allJaccardLD()};
-		std::fstream output;
-		output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-		output << "locus1\tlocus2\tjaccard\trSq\n";
-		saveValues(LDmat, locusNames, output);
-		output.close();
+	std::fstream output;
+	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output << "locus1\tlocus2\tjaccard\trSq\n";
+	const size_t nLocusPairsPerThread = std::max( chunkSize / nThreads_, static_cast<size_t>(1) );
+	size_t overallPairInd{0};
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = nLocusPairsPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	const size_t excessLoci    = maxInRAM - threadRanges.back().second;
+	threadRanges.back().second = maxInRAM;
+	for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
+		std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
+		overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+		overallPairInd += excessLoci;
+		saveValues(LDmatChunk, locusNames, output);
 	}
-
+	if (remainingPairs > 0) {
+		std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
+		const size_t nRemainPairsPerThread = std::max( remainingPairs / nThreads_, static_cast<size_t>(1) );
+		threadCounts.count                 = nThreads_;
+		threadCounts.size                  = nRemainPairsPerThread;
+		threadRanges                       = makeThreadRanges(threadCounts);
+		threadRanges.back().second         = remainingPairs;
+		overallPairInd                     = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
+		saveValues(LDmatChunk, locusNames, output);
+	}
+	output.close();
 }
 
 void GenoTableBin::saveLogFile() const {
