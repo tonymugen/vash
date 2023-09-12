@@ -227,6 +227,36 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	SECTION("GenoTableBin constructors and methods with correct data") {
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
 		std::vector<BayesicSpace::IndexedPairLD> bedLD{bedGTB.allJaccardLD()};
+		REQUIRE(std::all_of(
+					bedLD.cbegin(),
+					bedLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedLD.cbegin(),
+					bedLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= 1.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedLD.cbegin(),
+					bedLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= 0.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedLD.cbegin(),
+					bedLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq <= 1.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedLD.cbegin(),
+					bedLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq >= 0.0F;}
+				)
+		);
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
 		std::fstream inAlleleCounts;
 		std::string eachLine;
@@ -236,6 +266,41 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 			macVector.push_back( std::stoi(eachLine) );
 		}
 		inAlleleCounts.close();
-		BayesicSpace::GenoTableBin(macVector, nIndividuals, logFileName);
+		BayesicSpace::GenoTableBin macGTB(macVector, nIndividuals, logFileName);
+		std::vector<BayesicSpace::IndexedPairLD> macLD{macGTB.allJaccardLD()};
+		REQUIRE( bedLD.size() == macLD.size() );
+		REQUIRE(std::all_of(
+					macLD.cbegin(),
+					macLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+				)
+		);
+		REQUIRE(std::all_of(
+					macLD.cbegin(),
+					macLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= 1.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					macLD.cbegin(),
+					macLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= 0.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					macLD.cbegin(),
+					macLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq <= 1.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					macLD.cbegin(),
+					macLD.cend(),
+					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq >= 0.0F;}
+				)
+		);
+		for (size_t iLD = 0; iLD < bedLD.size(); ++iLD) {
+			std::cout << bedLD.at(iLD).element1ind + 1 << "\t" << bedLD.at(iLD).element2ind + 1 << "\t" << bedLD.at(iLD).jaccard << "\t" << macLD.at(iLD).jaccard << "\t" << bedLD.at(iLD).rSq << "\t" << macLD.at(iLD).rSq << "\n";
+		}
 	}
 }

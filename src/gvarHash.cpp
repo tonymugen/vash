@@ -535,7 +535,10 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		const float pApB{locus1p * locus2p};
 		const float dValue{fsect / fIndiv - pApB};                                                  // D statistic
 		ldVec[iVecInd].jaccard = (isect > 0 ? fsect / static_cast<float>(uni) : 0.0F);
-		ldVec[iVecInd].rSq     = dValue * dValue / ( pApB * (1.0F - locus1p) * (1.0F - locus2p) );  // nan if either of the loci monomorphic; could be if all hets are called as '0'
+		float tmpRsq{dValue * dValue / ( pApB * (1.0F - locus1p) * (1.0F - locus2p) )};
+		// normalize; will set any inf values (due to locus being mis-called as monomorphic when all hets are set to '0')
+		tmpRsq             = std::min(tmpRsq, 1.0F);
+		ldVec[iVecInd].rSq = std::max(tmpRsq, 0.0F);                                                
 		++curJacMatInd;
 	}
 }
