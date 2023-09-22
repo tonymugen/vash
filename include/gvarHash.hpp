@@ -190,7 +190,7 @@ namespace BayesicSpace {
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableBin operator=(const GenoTableBin &toCopy) = delete;
+		GenoTableBin& operator=(const GenoTableBin &toCopy) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] toMove object to move
@@ -415,7 +415,7 @@ namespace BayesicSpace {
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableHash operator=(const GenoTableHash &toCopy) = delete;
+		GenoTableHash& operator=(const GenoTableHash &toCopy) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] toMove object to move

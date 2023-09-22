@@ -17,6 +17,16 @@
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/// Unit tests
+/** \file
+ * \author Anthony J. Greenberg
+ * \copyright Copyright (c) 2023 Anthony J. Greenberg
+ * \version 0.1
+ *
+ * Unit tests using Catch2.
+ *
+ */
+
 #include <cstdint>
 #include <limits>
 #include <numeric>
@@ -299,8 +309,35 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq >= 0.0F;}
 				)
 		);
-		for (size_t iLD = 0; iLD < bedLD.size(); ++iLD) {
-			std::cout << bedLD.at(iLD).element1ind + 1 << "\t" << bedLD.at(iLD).element2ind + 1 << "\t" << bedLD.at(iLD).jaccard << "\t" << macLD.at(iLD).jaccard << "\t" << bedLD.at(iLD).rSq << "\t" << macLD.at(iLD).rSq << "\n";
-		}
+		constexpr float upperCutOff{0.9F};
+		constexpr uint32_t correctNlargeLD{2400};
+		uint32_t nLargeLD = std::count_if(
+				bedLD.cbegin(),
+				bedLD.cend(), 
+				[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+		);
+		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
+		constexpr float lowerCutOff{0.1F};
+		constexpr uint32_t correctNsmallLD{48600};
+		uint32_t nSmallLD = std::count_if(
+				bedLD.cbegin(),
+				bedLD.cend(), 
+				[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+		);
+		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
+		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
+		nLargeLD = std::count_if(
+				macLD.cbegin(),
+				macLD.cend(), 
+				[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+		);
+		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
+		nSmallLD = std::count_if(
+				macLD.cbegin(),
+				macLD.cend(), 
+				[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+		);
+		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
+		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
 	}
 }
