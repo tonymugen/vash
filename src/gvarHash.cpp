@@ -590,12 +590,16 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		logMessages_ += "ERROR: number of sketches (" + std::to_string(kSketches_) + ") is too small; aborting\n";
 		throw std::string("ERROR: sketch number must be at least three in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	if (kSketches_ > indivSketchCounts.nIndividuals) {
+		logMessages_ += "ERROR: number of sketches (" + std::to_string(kSketches_) + ") is larger than the number of individuals; aborting\n";
+		throw std::string("ERROR: sketch number must be smaller than the number of individuals in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
 	// Round up the number of individuals to nearest divisible by kSketches_
 	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
-	if (sketchSize_ >= emptyBinToken_) {
-		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too big; aborting\n";
-		throw std::string("ERROR: Number of sketches (") + std::to_string(kSketches_) + std::string(") implies sketch size (") +
+	if (indivSketchCounts.kSketches >= emptyBinToken_) {
+		logMessages_ += "ERROR: sketch size (" + std::to_string(indivSketchCounts.kSketches) + ") is too big; aborting\n";
+		throw std::string("ERROR: Number of sketches (") + std::to_string(indivSketchCounts.kSketches) + std::string(") implies sketch size (") +
 			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -611,7 +615,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		throw std::string("ERROR: failed to open file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const auto endPosition{static_cast<size_t>( inStr.tellg() )};
-	if (endPosition < nMagicBytes_) {
+	if (endPosition <= nMagicBytes_) {
 		logMessages_ += "ERROR: no loci in the input .bed file " + inputFileName + "; aborting\n";
 		throw std::string("ERROR: no genotype records in file ") + inputFileName + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -708,6 +712,10 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 		logMessages_ += "ERROR: sketch size (" + std::to_string(kSketches_) + ") is too small; aborting\n";
 		throw std::string("ERROR: sketch size must be at least three in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	if (kSketches_ > indivSketchCounts.nIndividuals) {
+		logMessages_ += "ERROR: number of sketches (" + std::to_string(kSketches_) + ") is larger than the number of individuals; aborting\n";
+		throw std::string("ERROR: sketch number must be smaller than the number of individuals in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
 	if (nThreads_ == 0) {
 		nThreads_ = 1;
 	} else if ( nThreads_ > std::thread::hardware_concurrency() ) {
@@ -715,10 +723,10 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	}
 	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
-	if (sketchSize_ >= emptyBinToken_) {
-		logMessages_ += "ERROR: sketch size (" + std::to_string(sketchSize_) + ") is too small; aborting\n";
+	if (indivSketchCounts.kSketches >= emptyBinToken_) {
+		logMessages_ += "ERROR: sketch size (" + std::to_string(indivSketchCounts.kSketches) + ") is too small; aborting\n";
 		throw std::string("ERROR: Number of sketches (") + std::to_string(kSketches_) + std::string(") implies sketch size (") +
-			std::to_string(sketchSize_) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
+			std::to_string(indivSketchCounts.kSketches) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8

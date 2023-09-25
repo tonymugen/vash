@@ -28,6 +28,7 @@
  */
 
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <numeric>
 #include <utility>
@@ -50,6 +51,8 @@
 
 // Number of times tests of random events will be run
 static constexpr uint16_t N_RAN_ITERATIONS{10};
+// precision for float comparisons
+static constexpr float FPREC{1e-4F};
 
 TEST_CASE("Can count set bits correctly", "[countSetBits]") {
 	constexpr uint16_t oneWord{0b11001110'01101001};
@@ -339,5 +342,72 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
+		// test the move constructor
+		BayesicSpace::GenoTableBin movedBedGTB = std::move(bedGTB);
+		std::vector<BayesicSpace::IndexedPairLD> movedBedLD{movedBedGTB.allJaccardLD()};
+		REQUIRE( std::equal(
+				bedLD.cbegin(), 
+				bedLD.cend(), 
+				movedBedLD.cbegin(), 
+				[](const BayesicSpace::IndexedPairLD &first, const BayesicSpace::IndexedPairLD &second){return std::fabs(first.jaccard - second.jaccard) <= FPREC; }
+			) 
+		);
+	}
+}
+TEST_CASE("GenoTableHash methods work", "[gtHash]") {
+	const std::string logFileName("../tests/binTest.log");
+	const std::string inputBedName("../tests/ind197_397.bed");
+	constexpr size_t nIndividuals{197};
+	constexpr size_t kSketches{29};
+	constexpr size_t nThreads{4};
+	constexpr size_t oneThread{1};
+	const std::string alleleCountsFile("../tests/alleleCounts.txt");
+	std::fstream inAlleleCounts;
+	std::string eachLine;
+	inAlleleCounts.open(alleleCountsFile, std::ios::in);
+	std::vector<int> macVector;
+	while ( std::getline(inAlleleCounts, eachLine) ) {
+		macVector.push_back( std::stoi(eachLine) );
+	}
+	inAlleleCounts.close();
+	constexpr BayesicSpace::IndividualAndSketchCounts sketchParameters{nIndividuals, kSketches};
+	SECTION("Failed GenoTableHash constructors") {
+		constexpr size_t smallNind{1};
+		constexpr size_t smallSketch{1};
+		constexpr size_t kGtN{nIndividuals + 1};
+		constexpr size_t lgNind{std::numeric_limits<uint16_t>::max() + 3};
+		constexpr size_t largeSketch{std::numeric_limits<uint16_t>::max() + 1};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, BayesicSpace::IndividualAndSketchCounts{smallNind, smallSketch}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, BayesicSpace::IndividualAndSketchCounts{nIndividuals, smallSketch}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: sketch number must be at least three") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, BayesicSpace::IndividualAndSketchCounts{nIndividuals, kGtN}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, BayesicSpace::IndividualAndSketchCounts{lgNind, largeSketch}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: Number of sketches (") );
+		const std::string absentFileName("../tests/noSuchFile.bed");
+		const std::string noLociFile("../tests/threeByte.bed");
+		const std::string wrongMagicBytes("../tests/wrongMB.bed");
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(absentFileName, sketchParameters, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: failed to open file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(noLociFile, sketchParameters, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: no genotype records in file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(wrongMagicBytes, sketchParameters, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+		const std::vector<int> smallMACvec(13, 0);
+		const std::vector<int> emptyMACvec{};
+		constexpr size_t undivNind{5};
+		const std::vector<int> tooBig(2UL * std::numeric_limits<uint16_t>::max(), 0);
+		constexpr size_t maxNind{2UL * std::numeric_limits<uint16_t>::max()};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(emptyMACvec, sketchParameters, logFileName),
+				Catch::Matchers::StartsWith("ERROR: empty vector of minor allele counts") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(smallMACvec, BayesicSpace::IndividualAndSketchCounts{smallNind, kSketches}, logFileName),
+				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(smallMACvec, BayesicSpace::IndividualAndSketchCounts{undivNind, kSketches}, logFileName),
+				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVector, BayesicSpace::IndividualAndSketchCounts{nIndividuals, kGtN}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(tooBig, BayesicSpace::IndividualAndSketchCounts{maxNind, largeSketch}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: Number of sketches (") );
 	}
 }
