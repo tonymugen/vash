@@ -210,7 +210,6 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t nThreads{4};
-	constexpr size_t oneThread{1};
 	SECTION("Failed GenoTableBin constructors") {
 		constexpr size_t smallNind{1};
 		constexpr size_t largeNind{std::numeric_limits<size_t>::max() - 3};
@@ -359,8 +358,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t kSketches{29};
-	constexpr size_t nThreads{4};
-	constexpr size_t oneThread{1};
+	constexpr size_t nThreads{2};
 	const std::string alleleCountsFile("../tests/alleleCounts.txt");
 	std::fstream inAlleleCounts;
 	std::string eachLine;
@@ -409,5 +407,8 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(tooBig, BayesicSpace::IndividualAndSketchCounts{maxNind, largeSketch}, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: Number of sketches (") );
+	}
+	SECTION("GenoTableHash constructors and methods with correct data") {
+		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
 	}
 }

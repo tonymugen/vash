@@ -263,7 +263,7 @@ namespace BayesicSpace {
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
 		/** \brief Random number generator */
-		RanDraw rng_;
+		mutable RanDraw rng_;
 		/** \brief The mutex */
 		mutable std::mutex mtx_;
 		/** \brief Leading bytes for .bed files */
@@ -430,6 +430,16 @@ namespace BayesicSpace {
 		/** \brief Destructor */
 		~GenoTableHash() = default;
 
+		/** \brief All by all LD from hashes in memory 
+		 *
+		 * Calculates linkage disequilibrium among all loci using a modified OPH.
+		 * All values belong to the same group. Indexes are 0-based.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 *
+		 * \return a vector of indexed Jaccard similarity values
+		 */
+		std::vector<IndexedPairSimilarity> allHashLD() const;
 		/** \brief All by all LD from hashes
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
