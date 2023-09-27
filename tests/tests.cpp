@@ -358,7 +358,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t kSketches{29};
-	constexpr size_t nThreads{2};
+	constexpr size_t nThreads{4};
 	const std::string alleleCountsFile("../tests/alleleCounts.txt");
 	std::fstream inAlleleCounts;
 	std::string eachLine;

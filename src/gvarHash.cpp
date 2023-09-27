@@ -49,8 +49,6 @@
 #include <thread>
 #include <immintrin.h>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -673,7 +671,6 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 
 	locusGroupAttributes.firstLocusIdx = 0;
 	locusGroupAttributes.firstLocusIdx = bed2oph_(locusGroupAttributes, inStream, ranInts, addIndv, seeds);
-	std::cout << "remaining loci: " << remainingLoci << "\n";
 	if (remainingLoci > 0) {
 		locusGroupAttributes.nLociPerThread = std::max(remainingLoci / nThreads_, 1UL);
 		locusGroupAttributes.nBytesToRead   = remainingBytes;
@@ -1330,7 +1327,7 @@ size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const s
 		currentBedLocusSpan.start  = locusInd;
 		currentBedLocusSpan.length = bedLocusSpan.length;
 		tasks.emplace_back(
-			std::async([this, &bedData, &eachTR, &currentBedLocusSpan, &permutation, &padIndiv, &seeds]{
+			std::async([this, &bedData, &eachTR, currentBedLocusSpan, &permutation, &padIndiv, &seeds]{ // must pass currentLocusSpan by value, otherwise the threads see the same values
 				bed2ophBlk_(bedData, eachTR, currentBedLocusSpan, permutation, padIndiv, seeds);
 			})
 		);
