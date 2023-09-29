@@ -161,6 +161,17 @@ namespace BayesicSpace {
 	 */
 	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 														RanDraw &prng, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
+	/** \brief Initialize an `IndexedPairSimilarity` vector 
+	 *
+	 * Creates a vector of `IndexedPairSimilarity` objects.
+	 * Index pairs are set to reflect the possibility that this vector is a part of a larger vectorized lower triangle of a similarity matrix.
+	 * All group IDs and similarity values are set to 0.
+	 *
+	 * \param[in] pairSpan the overall start and length (in elements) of the segment
+	 * \param[in] totalNelements total number of elements
+	 * \return vector of `IndexedPairSimilarity` objects
+	 */
+	std::vector<IndexedPairSimilarity> initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements);
 	/** \brief Create pair vector from groups 
 	 *
 	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.

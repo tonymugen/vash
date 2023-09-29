@@ -140,6 +140,27 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		);
 	}
 
+	SECTION("Pair index initialization") {
+		constexpr BayesicSpace::LocationWithLength pairSpan{71, 201};
+		constexpr size_t allN{397};
+		std::vector<BayesicSpace::IndexedPairSimilarity> pairSegment{BayesicSpace::initializeIPSvector(pairSpan, allN)};
+		REQUIRE(pairSegment.size() == pairSpan.length);
+		REQUIRE(pairSegment[0].element1ind == 0);
+		REQUIRE(pairSegment[0].element2ind == pairSpan.start + 1);
+		REQUIRE(std::all_of(
+				pairSegment.cbegin(),
+				pairSegment.cend(),
+				[](const BayesicSpace::IndexedPairSimilarity &obj){return obj.element1ind < obj.element2ind;}
+			)
+		);
+		REQUIRE(std::all_of(
+				pairSegment.cbegin(),
+				pairSegment.cend(),
+				[&allN](const BayesicSpace::IndexedPairSimilarity &obj){return (obj.element1ind < allN) || (obj.element2ind < allN);}
+			)
+		);
+	}
+
 	SECTION("Magic byte testing") {
 		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
 		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{0x6d, 0x1b, 0x01};

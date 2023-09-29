@@ -295,6 +295,30 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	}
 }
 
+std::vector<IndexedPairSimilarity> BayesicSpace::initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements) {
+	std::vector<IndexedPairSimilarity> pairVector;
+	const size_t nnElements{totalNelements * (totalNelements - 1) / 2 - 1};
+	pairVector.reserve(pairSpan.length);
+	size_t iPair{0};
+	while (iPair < pairSpan.length) {
+		const size_t curPairInd{iPair + pairSpan.start};
+		const size_t kpIdx{nnElements - curPairInd};
+		const size_t pIdx  = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
+		const auto row     = static_cast<uint32_t>(totalNelements - 2 - pIdx);
+		const auto col     = static_cast<uint32_t>(totalNelements - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
+
+		IndexedPairSimilarity curPair{};
+		curPair.groupID         = 0;
+		curPair.similarityValue = 0.0F;
+		curPair.element1ind     = row;
+		curPair.element2ind     = col;
+		pairVector.emplace_back(curPair);
+
+		++iPair;
+	}
+	return pairVector;
+}
+
 std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t &firstGrpIdx,
 				const std::vector< std::vector<uint32_t> >::const_iterator grpBlockStart, const std::vector< std::vector<uint32_t> >::const_iterator grpBlockEnd) {
 	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
@@ -383,7 +407,8 @@ void BayesicSpace::parseCL(int &argc, char **argv, std::unordered_map<std::strin
 	}
 }
 
-void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables) {
+void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI,
+			std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables) {
 	intVariables.clear();
 	stringVariables.clear();
 	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
