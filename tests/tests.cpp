@@ -28,6 +28,7 @@
  */
 
 #include <cstdint>
+#include <cstdio>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -163,9 +164,9 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 
 	SECTION("Magic byte testing") {
 		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
-		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{0x6d, 0x1b, 0x01};
-		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{0x6c, 0x0b, 0x01};
-		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{0x6c, 0x1b, 0x11};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{ 0x6d, 0x1b, 0x01};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes2{ 0x6c, 0x0b, 0x01};
+		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes3{ 0x6c, 0x1b, 0x11};
 		REQUIRE_NOTHROW( BayesicSpace::testBedMagicBytes(correctBedBytes) );
 		REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes1), Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
 		REQUIRE_THROWS_WITH(BayesicSpace::testBedMagicBytes(wrongBedBytes2), Catch::Matchers::StartsWith("ERROR: second magic byte in input .bed file") );
@@ -379,7 +380,10 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t kSketches{29};
+	constexpr float invKlowBound{0.034};
 	constexpr size_t nThreads{4};
+	constexpr size_t nLoci{397};
+	constexpr size_t totNpairs{nLoci * (nLoci - 1) / 2};
 	const std::string alleleCountsFile("../tests/alleleCounts.txt");
 	std::fstream inAlleleCounts;
 	std::string eachLine;
@@ -431,5 +435,38 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	}
 	SECTION("GenoTableHash constructors and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
+		std::vector<BayesicSpace::IndexedPairSimilarity> bedHLD{bedHSH.allHashLD()};
+		REQUIRE(bedHLD.size() == totNpairs);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.groupID == static_cast<size_t>(0);}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue >= 0.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue <= 1.0F;}
+				)
+		);
+		// testing discreetness of the Jaccard values that arises from the chosen sketch size
+		REQUIRE(std::none_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
+				)
+		);
 	}
 }

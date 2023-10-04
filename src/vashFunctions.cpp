@@ -303,9 +303,9 @@ std::vector<IndexedPairSimilarity> BayesicSpace::initializeIPSvector(const Locat
 	while (iPair < pairSpan.length) {
 		const size_t curPairInd{iPair + pairSpan.start};
 		const size_t kpIdx{nnElements - curPairInd};
-		const size_t pIdx  = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
-		const auto row     = static_cast<uint32_t>(totalNelements - 2 - pIdx);
-		const auto col     = static_cast<uint32_t>(totalNelements - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
+		const size_t pIdx = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
+		const auto row    = static_cast<uint32_t>(totalNelements - 2 - pIdx);
+		const auto col    = static_cast<uint32_t>(totalNelements - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
 
 		IndexedPairSimilarity curPair{};
 		curPair.groupID         = 0;

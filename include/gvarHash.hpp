@@ -446,20 +446,28 @@ namespace BayesicSpace {
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * All values belong to the same group. Row and column indexes (1-base) of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
+		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
+		 * Otherwise, set the number of chunks automatically.
 		 *
 		 * \param[in] ldFileName name of file to save the results
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void allHashLD(const std::string &ldFileName) const;
+		void allHashLD( const std::string &ldFileName, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief All by all LD from hashes with locus names
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
+		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
+		 * Otherwise, set the number of chunks automatically.
 		 *
 		 * \param[in] bimAndLDnames name of the _.bim_ file with locus names and the output LD results file
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void allHashLD(const InOutFileNames &bimAndLDnames) const;
+		void allHashLD( const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
@@ -635,26 +643,6 @@ namespace BayesicSpace {
 		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
 		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
-		/** \brief Hash-based similarity in a block of loci
-		 *
-		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
-		 * The range of indexes refers to a vectorized by column lower triangle of a similarity matrix.
-		 *
-		 * \param[in] blockRange index range in a block in `hashJacVec`
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
-		 */
-		void hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
-		/** \brief Hash-based similarity among indexed loci
-		 *
-		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
-		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
-		 * The index vector contains indexes of locus pairs included in LD calculations.
-		 *
-		 * \param[in] blockRange index of the block start and block length
-		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
-		 */
-		void hashJacBlock_(const LocationWithLength &blockRange, std::vector<IndexedPairSimilarity> &indexedJacc) const;
 		/** \brief Hash-based similarity among loci in a block
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci in a block.
@@ -665,17 +653,6 @@ namespace BayesicSpace {
 		 *
 		 */
 		void hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const;
-		/** \brief Hash-based similarity using multiple threads
-		 *
-		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
-		 * The ranges of indexes refer to a vectorized by column lower triangle of a similarity matrix.
-		 *
-		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
-		 * \return new block start index
-		 */
-		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 		/** \brief Hash-based indexed similarity using multiple threads
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
