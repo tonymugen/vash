@@ -107,7 +107,10 @@ namespace BayesicSpace {
 					bimAndLD.outputFileName = stringVariables.at("out-file");
 					groupLD.allHashLD(bimAndLD);
 				} else {
-					groupLD.allHashLD( stringVariables.at("out-file") );
+					BayesicSpace::InOutFileNames outFile{};
+					outFile.outputFileName = stringVariables.at("out-file");
+					outFile.inputFileName  = "";
+					groupLD.allHashLD(outFile);
 				}
 			} else {
 				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};

@@ -38,6 +38,7 @@
 #include <string>
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 
 #include <iostream>
 #include <bitset>
@@ -381,6 +382,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	constexpr size_t nIndividuals{197};
 	constexpr size_t kSketches{29};
 	constexpr float invKlowBound{0.034};
+	constexpr float invKhighBound{0.966};
 	constexpr size_t nThreads{4};
 	constexpr size_t nLoci{397};
 	constexpr size_t totNpairs{nLoci * (nLoci - 1) / 2};
@@ -461,12 +463,49 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue <= 1.0F;}
 				)
 		);
-		// testing discreetness of the Jaccard values that arises from the chosen sketch size
+		// testing discreteness of the Jaccard values that arises from the chosen sketch size
 		REQUIRE(std::none_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
 					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
 				)
 		);
+		REQUIRE(std::none_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
+				)
+		);
+		const std::string tmpJacFile("../tests/tmpJac.tsv");
+		BayesicSpace::InOutFileNames tmpFileGrp{};
+		tmpFileGrp.outputFileName = tmpJacFile;
+		tmpFileGrp.inputFileName  = "";
+		constexpr size_t forcedChunks{5};
+		bedHSH.allHashLD(tmpFileGrp, forcedChunks);
+		std::fstream hashLDfile(tmpJacFile, std::ios::in);
+		std::string line;
+		std::vector<BayesicSpace::IndexedPairSimilarity> fileLD;
+		fileLD.reserve(totNpairs);
+		std::getline(hashLDfile, line);
+		while ( std::getline(hashLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			BayesicSpace::IndexedPairSimilarity curRecord{};
+			curRecord.groupID = 0;
+			lineStream >> field;
+			lineStream >> field;
+			curRecord.element1ind = stoi(field);
+			lineStream >> field;
+			curRecord.element2ind = stoi(field);
+			lineStream >> field;
+			curRecord.similarityValue = stof(field);
+			fileLD.emplace_back(curRecord);
+		}
+		std::cout << "\n";
+		hashLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE( fileLD.size() == bedHLD.size() );
+		
 	}
 }

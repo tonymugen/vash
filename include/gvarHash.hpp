@@ -444,25 +444,12 @@ namespace BayesicSpace {
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column indexes (1-base) of the similarity matrix are also included in the tab-delimited output file.
-		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
-		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
-		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
-		 * Otherwise, set the number of chunks automatically.
-		 *
-		 * \param[in] ldFileName name of file to save the results
-		 * \param[in] suggestNchunks force processing in chunks
-		 */
-		void allHashLD( const std::string &ldFileName, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
-		/** \brief All by all LD from hashes with locus names
-		 *
-		 * Calculates linkage disequilibrium among all loci using a modified OPH.
-		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
 		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
 		 * Otherwise, set the number of chunks automatically.
+		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
 		 * \param[in] bimAndLDnames name of the _.bim_ file with locus names and the output LD results file
 		 * \param[in] suggestNchunks force processing in chunks
