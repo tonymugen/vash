@@ -903,7 +903,7 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 	assert( (nRowsPerBand < kSketches_) // NOLINT
 			&& "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
 	const size_t nBands = kSketches_ / nRowsPerBand;                                                          // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
-	assert( ( nBands >= std::numeric_limits<uint16_t>::max() ) // NOLINT
+	assert( ( nBands <= std::numeric_limits<uint16_t>::max() ) // NOLINT
 			&& "ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
 
 	logMessages_ += "Grouping loci\n";
@@ -917,10 +917,13 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 		size_t iSketch = 0;
 		for (size_t iBand = 0; iBand < nBands; ++iBand) {
 			std::vector<uint16_t> bandVec{static_cast<uint16_t>(iBand)};                                      // add the band index to the hash, so that only corresponding bands are compared
-			const size_t firstSketchIdx = iSketch + iLocus * kSketches_;                                      // iSketch tracks band IDs
-			for (size_t iInBand = firstSketchIdx; iInBand < firstSketchIdx + nRowsPerBand; ++iInBand) {
-				bandVec.push_back(sketches_[iInBand]);
-			}
+
+			auto firstSketchIt = sketches_.cbegin()
+				+ static_cast<std::vector<uint16_t>::difference_type>(iSketch + iLocus * kSketches_);         // iSketch tracks band IDs
+			auto lastSketchIt = firstSketchIt
+				+ static_cast<std::vector<uint16_t>::difference_type>(nRowsPerBand);
+			std::copy( firstSketchIt, lastSketchIt, std::back_inserter(bandVec) );
+
 			LocationWithLength bandVecWindow{0, 0};
 			bandVecWindow.start  = 0;
 			bandVecWindow.length = bandVec.size();

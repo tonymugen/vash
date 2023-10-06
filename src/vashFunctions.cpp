@@ -178,7 +178,7 @@ uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const Locati
 	const size_t end{keyWindow.start + keyWindow.length};
 	const size_t wholeEnd{end & roundMask};
 
-	assert( ( end < key.size() ) && "ERROR: length goes past the end of key in murMurHash" ); // NOLINT
+	assert( ( end <= key.size() ) && "ERROR: length goes past the end of key in murMurHash" ); // NOLINT
 
 	size_t keyIdx{keyWindow.start};
 	while (keyIdx < wholeEnd) {

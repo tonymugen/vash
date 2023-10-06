@@ -98,10 +98,14 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 	constexpr BayesicSpace::LocationWithLength keyWindow{4, 5};
 	constexpr uint32_t correct16bitHash{3760365877};
 	const uint32_t v16bitHash{BayesicSpace::murMurHash(vector16bit, keyWindow, mmHashSeed)};
+	constexpr BayesicSpace::LocationWithLength wholeKeySpan{0, array16bit.size()};
+	constexpr uint32_t correctAll16bitHash{2280422248};
+	const uint32_t all16bitHash{BayesicSpace::murMurHash(vector16bit, wholeKeySpan, mmHashSeed)};
 	SECTION("MurMurHash correctness tests") {
 		REQUIRE(arrayMMhash   == correctArrayHash);
 		REQUIRE(idxVectorHash == correctIdxVectorHash);
 		REQUIRE(v16bitHash    == correct16bitHash);
+		REQUIRE(all16bitHash  == correctAll16bitHash);
 	}
 	SECTION("MurMurHash sensitivity tests") {
 		constexpr uint32_t mmHashSeed2{2153025619};
@@ -381,6 +385,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr size_t nIndividuals{197};
 	constexpr size_t kSketches{29};
+	constexpr size_t nRowsPerBand{5};
 	constexpr float invKlowBound{0.034};
 	constexpr float invKhighBound{0.966};
 	constexpr size_t nThreads{4};
@@ -486,7 +491,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		std::string line;
 		std::vector<BayesicSpace::IndexedPairSimilarity> fileLD;
 		fileLD.reserve(totNpairs);
-		std::getline(hashLDfile, line);
+		std::getline(hashLDfile, line);             // get rid of the header
 		while ( std::getline(hashLDfile, line) ) {
 			std::stringstream lineStream;
 			lineStream.str(line);
@@ -495,17 +500,57 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			curRecord.groupID = 0;
 			lineStream >> field;
 			lineStream >> field;
-			curRecord.element1ind = stoi(field);
+			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
 			lineStream >> field;
-			curRecord.element2ind = stoi(field);
+			curRecord.element2ind = stoi(field) - 1;
 			lineStream >> field;
 			curRecord.similarityValue = stof(field);
 			fileLD.emplace_back(curRecord);
 		}
-		std::cout << "\n";
 		hashLDfile.close();
 		std::remove( tmpJacFile.c_str() ); // NOLINT
 		REQUIRE( fileLD.size() == bedHLD.size() );
-		
+		REQUIRE(std::equal(
+				fileLD.cbegin(),
+				fileLD.cend(),
+				bedHLD.cbegin(),
+				[invKlowBound](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
+					return (obj1.element1ind == obj2.element1ind)
+						&& (obj1.element2ind == obj2.element2ind)
+						&& (std::abs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
+				}
+			)
+		);
+		std::vector< std::vector<uint32_t> > groups{bedHSH.makeLDgroups(nRowsPerBand)};
+		auto smallestSizeIt = std::min_element(
+			groups.cbegin(),
+			groups.cend(),
+			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
+				return vec1.size() < vec2.size();
+			}
+		);
+		REQUIRE(smallestSizeIt->size() >= 2);
+		auto largestSizeIt = std::max_element(
+			groups.cbegin(),
+			groups.cend(),
+			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
+				return vec1.size() < vec2.size();
+			}
+		);
+		REQUIRE(largestSizeIt->size() <= nIndividuals);
+		REQUIRE(std::all_of(
+				groups.cbegin(),
+				groups.cend(),
+				[](const std::vector<uint32_t> &eachGroup) {
+					return std::is_sorted( eachGroup.cbegin(), eachGroup.cend() );
+				}
+			)
+		);
+		REQUIRE(std::is_sorted(
+				groups.cbegin(),
+				groups.cend(),
+				[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2){return vec1.at(0) < vec2.at(0);}
+			)
+		);
 	}
 }
