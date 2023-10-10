@@ -483,6 +483,15 @@ namespace BayesicSpace {
 		 * \param[in] bimAndGroupNames _.bim_ and output group file name
 		 */
 		void makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const;
+		/** \brief In-memory LD in groups 
+		 *
+		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * Output LD (Jaccard similarity) estimates with group IDs and locus indexes.
+		 *
+		 * \param[in] nRowsPerBand number of rows per sketch matrix band
+		 * \return vector of indexed Jaccard similarity values
+		 */
+		std::vector<IndexedPairSimilarity> ldInGroups(const size_t &nRowsPerBand) const;
 		/** \brief LD in groups
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.

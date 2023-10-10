@@ -517,7 +517,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				[invKlowBound](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
 					return (obj1.element1ind == obj2.element1ind)
 						&& (obj1.element2ind == obj2.element2ind)
-						&& (std::abs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
+						&& (std::fabs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
 				}
 			)
 		);
@@ -550,6 +550,33 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				groups.cbegin(),
 				groups.cend(),
 				[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2){return vec1.at(0) < vec2.at(0);}
+			)
+		);
+		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{bedHSH.ldInGroups(nRowsPerBand)};
+		REQUIRE(groupLD.size() <= totNpairs);
+		REQUIRE(std::is_sorted(
+				groupLD.cbegin(),
+				groupLD.cend(),
+				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second){
+					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+				}
+			)
+		);
+		REQUIRE(std::all_of(
+				groupLD.cbegin(),
+				groupLD.cend(),
+				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair){
+					auto findIt = std::find_if(
+							bedHLD.cbegin(),
+							bedHLD.cend(),
+							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair){
+								return (eachGrpPair.element1ind == allPair.element1ind) && 
+										(eachGrpPair.element2ind == allPair.element2ind) &&
+										(std::fabs(eachGrpPair.similarityValue - allPair.similarityValue) <= invKlowBound);
+							}
+						);
+					return findIt != bedHLD.end();
+				}
 			)
 		);
 	}

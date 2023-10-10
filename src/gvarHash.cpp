@@ -989,6 +989,38 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 	out.close();
 }
 
+std::vector<IndexedPairSimilarity> GenoTableHash::ldInGroups(const size_t &nRowsPerBand) const {
+	logMessages_ += "In-memory estimation of LD in groups\n";
+	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	std::vector<IndexedPairSimilarity> groupVector{vectorizeGroups( 0, ldGroups.cbegin(), ldGroups.cend() )};
+	std::sort(groupVector.begin(), groupVector.end(),
+				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
+					return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+				}
+			);
+	// some locus pairs are present in multiple groups, so we eliminate duplicates
+	auto lastUniqueIt = std::unique(groupVector.begin(), groupVector.end(),
+				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
+					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+				}
+			);
+	groupVector.erase( lastUniqueIt, groupVector.end() );
+	groupVector.shrink_to_fit();
+	const size_t nPairsPerThread = groupVector.size() / nThreads_;
+	if (nPairsPerThread > 0) {
+		CountAndSize threadCounts{0, 0};
+		threadCounts.count = nThreads_;
+		threadCounts.size  = nPairsPerThread;
+		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+		// assuming the number of threads << number of groups, this should not lead to noticeable thread imbalance
+		threadRanges.back().second = groupVector.size();
+		hashJacThreaded_(threadRanges, groupVector);
+	} else {
+		hashJacBlock_( groupVector.begin(), groupVector.end() );
+	}
+	return groupVector;
+}
+
 void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
 	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
 	
