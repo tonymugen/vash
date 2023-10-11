@@ -130,7 +130,10 @@ namespace BayesicSpace {
 					if (stringVariables.at("only-groups") == "set") {
 						groupLD.makeLDgroups( rowsPB, stringVariables.at("out-file") );
 					} else {
-						groupLD.ldInGroups( rowsPB, stringVariables.at("out-file") );
+						BayesicSpace::InOutFileNames outFile{};
+						outFile.outputFileName = stringVariables.at("out-file");
+						outFile.inputFileName  = "";
+						groupLD.ldInGroups(rowsPB, outFile);
 					}
 				}
 			}

@@ -440,7 +440,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(tooBig, BayesicSpace::IndividualAndSketchCounts{maxNind, largeSketch}, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: Number of sketches (") );
 	}
-	SECTION("GenoTableHash constructors and methods with correct data") {
+	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
 		std::vector<BayesicSpace::IndexedPairSimilarity> bedHLD{bedHSH.allHashLD()};
 		REQUIRE(bedHLD.size() == totNpairs);
@@ -514,7 +514,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				fileLD.cbegin(),
 				fileLD.cend(),
 				bedHLD.cbegin(),
-				[invKlowBound](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
+				[](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
 					return (obj1.element1ind == obj2.element1ind)
 						&& (obj1.element2ind == obj2.element2ind)
 						&& (std::fabs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
@@ -576,6 +576,236 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 							}
 						);
 					return findIt != bedHLD.end();
+				}
+			)
+		);
+		bedHSH.ldInGroups(nRowsPerBand, tmpFileGrp, forcedChunks);
+		std::fstream grpLDfile(tmpJacFile, std::ios::in);
+		fileLD.clear();
+		std::getline(grpLDfile, line);             // get rid of the header
+		while ( std::getline(grpLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			BayesicSpace::IndexedPairSimilarity curRecord{};
+			curRecord.groupID = 0;
+			lineStream >> field;
+			lineStream >> field;
+			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			curRecord.element2ind = stoi(field) - 1;
+			lineStream >> field;
+			curRecord.similarityValue = stof(field);
+			fileLD.emplace_back(curRecord);
+		}
+		grpLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE( fileLD.size() >= groupLD.size() );
+		std::sort(fileLD.begin(), fileLD.end(),
+					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+					}
+				);
+		auto lastUniqueIt = std::unique(fileLD.begin(), fileLD.end(),
+					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+						return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+					}
+				);
+		fileLD.erase( lastUniqueIt, fileLD.end() );
+		fileLD.shrink_to_fit();
+		REQUIRE(std::equal(
+				fileLD.cbegin(),
+				fileLD.cend(),
+				groupLD.cbegin(),
+				[](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
+					return (obj1.element1ind == obj2.element1ind)
+						&& (obj1.element2ind == obj2.element2ind)
+						&& (std::fabs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
+				}
+			)
+		);
+	}
+	SECTION("GenoTableHash mac vector constructor and methods with correct data") {
+		BayesicSpace::GenoTableHash vecHSH(macVector, sketchParameters, nThreads, logFileName);
+		std::vector<BayesicSpace::IndexedPairSimilarity> bedHLD{vecHSH.allHashLD()};
+		REQUIRE(bedHLD.size() == totNpairs);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.groupID == static_cast<size_t>(0);}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue >= 0.0F;}
+				)
+		);
+		REQUIRE(std::all_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue <= 1.0F;}
+				)
+		);
+		// testing discreteness of the Jaccard values that arises from the chosen sketch size
+		REQUIRE(std::none_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
+				)
+		);
+		REQUIRE(std::none_of(
+					bedHLD.cbegin(),
+					bedHLD.cend(),
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
+				)
+		);
+		const std::string tmpJacFile("../tests/tmpJac.tsv");
+		BayesicSpace::InOutFileNames tmpFileGrp{};
+		tmpFileGrp.outputFileName = tmpJacFile;
+		tmpFileGrp.inputFileName  = "";
+		constexpr size_t forcedChunks{5};
+		vecHSH.allHashLD(tmpFileGrp, forcedChunks);
+		std::fstream hashLDfile(tmpJacFile, std::ios::in);
+		std::string line;
+		std::vector<BayesicSpace::IndexedPairSimilarity> fileLD;
+		fileLD.reserve(totNpairs);
+		std::getline(hashLDfile, line);             // get rid of the header
+		while ( std::getline(hashLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			BayesicSpace::IndexedPairSimilarity curRecord{};
+			curRecord.groupID = 0;
+			lineStream >> field;
+			lineStream >> field;
+			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			curRecord.element2ind = stoi(field) - 1;
+			lineStream >> field;
+			curRecord.similarityValue = stof(field);
+			fileLD.emplace_back(curRecord);
+		}
+		hashLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE( fileLD.size() == bedHLD.size() );
+		REQUIRE(std::equal(
+				fileLD.cbegin(),
+				fileLD.cend(),
+				bedHLD.cbegin(),
+				[](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
+					return (obj1.element1ind == obj2.element1ind)
+						&& (obj1.element2ind == obj2.element2ind)
+						&& (std::fabs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
+				}
+			)
+		);
+		std::vector< std::vector<uint32_t> > groups{vecHSH.makeLDgroups(nRowsPerBand)};
+		auto smallestSizeIt = std::min_element(
+			groups.cbegin(),
+			groups.cend(),
+			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
+				return vec1.size() < vec2.size();
+			}
+		);
+		REQUIRE(smallestSizeIt->size() >= 2);
+		auto largestSizeIt = std::max_element(
+			groups.cbegin(),
+			groups.cend(),
+			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
+				return vec1.size() < vec2.size();
+			}
+		);
+		REQUIRE(largestSizeIt->size() <= nIndividuals);
+		REQUIRE(std::all_of(
+				groups.cbegin(),
+				groups.cend(),
+				[](const std::vector<uint32_t> &eachGroup) {
+					return std::is_sorted( eachGroup.cbegin(), eachGroup.cend() );
+				}
+			)
+		);
+		REQUIRE(std::is_sorted(
+				groups.cbegin(),
+				groups.cend(),
+				[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2){return vec1.at(0) < vec2.at(0);}
+			)
+		);
+		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{vecHSH.ldInGroups(nRowsPerBand)};
+		REQUIRE(groupLD.size() <= totNpairs);
+		REQUIRE(std::is_sorted(
+				groupLD.cbegin(),
+				groupLD.cend(),
+				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second){
+					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+				}
+			)
+		);
+		REQUIRE(std::all_of(
+				groupLD.cbegin(),
+				groupLD.cend(),
+				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair){
+					auto findIt = std::find_if(
+							bedHLD.cbegin(),
+							bedHLD.cend(),
+							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair){
+								return (eachGrpPair.element1ind == allPair.element1ind) && 
+										(eachGrpPair.element2ind == allPair.element2ind) &&
+										(std::fabs(eachGrpPair.similarityValue - allPair.similarityValue) <= invKlowBound);
+							}
+						);
+					return findIt != bedHLD.end();
+				}
+			)
+		);
+		vecHSH.ldInGroups(nRowsPerBand, tmpFileGrp, forcedChunks);
+		std::fstream grpLDfile(tmpJacFile, std::ios::in);
+		fileLD.clear();
+		std::getline(grpLDfile, line);             // get rid of the header
+		while ( std::getline(grpLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			BayesicSpace::IndexedPairSimilarity curRecord{};
+			curRecord.groupID = 0;
+			lineStream >> field;
+			lineStream >> field;
+			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			curRecord.element2ind = stoi(field) - 1;
+			lineStream >> field;
+			curRecord.similarityValue = stof(field);
+			fileLD.emplace_back(curRecord);
+		}
+		grpLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE( fileLD.size() >= groupLD.size() );
+		std::sort(fileLD.begin(), fileLD.end(),
+					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+					}
+				);
+		auto lastUniqueIt = std::unique(fileLD.begin(), fileLD.end(),
+					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+						return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+					}
+				);
+		fileLD.erase( lastUniqueIt, fileLD.end() );
+		fileLD.shrink_to_fit();
+		REQUIRE(std::equal(
+				fileLD.cbegin(),
+				fileLD.cend(),
+				groupLD.cbegin(),
+				[](const BayesicSpace::IndexedPairSimilarity &obj1, const BayesicSpace::IndexedPairSimilarity &obj2) {
+					return (obj1.element1ind == obj2.element1ind)
+						&& (obj1.element2ind == obj2.element2ind)
+						&& (std::fabs(obj1.similarityValue - obj2.similarityValue) <= invKlowBound);
 				}
 			)
 		);

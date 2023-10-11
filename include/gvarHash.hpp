@@ -494,23 +494,18 @@ namespace BayesicSpace {
 		std::vector<IndexedPairSimilarity> ldInGroups(const size_t &nRowsPerBand) const;
 		/** \brief LD in groups
 		 *
-		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
-		 * Output LD (Jaccard similarity) estimates with group IDs and locus indexes.
-		 *
-		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] outFileName name of the output file
-		 */
-		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
-		/** \brief LD in groups with locus names
-		 *
-		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within groups.
 		 * Output LD (Jaccard similarity) estimates with group IDs and locus names.
+		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
+		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
+		 * Otherwise, set the number of chunks automatically.
+		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \param[in] bimAndLDnames _.bim_ and output LD file names
-		 * \param[in] outFileName name of the output file
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames) const;
+		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
