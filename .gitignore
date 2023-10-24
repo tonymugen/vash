@@ -2,4 +2,8 @@ build*/*
 .cache/*
 tests/*
 !tests/*.cpp
+!tests/*.bed
+!tests/*.bim
+!tests/*.fam
+!tests/*.txt
 Doxyfile

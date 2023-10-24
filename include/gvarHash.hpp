@@ -42,9 +42,63 @@
 #include "random.hpp"
 
 namespace BayesicSpace {
+	struct LocationWithLength;
+	struct CountAndSize;
+	struct IndividualAndSketchCounts;
+	struct BedDataStats;
+	struct InOutFileNames;
 	struct IndexedPairSimilarity; 
+	struct IndexedPairLD; 
 	class GenoTableBin;
 	class GenoTableHash;
+
+	/** \brief Window location and extent
+	 *
+	 * Groups the start index and length (in number of elements) of a window spanning container elements.
+	 */
+	struct LocationWithLength {
+		size_t start;
+		size_t length;
+	};
+
+	/** \brief Number of items and their size
+	 *
+	 * Groups the number of items with size of each.
+	 */
+	struct CountAndSize {
+		size_t count;
+		size_t size;
+	};
+
+	/** \brief Number of individuals and sketches
+	 *
+	 * Groups the number of individuals with sketch numbers for hashing.
+	 */
+	struct IndividualAndSketchCounts {
+		size_t nIndividuals;
+		size_t kSketches;
+	};
+
+	/** \brief Attributes of _.bed_ format loci
+	 *
+	 * Data attributes of locus groups for reading _.bed_ files.
+	 */
+	struct BedDataStats {
+		size_t firstLocusIdx;
+		size_t nLociPerThread;
+		size_t nBytesPerLocus;
+		size_t nBytesToRead;
+		size_t nLociToRead;
+		size_t nMemChunks;     // number of chunks to read into memory
+	};
+	/** \brief Input and output file names
+	 *
+	 * Groups input and output file names.
+	 */
+	struct InOutFileNames {
+		std::string inputFileName;
+		std::string outputFileName;
+	};
 
 	/** \brief Jaccard value with indexes
 	 *
@@ -88,7 +142,8 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : 
+						GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -114,7 +169,8 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) : GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) :
+						GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -134,18 +190,18 @@ namespace BayesicSpace {
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableBin operator=(const GenoTableBin &toCopy) = delete;
+		GenoTableBin& operator=(const GenoTableBin &toCopy) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] toMove object to move
 		 */
-		GenoTableBin(GenoTableBin &&toMove) noexcept;
+		GenoTableBin(GenoTableBin &&toMove) noexcept = default;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] toMove object to be moved
 		 * \return `GenoTableBin` object
 		 */
-		GenoTableBin& operator=(GenoTableBin &&toMove) noexcept;
+		GenoTableBin& operator=(GenoTableBin &&toMove) noexcept = default;
 		/** \brief Destructor */
 		~GenoTableBin() = default;
 
@@ -156,28 +212,37 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const std::string &outFileName) const;
-		/** \brief All by all Jaccard similarity LD
+		/** \brief All by all Jaccard similarity in memory 
 		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
+		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
+		 */
+		std::vector<IndexedPairLD> allJaccardLD() const;
+		/** \brief All by all Jaccard similarity LD
+		 *
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
+		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
+		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
+		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
+		 *
 		 * \param[in] ldFileName name of the output file
-		 * \return lower triangle of the LD matrix
 		 */
 		void allJaccardLD(const std::string &ldFileName) const;
 		/** \brief All by all Jaccard similarity LD with locus names
 		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity as the statistic.
+		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
+		 * Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
 		 *
-		 * \param[in] bimFileName name of the _.bim_ file that has locus names
-		 * \param[in] ldFileName name of the output file
+		 * \param[in] bimAndLDnames name of the input _.bim_ file that has locus names and the output LD value file name
 		 */
-		void allJaccardLD(const std::string &bimFileName, const std::string &ldFileName) const;
+		void allJaccardLD(const InOutFileNames &bimAndLDnames) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -197,10 +262,6 @@ namespace BayesicSpace {
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Random number generator */
-		RanDraw rng_;
-		/** \brief The mutex */
-		mutable std::mutex mtx_;
 		/** \brief Leading bytes for .bed files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
@@ -223,21 +284,28 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] bedLocusIndRange indexes of the first and last locus in the _.bed_ vector
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] locusSpan window with the overall index of the first locus in the range and locus length
 		 */
-		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd, const size_t &bedLocusLength);
+		void bed2binBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &locusSpan);
 		/** \brief Multi-threaded binarization of _.bed_ file input 
 		 *
-		 * Binarizes loci from a _.bed_ file using multiple threads.
+		 * Binarizes loci from a _.bed_ format byte-vector using multiple threads.
 		 *
 		 * \param[in] bedData vector of _.bed_ file input
 		 * \param[in] threadRanges vector of locus index ranges, one per thread
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] bedLocusLength number of bytes in each locus
+		 * \param[in] locusSpan window with the overall index of the first locus in the range and locus length
 		 * \return new value of `firstLocusInd`
 		 */
-		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd, const size_t &bedLocusLength);
+		size_t bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &locusSpan);
+		/** \brief Wraps _.bed_ file binarization 
+		 *
+		 * Wraps _.bed_ format lossy conversion to binary (with one bit per locus).
+		 *
+		 * \param[in] locusGroupStats _.bed_ locus group attributes
+		 * \param[in,out] bedStream _.bed_ file to be converted
+		 * \return new start individual index
+		 */
+		size_t bed2bin_(const BedDataStats &locusGroupStats, std::fstream &bedStream);
 		/** \brief Binarize minor allele counts in a locus block
 		 *
 		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -272,7 +340,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -284,12 +352,11 @@ namespace BayesicSpace {
 		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
 		 *
 		 * \param[in] inputFileName input file name
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -301,12 +368,11 @@ namespace BayesicSpace {
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] inputFileName input file name
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
-							GenoTableHash( inputFileName, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
+							GenoTableHash( inputFileName, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -320,12 +386,11 @@ namespace BayesicSpace {
 		 * The number of threads specified is the maximal that will be used. Actual number depends on system resources.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreds maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -337,52 +402,55 @@ namespace BayesicSpace {
 		 * Filling in empty bins using the Mai _et al._ (2020) algorithm.
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
-		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] kSketches the number of sketches per locus
+		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const size_t &nIndividuals, const size_t &kSketches, std::string logFileName) :
-				GenoTableHash( maCounts, nIndividuals, kSketches, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
+				GenoTableHash( maCounts, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
-		GenoTableHash operator=(const GenoTableHash &toCopy) = delete;
+		GenoTableHash& operator=(const GenoTableHash &toCopy) = delete;
 		/** \brief Move constructor
 		 *
 		 * \param[in] toMove object to move
 		 */
-		GenoTableHash(GenoTableHash &&toMove) noexcept;
+		GenoTableHash(GenoTableHash &&toMove) noexcept = default;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] toMove object to be moved
 		 * \return `GenoTableHash` object
 		 */
-		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept;
+		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept = default;
 		/** \brief Destructor */
 		~GenoTableHash() = default;
 
-		/** \brief All by all LD from hashes
+		/** \brief All by all LD from hashes in memory 
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
+		 * All values belong to the same group. Indexes are 0-based.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * All values belong to the same group. Row and column indexes (1-base) of the similarity matrix are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
 		 *
-		 * \param[in] ldFileName name of file to save the results
+		 * \return a vector of indexed Jaccard similarity values
 		 */
-		void allHashLD(const std::string &ldFileName) const;
-		/** \brief All by all LD from hashes with locus names
+		std::vector<IndexedPairSimilarity> allHashLD() const;
+		/** \brief All by all LD from hashes
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
 		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
 		 * All values belong to the same group. Row and column locus names are also included in the tab-delimited output file.
 		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
+		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
+		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
+		 * Otherwise, set the number of chunks automatically.
+		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
-		 * \param[in] bimFileName name of the _.bim_ file with locus names
-		 * \param[in] ldFileName name of file to save the results
+		 * \param[in] bimAndLDnames name of the _.bim_ file with locus names and the output LD results file
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void allHashLD(const std::string &bimFileName,  const std::string &ldFileName) const;
+		void allHashLD( const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
@@ -408,29 +476,32 @@ namespace BayesicSpace {
 		 * Assign groups as above and save locus names with their group IDs to a file.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] bimFileName _.bim_ file name
-		 * \param[in] outFileName output file name
+		 * \param[in] bimAndGroupNames _.bim_ and output group file name
 		 */
-		void makeLDgroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
-		/** \brief LD in groups
+		void makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const;
+		/** \brief In-memory LD in groups 
 		 *
 		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
 		 * Output LD (Jaccard similarity) estimates with group IDs and locus indexes.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] outFileName name of the output file
+		 * \return vector of indexed Jaccard similarity values
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
-		/** \brief LD in groups with locus names
+		std::vector<IndexedPairSimilarity> ldInGroups(const size_t &nRowsPerBand) const;
+		/** \brief LD in groups
 		 *
-		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within  groups.
+		 * Group loci according to LD using the algorithm for `makeLDgroups` and calculate similarity within groups.
 		 * Output LD (Jaccard similarity) estimates with group IDs and locus names.
+		 * If `suggestNchunks` is set, processing the data at least in the given number of chunks even if everything fits in RAM.
+		 * If the resulting chunks are still too big to fit in RAM, the number is adjusted up.
+		 * Otherwise, set the number of chunks automatically.
+		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] bimFileName _.bim_ file name
-		 * \param[in] outFileName name of the output file
+		 * \param[in] bimAndLDnames _.bim_ and output LD file names
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const std::string &bimFileName, const std::string &outFileName) const;
+		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -458,10 +529,12 @@ namespace BayesicSpace {
 		size_t nFullWordBytes_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Random number generator */
-		mutable RanDraw rng_;
-		/** \brief The mutex */
-		mutable std::mutex mtx_;
+		/** \brief Random index progression seed 
+		 *
+		 * Seeds the random index progression used to fill empty bins in OPH sketches.
+		 * The index set must be the same across loci (although not necessarily the same number is actually used).
+		 */
+		uint64_t emptyBinIdxSeed_;
 		/** \brief Log messages */
 		mutable std::string logMessages_;
 		/** \brief Log file name */
@@ -499,77 +572,60 @@ namespace BayesicSpace {
 		/** \brief Single-locus one-permutation hash
 		 *
 		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
-		 * The `seeds` vector may be appended by the function if additional seeds are required.
 		 *
 		 * \param[in] locusInd locus index
-		 * \param[in] permutation permutation to be applied to each locus 
-		 * \param[in,out] seeds random number seeds for empty bin filling
+		 * \param[in] permutation permutation to be applied to each locus
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
-		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds, std::vector<uint8_t> &binLocus);
+		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint8_t> &binLocus);
 		/** \brief OPH from _.bed_ file input
 		 *
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
 		 *
 		 * \param[in] bedData _.bed_ file input
 		 * \param[in] bedLocusIndRange range of locus indexes in the block
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] locusLength number of bytes in each locus
+		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &bedLocusSpan,
+									const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief OPH from _.bed_ file input using multiple threads
 		 *
 		 * Hashes input from a _.bed_ file using multiple threads.
 		 *
 		 * \param[in] bedData _.bed_ file input
 		 * \param[in] threadRanges vector of locus ranges, one per thread
-		 * \param[in] firstLocusInd overall index of the first locus in the range
-		 * \param[in] locusLength number of bytes in each locus
+		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \return new value of `firstLocusInd`
 		 */
-		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &firstLocusInd,
-							const size_t &bedLocusLength, const std::vector<size_t> &permutation, std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
+							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
+		/** \brief Wraps _.bed_ file to binarization 
+		 *
+		 * Wraps _.bed_ format hashing.
+		 *
+		 * \param[in] locusGroupStats _.bed_ locus group attributes
+		 * \param[in,out] bedStream _.bed_ file to be converted
+		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
+		 * \return new start individual index
+		 */
+		size_t bed2oph_(const BedDataStats &locusGroupStats, std::fstream &bedStream, const std::vector<size_t> &permutation,
+							const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
 		 * The vector portion corresponds to a block of loci.
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] startLocusInd index of the first locus in block
-		 * \param[in] endLocusInd index of one past the last locus in block
+		 * \param[in] locusBlock locus block start and size
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2ophBlk_(const std::vector<int> &macData, const size_t &startLocusInd, const size_t &endLocusInd, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
-		/** \brief Hash-based similarity in a block of loci
-		 *
-		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values.
-		 * The range of indexes refers to a vectorized by column lower triangle of a similarity matrix.
-		 *
-		 * \param[in] blockRange index range in a block in `hashJacVec`
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
-		 */
-		void hashJacBlock_(const std::pair<size_t, size_t> &blockRange, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
-		/** \brief Hash-based similarity among indexed loci
-		 *
-		 * Pairwise hash-estimated Jaccard similarities among loci indexed by the provided vector. This is for blocked estimates.
-		 * The index range refers to the portion of the vectorized by column lower triangle of the resulting block similarity matrix.
-		 * The index vector contains indexes of locus pairs included in LD calculations.
-		 *
-		 * \param[in] blockStartVec index of the block start
-		 * \param[in] blockEndVec index of the block end
-		 * \param[in, out] indexedJacc vector of similarity values with associated locus indexes and group IDs
-		 */
-		void hashJacBlock_(const size_t &blockStartVec, const size_t &blockEndVec, std::vector<IndexedPairSimilarity> &indexedJacc) const;
+		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation);
 		/** \brief Hash-based similarity among loci in a block
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci in a block.
@@ -580,17 +636,6 @@ namespace BayesicSpace {
 		 *
 		 */
 		void hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const;
-		/** \brief Hash-based similarity using multiple threads
-		 *
-		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
-		 * The ranges of indexes refer to a vectorized by column lower triangle of a similarity matrix.
-		 *
-		 * \param[in] threadRanges vector of block ranges, one per tread, in `hashJacVec`
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] hashJacVec vector of similarity values with associated locus indexes and group IDs
-		 * \return new block start index
-		 */
-		size_t hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, const size_t &blockStartAll, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 		/** \brief Hash-based indexed similarity using multiple threads
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.

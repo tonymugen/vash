@@ -37,8 +37,6 @@
 #include <cmath>
 #include <stdexcept>
 
-#include <chrono>
-
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
@@ -63,7 +61,10 @@ namespace BayesicSpace {
 				allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, stringVariables.at("log-file"), nThreads);
 			}
 			if (stringVariables.at("add-locus-names") == "set") {
-				allJaccard.allJaccardLD( bimFileName, stringVariables.at("out-file") );
+				InOutFileNames bimAndLD{};
+				bimAndLD.inputFileName  = bimFileName;
+				bimAndLD.outputFileName = stringVariables.at("out-file");
+				allJaccard.allJaccardLD(bimAndLD);
 			} else {
 				allJaccard.allJaccardLD( stringVariables.at("out-file") );
 			}
@@ -87,35 +88,52 @@ namespace BayesicSpace {
 	 *
 	 */
 	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
-		const size_t nIndiv{static_cast<size_t>( intVariables.at("n-individuals") )};
-		const size_t kSketches{static_cast<size_t>( intVariables.at("hash-size") )};
+		IndividualAndSketchCounts indivSketches{};
+
+		indivSketches.nIndividuals = static_cast<size_t>( intVariables.at("n-individuals") );
+		indivSketches.kSketches    = static_cast<size_t>( intVariables.at("hash-size") );
 		BayesicSpace::GenoTableHash groupLD;
 		try {
 			if (intVariables.at("threads") < 1) {
-				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), nIndiv, kSketches, stringVariables.at("log-file") );
+				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), indivSketches, stringVariables.at("log-file") );
 			} else {
 				const auto nThreads{static_cast<size_t>( intVariables.at("threads") )};
-				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), nIndiv, kSketches, nThreads, stringVariables.at("log-file") );
+				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), indivSketches, nThreads, stringVariables.at("log-file") );
 			}
 			if (intVariables.at("n-rows-per-band") == 0) {
 				if (stringVariables.at("add-locus-names") == "set") {
-					groupLD.allHashLD( bimFileName, stringVariables.at("out-file") );
+					InOutFileNames bimAndLD{};
+					bimAndLD.inputFileName  = bimFileName;
+					bimAndLD.outputFileName = stringVariables.at("out-file");
+					groupLD.allHashLD(bimAndLD);
 				} else {
-					groupLD.allHashLD( stringVariables.at("out-file") );
+					BayesicSpace::InOutFileNames outFile{};
+					outFile.outputFileName = stringVariables.at("out-file");
+					outFile.inputFileName  = "";
+					groupLD.allHashLD(outFile);
 				}
 			} else {
 				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
 				if (stringVariables.at("add-locus-names") == "set") {
 					if (stringVariables.at("only-groups") == "set") {
-						groupLD.makeLDgroups( rowsPB, bimFileName, stringVariables.at("out-file") );
+						InOutFileNames bimAndLD{};
+						bimAndLD.inputFileName  = bimFileName;
+						bimAndLD.outputFileName = stringVariables.at("out-file");
+						groupLD.makeLDgroups(rowsPB, bimAndLD);
 					} else {
-						groupLD.ldInGroups( rowsPB, bimFileName, stringVariables.at("out-file") );
+						InOutFileNames bimAndLD{};
+						bimAndLD.inputFileName  = bimFileName;
+						bimAndLD.outputFileName = stringVariables.at("out-file");
+						groupLD.ldInGroups(rowsPB, bimAndLD);
 					}
 				} else {
 					if (stringVariables.at("only-groups") == "set") {
 						groupLD.makeLDgroups( rowsPB, stringVariables.at("out-file") );
 					} else {
-						groupLD.ldInGroups( rowsPB, stringVariables.at("out-file") );
+						BayesicSpace::InOutFileNames outFile{};
+						outFile.outputFileName = stringVariables.at("out-file");
+						outFile.inputFileName  = "";
+						groupLD.ldInGroups(rowsPB, outFile);
 					}
 				}
 			}
@@ -135,7 +153,7 @@ namespace BayesicSpace {
 int main(int argc, char *argv[]) {
 
 	// set usage message
-	std::string cliHelp = "Available command line flags (in any order):\n" 
+	const std::string cliHelp = "Available command line flags (in any order):\n" 
 		"  --input-bed        file_name (input file name; required).\n"
 		"  --n-individuals    number_of_individuals (must be 3 or more; required).\n"
 		"  --n-rows-per-band  number_of_rows (number of rows per band in the hashed genotype matrix).\n"
@@ -168,7 +186,7 @@ int main(int argc, char *argv[]) {
 	} catch(std::string &problem) {
 		std::cerr << problem << "\n";
 		std::cerr << cliHelp;
-		return 4;
+		return 1;
 	}
 	return 0;
 }

@@ -40,6 +40,10 @@
 #include "gvarHash.hpp"
 
 namespace BayesicSpace {
+	/** \brief Number of 32-bit values in `size_t` */
+	constexpr size_t SIZE_OF_SIZET{sizeof(size_t) / sizeof(uint32_t)};
+	/** \brief Number of test bytes in a _.bed_ file */
+	constexpr size_t N_BED_TEST_BYTES{3};
 	/** \brief Count set bits in a 16-bit word
 	 *
 	 * Counting the set bits using Karnigan's method. Passing by value to modify the copy and also because the address is much bigger than 16 bits.
@@ -61,11 +65,10 @@ namespace BayesicSpace {
 	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
 	 *
 	 * \param[in] inVec input vector
-	 * \param[in] start staring index
-	 * \param[in] length number of bytes to process
+	 * \param[in] window vector window in bytes
 	 * \return number of bits set
 	 */
-	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const size_t &start, const size_t &length);
+	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const LocationWithLength &window);
 	/** \brief Get available RAM
 	 *
 	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.
@@ -82,7 +85,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHashMixer(const size_t &key, const uint32_t &seed);
+	uint32_t murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash finalizer
 	 *
 	 * MurMurHash3 finalizer for a hash value.
@@ -101,7 +104,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHash(const size_t &key, const uint32_t &seed);
+	uint32_t murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
 	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
@@ -116,30 +119,28 @@ namespace BayesicSpace {
 	 *
 	 * Generates a 32-bit hash of a vector of `uint16_t` values using the MurMurHash3 algorithm.
 	 *
-	 * \param[in] start start index
-	 * \param[in] length number of elements to hash
 	 * \param[in] key the vector to be hashed
+	 * \param[in] keyWindow the range of elements in the key to hash
 	 * \param[in] seed the hash seed
 	 *
 	 * \return hash value
 	 */
-	uint32_t murMurHash(const size_t &start, const size_t &length, const std::vector<uint16_t> &key, const uint32_t &seed);
+	uint32_t murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed);
 	/** \brief Test .bed magic bytes
 	 *
 	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
 	 *
 	 * \param[in] bytesToTest the byte set to test
 	 */
-	void testBedMagicBytes(std::array<char, 3> &bytesToTest);
+	void testBedMagicBytes(const std::array<char, N_BED_TEST_BYTES> &bytesToTest);
 	/** \brief Build thread ranges
 	 *
 	 * Build index ranges to use within each thread.
 	 *
-	 * \param[in] nThreads number of threads
-	 * \param[in] nElementsPerThread number of elements per thread
+	 * \param[in] threadPoolSizes number of threads and number of loci per thread
 	 * \return vector of index ranges
 	 */
-	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const size_t &nThreads, const size_t &nElementsPerThread);
+	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.
@@ -151,17 +152,25 @@ namespace BayesicSpace {
 	 *
 	 * If the number of individuals is not divisible by eight, the last binary byte is padded with 0s.
 	 *
-	 * \param[in] bedIdx index of the first byte in the `bedLocus` vector
-	 * \param[in] bedLocusSize number of bytes in the _.bed_ locus
+	 * \param[in] bedLocusWindow _.bed_ locus window
 	 * \param[in] bedLocus vector of _.bed_ format bytes
 	 * \param[in] nIndividuals number of individuals
-	 * \param[in,out] prng (pseudo-)random number generator (for resolving heterozygotes)
-	 * \param[in] binIdx index of the first binary byte
-	 * \param[in] binLocusSize number of bytes in the binary locus
+	 * \param[in] binLocusWindow binary locus window
 	 * \param[out] binLocus vector of binary format bytes
 	 */
-	void binarizeBedLocus(const size_t &bedIdx, const size_t &bedLocusSize, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														RanDraw &prng, const size_t &binIdx, const size_t &binLocusSize, std::vector<uint8_t> &binLocus);
+	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
+													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
+	/** \brief Initialize an `IndexedPairSimilarity` vector 
+	 *
+	 * Creates a vector of `IndexedPairSimilarity` objects.
+	 * Index pairs are set to reflect the possibility that this vector is a part of a larger vectorized lower triangle of a similarity matrix.
+	 * All group IDs and similarity values are set to 0.
+	 *
+	 * \param[in] pairSpan the overall start and length (in elements) of the segment
+	 * \param[in] totalNelements total number of elements
+	 * \return vector of `IndexedPairSimilarity` objects
+	 */
+	std::vector<IndexedPairSimilarity> initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements);
 	/** \brief Create pair vector from groups 
 	 *
 	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.
