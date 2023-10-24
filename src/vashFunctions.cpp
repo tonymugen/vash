@@ -220,7 +220,8 @@ std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const Co
 }
 
 void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														RanDraw &prng, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
+														const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
+	RanDraw prng;
 	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
 	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits

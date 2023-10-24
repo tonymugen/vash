@@ -195,13 +195,13 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] toMove object to move
 		 */
-		GenoTableBin(GenoTableBin &&toMove) noexcept;
+		GenoTableBin(GenoTableBin &&toMove) noexcept = default;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] toMove object to be moved
 		 * \return `GenoTableBin` object
 		 */
-		GenoTableBin& operator=(GenoTableBin &&toMove) noexcept;
+		GenoTableBin& operator=(GenoTableBin &&toMove) noexcept = default;
 		/** \brief Destructor */
 		~GenoTableBin() = default;
 
@@ -262,10 +262,6 @@ namespace BayesicSpace {
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Random number generator */
-		mutable RanDraw rng_;
-		/** \brief The mutex */
-		mutable std::mutex mtx_;
 		/** \brief Leading bytes for .bed files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
@@ -344,7 +340,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -420,13 +416,13 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] toMove object to move
 		 */
-		GenoTableHash(GenoTableHash &&toMove) noexcept;
+		GenoTableHash(GenoTableHash &&toMove) noexcept = default;
 		/** \brief Move assignment operator
 		 *
 		 * \param[in] toMove object to be moved
 		 * \return `GenoTableHash` object
 		 */
-		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept;
+		GenoTableHash& operator=(GenoTableHash &&toMove) noexcept = default;
 		/** \brief Destructor */
 		~GenoTableHash() = default;
 
@@ -533,10 +529,12 @@ namespace BayesicSpace {
 		size_t nFullWordBytes_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Random number generator */
-		mutable RanDraw rng_;
-		/** \brief The mutex */
-		mutable std::mutex mtx_;
+		/** \brief Random index progression seed 
+		 *
+		 * Seeds the random index progression used to fill empty bins in OPH sketches.
+		 * The index set must be the same across loci (although not necessarily the same number is actually used).
+		 */
+		uint64_t emptyBinIdxSeed_;
 		/** \brief Log messages */
 		mutable std::string logMessages_;
 		/** \brief Log file name */
@@ -574,14 +572,12 @@ namespace BayesicSpace {
 		/** \brief Single-locus one-permutation hash
 		 *
 		 * Generates an OPH of a binarized locus. The locus data are modified by the function.
-		 * The `seeds` vector may be appended by the function if additional seeds are required.
 		 *
 		 * \param[in] locusInd locus index
-		 * \param[in] permutation permutation to be applied to each locus 
-		 * \param[in,out] seeds random number seeds for empty bin filling
+		 * \param[in] permutation permutation to be applied to each locus
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
-		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds, std::vector<uint8_t> &binLocus);
+		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint8_t> &binLocus);
 		/** \brief OPH from _.bed_ file input
 		 *
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
@@ -591,10 +587,9 @@ namespace BayesicSpace {
 		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
 		void bed2ophBlk_(const std::vector<char> &bedData, const std::pair<size_t, size_t> &bedLocusIndRange, const LocationWithLength &bedLocusSpan,
-									const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+									const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief OPH from _.bed_ file input using multiple threads
 		 *
 		 * Hashes input from a _.bed_ file using multiple threads.
@@ -604,11 +599,10 @@ namespace BayesicSpace {
 		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \return new value of `firstLocusInd`
 		 */
 		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
-							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief Wraps _.bed_ file to binarization 
 		 *
 		 * Wraps _.bed_ format hashing.
@@ -617,11 +611,10 @@ namespace BayesicSpace {
 		 * \param[in,out] bedStream _.bed_ file to be converted
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 * \return new start individual index
 		 */
 		size_t bed2oph_(const BedDataStats &locusGroupStats, std::fstream &bedStream, const std::vector<size_t> &permutation,
-							const std::vector< std::pair<size_t, size_t> > &padIndiv, std::vector<uint32_t> &seeds);
+							const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief OPH from minor allele counts
 		 *
 		 * Hashes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
@@ -631,9 +624,8 @@ namespace BayesicSpace {
 		 * \param[in] locusBlock locus block start and size
 		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 * \param[in] permutation permutation to be applied to each locus 
-		 * \param[in,out] seeds random number seeds for empty bin filling
 		 */
-		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation, std::vector<uint32_t> &seeds);
+		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation);
 		/** \brief Hash-based similarity among loci in a block
 		 *
 		 * Pairwise hash-estimated Jaccard similarities among loci in a block.

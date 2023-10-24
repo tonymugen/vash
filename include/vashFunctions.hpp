@@ -155,12 +155,11 @@ namespace BayesicSpace {
 	 * \param[in] bedLocusWindow _.bed_ locus window
 	 * \param[in] bedLocus vector of _.bed_ format bytes
 	 * \param[in] nIndividuals number of individuals
-	 * \param[in,out] prng (pseudo-)random number generator (for resolving heterozygotes)
 	 * \param[in] binLocusWindow binary locus window
 	 * \param[out] binLocus vector of binary format bytes
 	 */
 	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														RanDraw &prng, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
+													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
 	/** \brief Initialize an `IndexedPairSimilarity` vector 
 	 *
 	 * Creates a vector of `IndexedPairSimilarity` objects.

@@ -194,12 +194,11 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		constexpr size_t nBinBytes{3};
 		constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
 		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
-			BayesicSpace::RanDraw prng;
 			BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
 			std::vector<char> bedByteVec{bedBytes.begin(), bedBytes.end()};
 			std::vector<uint8_t> binBytes(nBinBytes, 0);
 			BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
-			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, prng, binWindow, binBytes);
+			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytes);
 			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2);
 			std::vector< std::vector<uint32_t> > groups;
 			constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
