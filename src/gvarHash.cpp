@@ -1164,7 +1164,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 	while (emptyCount > 0) {
 		for (const auto eachFI : filledIndexes) {
 			std::array<uint32_t, SIZE_OF_SIZET> key{};
-			memcpy(key.data(), &eachFI, sketchSize_);
+			memcpy(key.data(), &eachFI, SIZE_OF_SIZET);
 			auto newIdx = static_cast<uint32_t>(murMurHash(key, seeds[iSeed]) % kSketches_ + sketchBeg);
 			// should be safe: each thread accesses different vector elements
 			if (sketches_[newIdx] == emptyBinToken_) {
