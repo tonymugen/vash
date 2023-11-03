@@ -49,6 +49,8 @@
 #include <thread>
 #include <immintrin.h>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -891,11 +893,13 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 					return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
 				}
 			);
+	//TODO: de-duplicate the groups with std::unique using hashes (the sort should make runs of same groups)
 	return groups;
 }
 
 void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
 	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+
 	logMessages_ += "Saving group IDs only\n";
 	std::fstream out;
 	out.open(outFileName, std::ios::out | std::ios::trunc);
@@ -967,7 +971,7 @@ std::vector<IndexedPairSimilarity> GenoTableHash::ldInGroups(const size_t &nRows
 void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
 	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
 	
-	logMessages_         += "Estimating LD in groups\n";
+	logMessages_ += "Estimating LD in groups\n";
 	std::vector<size_t> groupSizes;                                                                               // number of locus pair in each group
 	size_t totalPairNumber{0};                                                                                    // total number of pairs
 	for (const auto &eachGrp : ldGroups) {
@@ -1017,7 +1021,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 			++blockEndIt;
 		}
 		std::vector<IndexedPairSimilarity> hashJacGroups{
-			vectorizeGroups( static_cast<uint32_t>( std::distance(groupIt, blockEndIt) ), groupIt, blockEndIt )
+			vectorizeGroups(static_cast<uint32_t>( std::distance( groupIt, ldGroups.cbegin() ) ), groupIt, blockEndIt)
 		};
 		logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
 		logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";

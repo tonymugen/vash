@@ -325,11 +325,11 @@ std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t 
 	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
 	uint32_t groupID{firstGrpIdx};
 	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
-		assert( (eachGrpIt->size() > 1) && "ERROR: groups cannot be empty in vectorizeGroups()" ); // NOLINT
+		assert( (eachGrpIt->size() > 1) && "ERROR: groups must have at least two elements in vectorizeGroups()" ); // NOLINT
 		for (size_t iRow = 0; iRow < eachGrpIt->size() - 1; ++iRow) {
 			for (size_t jCol = iRow + 1; jCol < eachGrpIt->size(); ++jCol) {
 				indexedSimilarityVec.emplace_back(
-							IndexedPairSimilarity{0.0, static_cast<uint32_t>(iRow), static_cast<uint32_t>(jCol), groupID}
+							IndexedPairSimilarity{0.0, (*eachGrpIt)[iRow], (*eachGrpIt)[jCol], groupID}
 						);
 			}
 		}
