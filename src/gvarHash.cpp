@@ -49,8 +49,6 @@
 #include <thread>
 #include <immintrin.h>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -894,7 +892,7 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 					return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
 				}
 			);
-	// de-duplicate the groups; they are already sorted
+	// de-duplicate the groups
 	logMessages_ += "Number of groups before de-duplication: " + std::to_string( groups.size() ) + "\n";
 	auto lastUniqueIt = std::unique(groups.begin(), groups.end(),
 				[sketchSeed](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
@@ -1027,16 +1025,22 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 	while ( groupIt != ldGroups.cend() ) {
 		size_t nPairs{0};
 		auto blockEndIt = groupIt;
-		while ( (nPairs <= chunkSize) && ( blockEndIt != ldGroups.cend() ) ) {
+		while ( blockEndIt != ldGroups.cend() ) {
 			nPairs += *grpSizeIt;
+			if ( (nPairs >= chunkSize) && (std::distance(groupIt, blockEndIt) > 0) ) {  // do have to make sure at least one group is processed, even at the risk of RAM depletion
+				nPairs -= *grpSizeIt;                                                   // if we blow past the chunk size limit, go back one group 
+				break;
+			}
 			++grpSizeIt;
 			++blockEndIt;
 		}
+		
 		std::vector<IndexedPairSimilarity> hashJacGroups{
-			vectorizeGroups(static_cast<uint32_t>( std::distance( groupIt, ldGroups.cbegin() ) ), groupIt, blockEndIt)
+			vectorizeGroups(static_cast<uint32_t>( std::distance(ldGroups.cbegin(), groupIt) ), groupIt, blockEndIt)
 		};
 		logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
 		logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
+		//TODO: parallelize the sort
 		std::sort(hashJacGroups.begin(), hashJacGroups.end(),
 					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
 						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
