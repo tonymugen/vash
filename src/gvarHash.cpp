@@ -797,6 +797,7 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 	logMessages_ += "Calculating all pairwise LD\n";
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
 	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
+	logMessages_ += "using " + std::to_string(realizedNthreads) + " thread(s)\n";
 
 	size_t overallPairInd{0};
 	CountAndSize threadCounts{0, 0};
@@ -893,7 +894,18 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 					return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
 				}
 			);
-	//TODO: de-duplicate the groups with std::unique using hashes (the sort should make runs of same groups)
+	// de-duplicate the groups; they are already sorted
+	logMessages_ += "Number of groups before de-duplication: " + std::to_string( groups.size() ) + "\n";
+	auto lastUniqueIt = std::unique(groups.begin(), groups.end(),
+				[sketchSeed](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
+					return murMurHash(first, sketchSeed) == murMurHash(second, sketchSeed);
+				}
+			);
+	groups.erase( lastUniqueIt, groups.end() );
+	groups.shrink_to_fit();
+
+	logMessages_ += "Number of groups after de-duplication: " + std::to_string( groups.size() ) + "\n";
+
 	return groups;
 }
 

@@ -107,7 +107,7 @@ namespace BayesicSpace {
 	uint32_t murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
-	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
+	 * Generates a 32-bit hash of an index value vector using the MurMurHash3 algorithm.
 	 *
 	 * \param[in] key the key vector to be hashed
 	 * \param[in] seed the seed
@@ -115,6 +115,16 @@ namespace BayesicSpace {
 	 * \return the hash value
 	 */
 	uint32_t murMurHash(const std::vector<size_t> &key, const uint32_t &seed);
+	/** \brief MurMurHash of a vector of 32-bit unsigned integers
+	 *
+	 * Generates a 32-bit hash of a vector of unsigned 32-bit integers using the MurMurHash3 algorithm.
+	 *
+	 * \param[in] key the key vector to be hashed
+	 * \param[in] seed the seed
+	 *
+	 * \return the hash value
+	 */
+	uint32_t murMurHash(const std::vector<uint32_t> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
 	 * Generates a 32-bit hash of a vector of `uint16_t` values using the MurMurHash3 algorithm.

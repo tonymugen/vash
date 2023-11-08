@@ -172,6 +172,22 @@ uint32_t BayesicSpace::murMurHash(const std::vector<size_t> &key, const uint32_t
 	return hash;
 }
 
+uint32_t BayesicSpace::murMurHash(const std::vector<uint32_t> &key, const uint32_t &seed) {
+	uint32_t hash{seed};
+	const size_t lastEven = key.size() & static_cast<uint32_t>(-2); // round down the size to even number
+	for (size_t iKey = 0; iKey < lastEven; ++iKey) {
+		std::array<uint32_t, SIZE_OF_SIZET> eachKey{};
+		memcpy(eachKey.data(), key.data() + iKey, SIZE_OF_SIZET);
+		hash = murMurHashMixer(eachKey, hash);
+	}
+	std::array<uint32_t, SIZE_OF_SIZET> lastKey{};
+	memcpy(lastKey.data(), &key.back(), key.size() - lastEven);
+	hash = murMurHashMixer(lastKey, hash);
+
+	hash = murMurHashFinalizer(hash);
+	return hash;
+}
+
 uint32_t BayesicSpace::murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed) {
 	constexpr size_t roundMask{-SIZE_OF_SIZET};
 	uint32_t hash{seed};
