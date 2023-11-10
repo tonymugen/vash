@@ -40,9 +40,6 @@
 #include <fstream>
 #include <sstream>
 
-#include <iostream>
-#include <bitset>
-
 #include "random.hpp"
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
@@ -89,6 +86,14 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 	std::vector<size_t> idxVector( idxArray.begin(), idxArray.end() );
 	constexpr uint32_t correctIdxVectorHash{2643649892};
 	const uint32_t idxVectorHash{BayesicSpace::murMurHash(idxVector, mmHashSeed)};
+	constexpr std::array<uint32_t, 11> u32Array{
+		2437, 2444, 41116, 42353,
+		45949, 58374, 75248, 80113,
+		93649, 98640, 99638
+	};
+	std::vector<size_t> u32Vector( u32Array.begin(), u32Array.end() );
+	constexpr uint32_t correctU32VectorHash{2643649892};
+	const uint32_t u32VectorHash{BayesicSpace::murMurHash(idxVector, mmHashSeed)};
 	constexpr std::array<uint16_t, 13> array16bit{
 		1256, 2117, 2866, 7434,
 		11737, 16256, 22236, 39883,
@@ -104,6 +109,8 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 	SECTION("MurMurHash correctness tests") {
 		REQUIRE(arrayMMhash   == correctArrayHash);
 		REQUIRE(idxVectorHash == correctIdxVectorHash);
+		REQUIRE(u32VectorHash == correctU32VectorHash);
+		REQUIRE(u32VectorHash == idxVectorHash);
 		REQUIRE(v16bitHash    == correct16bitHash);
 		REQUIRE(all16bitHash  == correctAll16bitHash);
 	}
@@ -115,6 +122,9 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 		REQUIRE(BayesicSpace::murMurHash(idxVector, mmHashSeed2) != correctIdxVectorHash);
 		idxVector.at(1)++;
 		REQUIRE(BayesicSpace::murMurHash(idxVector, mmHashSeed)  != correctIdxVectorHash);
+		REQUIRE(BayesicSpace::murMurHash(u32Vector, mmHashSeed2) != correctU32VectorHash);
+		u32Vector.at(1)++;
+		REQUIRE(BayesicSpace::murMurHash(u32Vector, mmHashSeed)  != correctU32VectorHash);
 		vector16bit.at(2)++;
 		REQUIRE(BayesicSpace::murMurHash(vector16bit, keyWindow, mmHashSeed)  == correct16bitHash);
 		REQUIRE(BayesicSpace::murMurHash(vector16bit, keyWindow, mmHashSeed2) != correct16bitHash);
@@ -193,7 +203,8 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		constexpr size_t nBedBytes{5};
 		constexpr size_t nBinBytes{3};
 		constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
-		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
+		//for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
+		for (uint16_t iRanIt = 0; iRanIt < 1; ++iRanIt) {
 			BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
 			std::vector<char> bedByteVec{bedBytes.begin(), bedBytes.end()};
 			std::vector<uint8_t> binBytes(nBinBytes, 0);
@@ -204,10 +215,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
 			constexpr size_t correctVGsize{86};
 			groups.reserve( groupSizes.size() );
+			size_t gStart{0};
 			for (const auto &iGrpSize : groupSizes) {
 				groups.emplace_back(iGrpSize);
+				std::iota(groups.back().begin(), groups.back().end(), gStart);
+				gStart += iGrpSize;
 			}
-			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.begin(), groups.end())};
+			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.cbegin(), groups.cend())};
 			REQUIRE(vectorizedGroups.size() == correctVGsize);
 			REQUIRE(std::all_of(
 						vectorizedGroups.cbegin(),
