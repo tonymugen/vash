@@ -69,6 +69,17 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 else()
 	message(AUTHOR_WARNING "No compiler warnings set for CXX compiler: ${CMAKE_CXX_COMPILER_ID}")
 endif()
+Include(FetchContent)
+set (FETCHCONTENT_QUIET FALSE)
+FetchContent_Declare(
+	brutilities
+	GIT_REPOSITORY https://github.com/tonymugen/bayesicUtilities
+	GIT_TAG main
+	GIT_PROGRESS TRUE
+	SYSTEM            # to disable warnings
+)
+FetchContent_MakeAvailable(brutilities)
+
 #
 # Tests with Catch2
 #
@@ -77,9 +88,6 @@ option(BUILD_TESTS
 	OFF
 )
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
-	Include(FetchContent)
-	set (FETCHCONTENT_QUIET FALSE)
-
 	FetchContent_Declare(
 	  Catch2
 	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -112,7 +120,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GN
 		","
 		SANITIZER_LIST)
 endif()
-
 
 set(CMAKE_CXX_FLAGS_RELEASE
 	"-O3 -DNDEBUG"
@@ -157,11 +164,11 @@ set(CMAKE_CXX_STATIC_LINKER_FLAGS_TEST
 include(GNUInstallDirs)
 # executable
 add_executable(ldblocks
-	apps/ldblocks.cpp
+	${CMAKE_CURRENT_LIST_DIR}/apps/ldblocks.cpp
 )
 target_include_directories(ldblocks
-	PRIVATE externals/bayesicUtilities/include
-	PRIVATE include
+	PRIVATE ${brutilities_SOURCE_DIR}/include
+	PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include
 )
 target_link_libraries(ldblocks
 	PRIVATE vash
@@ -178,22 +185,20 @@ install(TARGETS ldblocks
 
 # library
 add_library(vash
-	src/gvarHash.cpp
-	src/vashFunctions.cpp
-	externals/bayesicUtilities/src/random.cpp
+	${CMAKE_CURRENT_LIST_DIR}/src/gvarHash.cpp
+	${CMAKE_CURRENT_LIST_DIR}/src/vashFunctions.cpp
+	${brutilities_SOURCE_DIR}/src/random.cpp
 )
 target_include_directories(vash
-	PRIVATE externals/bayesicUtilities/include
-	PRIVATE include
+	PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include
+	PRIVATE ${brutilities_SOURCE_DIR}/include
 )
 set_target_properties(vash PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
+	CXX_STANDARD_REQUIRED ON
 )
 target_compile_options(vash
 	PRIVATE ${PROJECT_WARNINGS_CXX} -mbmi -mbmi2 -mpopcnt -pthread
-)
-set_target_properties(vash PROPERTIES
-	CXX_STANDARD_REQUIRED ON
 )
 # no install for now
 
@@ -208,7 +213,7 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	)
 	target_include_directories(tests
 		PRIVATE include
-		PRIVATE externals/bayesicUtilities/include
+		PRIVATE ${brutilities_SOURCE_DIR}/include
 	)
 	include(CTest)
 	include(Catch)

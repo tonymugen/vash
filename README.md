@@ -6,14 +6,14 @@ The gist of the method is that each locus (or individual, although the latter fu
 
 # Dependencies
 
-Building the library and binaries requires a C++14 compiler. The build process requires `cmake` version 3.11 or later, but everything can be compiled by hand if desired. Current implementation requires `x86_64` processors and has only been tested on Linux. I plan to add 64-bit ARM (e.g., Apple M processor) support.
+Building the library and binaries requires a C++14 compiler. The build process requires `cmake` version 3.11 or later, but everything can be compiled by hand if desired. Current implementation requires `x86_64` processors and has only been tested on Linux. I plan to add 64-bit ARM (e.g., Apple M processor) support. The project uses my [utilities repository](https://github.com/tonymugen/bayesicUtilities). It is automatically downloaded and included in build process if using `cmake`.
 
 # Download and install
 
-The repository comes with a submodule, so to clone use
+Clone the repository:
 
 ```sh
-git clone --recurse-submodules https://github.com/tonymugen/vash
+git clone https://github.com/tonymugen/vash
 ```
 Next, create a build directory
 
