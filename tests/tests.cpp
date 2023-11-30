@@ -43,6 +43,7 @@
 #include "random.hpp"
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
+#include "binnedOPH.hpp"
 
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers.hpp"
@@ -242,6 +243,19 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			);
 		}
 	}
+}
+
+TEST_CASE("Binned OPH methods work", "[binnedOPH]") {
+	constexpr std::array<uint16_t, 52> fakeOPH{
+		58, 80, 64, 28, 30, 67, 84, 55, 72, 79, 13, 57, 52, 25, 83, 23, 92, 78,
+		17, 26, 87, 74, 97, 39, 42, 60, 66, 96, 38, 68, 91, 62, 65, 50, 45, 40,
+		14, 34, 47, 15, 63, 12, 90, 61, 76, 21, 20, 88, 11, 36, 6, 7};
+	constexpr size_t nElementsPerBin{5};
+	BayesicSpace::LocationWithLength span{0, fakeOPH.size()};
+	std::vector<uint16_t> fakeOPHvec( fakeOPH.cbegin(), fakeOPH.cend() );
+	BayesicSpace::RanDraw prng;
+	const uint32_t mmSeed{static_cast<uint32_t>( prng.ranInt() )};
+	BayesicSpace::BinnedOPH testBOPH(fakeOPHvec, mmSeed, span, nElementsPerBin);
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {

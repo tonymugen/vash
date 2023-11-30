@@ -187,6 +187,7 @@ install(TARGETS ldblocks
 add_library(vash
 	${CMAKE_CURRENT_LIST_DIR}/src/gvarHash.cpp
 	${CMAKE_CURRENT_LIST_DIR}/src/vashFunctions.cpp
+	${CMAKE_CURRENT_LIST_DIR}/src/binnedOPH.cpp
 	${brutilities_SOURCE_DIR}/src/random.cpp
 )
 target_include_directories(vash
