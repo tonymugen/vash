@@ -325,7 +325,6 @@ std::vector<IndexedPairSimilarity> BayesicSpace::initializeIPSvector(const Locat
 		const auto col    = static_cast<uint32_t>(totalNelements - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
 
 		IndexedPairSimilarity curPair{};
-		curPair.groupID         = 0;
 		curPair.similarityValue = 0.0F;
 		curPair.element1ind     = row;
 		curPair.element2ind     = col;
@@ -336,20 +335,19 @@ std::vector<IndexedPairSimilarity> BayesicSpace::initializeIPSvector(const Locat
 	return pairVector;
 }
 
-std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(const uint32_t &firstGrpIdx,
-				const std::vector< std::vector<uint32_t> >::const_iterator grpBlockStart, const std::vector< std::vector<uint32_t> >::const_iterator grpBlockEnd) {
+std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(
+		const std::vector<HashGroup>::const_iterator grpBlockStart,
+		const std::vector<HashGroup>::const_iterator grpBlockEnd) {
 	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
-	uint32_t groupID{firstGrpIdx};
 	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
-		assert( (eachGrpIt->size() > 1) && "ERROR: groups must have at least two elements in vectorizeGroups()" ); // NOLINT
-		for (size_t iRow = 0; iRow < eachGrpIt->size() - 1; ++iRow) {
-			for (size_t jCol = iRow + 1; jCol < eachGrpIt->size(); ++jCol) {
+		assert( (eachGrpIt->locusIndexes.size() > 1) && "ERROR: groups must have at least two elements in vectorizeGroups()" ); // NOLINT
+		for (size_t iRow = 0; iRow < eachGrpIt->locusIndexes.size() - 1; ++iRow) {
+			for (size_t jCol = iRow + 1; jCol < eachGrpIt->locusIndexes.size(); ++jCol) {
 				indexedSimilarityVec.emplace_back(
-							IndexedPairSimilarity{0.0, (*eachGrpIt)[iRow], (*eachGrpIt)[jCol], groupID}
-						);
+					IndexedPairSimilarity{0.0, eachGrpIt->locusIndexes[iRow], eachGrpIt->locusIndexes[jCol]}
+				);
 			}
 		}
-		++groupID;
 	}
 	return indexedSimilarityVec;
 }
@@ -362,13 +360,13 @@ void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &out
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec) {
-		outputStream << "G" << eachValue.groupID + 1 << "\t" << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.similarityValue << "\n";
+		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.similarityValue << "\n";
 	}
 }
 
 void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec) {
-		outputStream << "G" << eachValue.groupID + 1 << "\t" << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
+		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
 	}
 }
 

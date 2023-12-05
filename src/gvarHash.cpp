@@ -806,7 +806,7 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-	output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+	output << "locus1\tlocus2\tjaccLD\n";
 	for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
 		const LocationWithLength chunkSpan{overallPairInd, chunkSize};
 		std::vector<IndexedPairSimilarity> LDmatChunk{initializeIPSvector(chunkSpan, nLoci_)};
@@ -840,7 +840,7 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 	output.close();
 }
 
-std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
+std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
 	assert( (nRowsPerBand != 0) // NOLINT
 			&& "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
 	assert( (nRowsPerBand < kSketches_) // NOLINT
@@ -859,8 +859,8 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 
 	for (uint32_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
 		size_t iSketch = 0;
-		for (size_t iBand = 0; iBand < nBands; ++iBand) {
-			std::vector<uint16_t> bandVec{static_cast<uint16_t>(iBand)};                                      // add the band index to the hash, so that only corresponding bands are compared
+		for (uint16_t iBand = 0; iBand < static_cast<uint16_t>(nBands); ++iBand) {
+			std::vector<uint16_t> bandVec{iBand};                                                             // add the band index to the hash, so that only corresponding bands are compared
 
 			auto firstSketchIt = sketches_.cbegin()
 				+ static_cast<std::vector<uint16_t>::difference_type>(iSketch + iLocus * kSketches_);         // iSketch tracks band IDs
@@ -904,11 +904,22 @@ std::vector< std::vector<uint32_t> > GenoTableHash::makeLDgroups(const size_t &n
 
 	logMessages_ += "Number of groups after de-duplication: " + std::to_string( groups.size() ) + "\n";
 
-	return groups;
+	std::vector<HashGroup> indexedGroups;
+	indexedGroups.reserve( groups.size() );
+	uint64_t cumNpairs{0};
+	for (auto &eachGroup : groups) {
+		HashGroup currHG;
+		cumNpairs              += eachGroup.size() * (eachGroup.size() - 1) / 2;
+		currHG.cumulativeNpairs = cumNpairs;
+		currHG.locusIndexes     = std::move(eachGroup);
+		indexedGroups.emplace_back(currHG);
+	}
+
+	return indexedGroups;
 }
 
 void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
-	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
 
 	logMessages_ += "Saving group IDs only\n";
 	std::fstream out;
@@ -916,7 +927,7 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &
 	out << "groupID\tlocusIdx\n";
 	uint32_t groupID{1};
 	for (const auto &eachGroup : ldGroups) {
-		for (const auto &locusIdx : eachGroup) {
+		for (const auto &locusIdx : eachGroup.locusIndexes) {
 			out << "G" << groupID << "\t" << locusIdx + 1 << "\n";
 		}
 		++groupID;
@@ -925,7 +936,7 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &
 }
 
 void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const {
-	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
 	logMessages_ += "Saving group IDs only\n";
 
 	logMessages_ += "Getting locus names from the " + bimAndGroupNames.inputFileName + " .bim file\n";
@@ -938,7 +949,7 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 	out << "groupID\tlocusIdx\n";
 	uint32_t groupID{1};
 	for (const auto &eachGroup : ldGroups) {
-		for (const auto &locusIdx : eachGroup) {
+		for (const auto &locusIdx : eachGroup.locusIndexes) {
 			out << "G" << groupID << "\t" << locusNames[locusIdx] << "\n";
 		}
 		++groupID;
@@ -948,8 +959,8 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 
 std::vector<IndexedPairSimilarity> GenoTableHash::ldInGroups(const size_t &nRowsPerBand) const {
 	logMessages_ += "In-memory estimation of LD in groups\n";
-	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
-	std::vector<IndexedPairSimilarity> groupVector{vectorizeGroups( 0, ldGroups.cbegin(), ldGroups.cend() )};
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
+	std::vector<IndexedPairSimilarity> groupVector{vectorizeGroups( ldGroups.cbegin(), ldGroups.cend() )};
 	std::sort(groupVector.begin(), groupVector.end(),
 				[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
 					return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
@@ -979,18 +990,10 @@ std::vector<IndexedPairSimilarity> GenoTableHash::ldInGroups(const size_t &nRows
 }
 
 void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
-	std::vector< std::vector<uint32_t> > ldGroups{this->makeLDgroups(nRowsPerBand)};
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
 	
+	const size_t totalPairNumber{ldGroups.back().cumulativeNpairs};                                                                                    // total number of pairs
 	logMessages_ += "Estimating LD in groups\n";
-	std::vector<size_t> groupSizes;                                                                               // number of locus pair in each group
-	size_t totalPairNumber{0};                                                                                    // total number of pairs
-	for (const auto &eachGrp : ldGroups) {
-		assert( (eachGrp.size() > 1) // NOLINT
-				&& "ERROR: groups cannot be empty in ldInGroups" );
-		const size_t nPairs = eachGrp.size() * (eachGrp.size() - 1) / 2;
-		groupSizes.push_back(nPairs);
-		totalPairNumber += nPairs;
-	}
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 
 	std::vector<std::string> locusNames{};
@@ -1018,39 +1021,39 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 	// will work on chunks and save as we go
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-	output << "groupID\tlocus1\tlocus2\tjaccLD\n";
+	output << "locus1\tlocus2\tjaccLD\n";
 	auto groupIt   = ldGroups.cbegin();
-	auto grpSizeIt = groupSizes.cbegin();
 	uint16_t iChunk{1};
 	while ( groupIt != ldGroups.cend() ) {
 		size_t nPairs{0};
 		auto blockEndIt = groupIt;
 		while ( blockEndIt != ldGroups.cend() ) {
-			nPairs += *grpSizeIt;
+			nPairs += groupIt->cumulativeNpairs;
 			if ( (nPairs >= chunkSize) && (std::distance(groupIt, blockEndIt) > 0) ) {  // do have to make sure at least one group is processed, even at the risk of RAM depletion
-				nPairs -= *grpSizeIt;                                                   // if we blow past the chunk size limit, go back one group 
+				nPairs -= groupIt->cumulativeNpairs;                                    // if we blow past the chunk size limit, go back one group 
 				break;
 			}
-			++grpSizeIt;
 			++blockEndIt;
 		}
 		
-		std::vector<IndexedPairSimilarity> hashJacGroups{
-			vectorizeGroups(static_cast<uint32_t>( std::distance(ldGroups.cbegin(), groupIt) ), groupIt, blockEndIt)
-		};
+		std::vector<IndexedPairSimilarity> hashJacGroups{vectorizeGroups(groupIt, blockEndIt)};
 		logMessages_ += "\tChunk " + std::to_string(iChunk) + ":\n";
 		logMessages_ += "\tNumber of locus pairs before removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";
 		//TODO: parallelize the sort
-		std::sort(hashJacGroups.begin(), hashJacGroups.end(),
-					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
-					}
-				);
-		auto lastUniqueIt = std::unique(hashJacGroups.begin(), hashJacGroups.end(),
-					[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
-						return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
-					}
-				);
+		std::sort(
+			hashJacGroups.begin(),
+			hashJacGroups.end(),
+			[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
+				return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+			}
+		);
+		auto lastUniqueIt = std::unique(
+			hashJacGroups.begin(),
+			hashJacGroups.end(),
+			[](const IndexedPairSimilarity &first, const IndexedPairSimilarity &second) {
+				return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+			}
+		);
 		hashJacGroups.erase( lastUniqueIt, hashJacGroups.end() );
 		hashJacGroups.shrink_to_fit();
 		logMessages_ += "Number of locus pairs after removing duplicates: " + std::to_string( hashJacGroups.size() ) + "\n";

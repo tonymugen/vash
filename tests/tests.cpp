@@ -210,28 +210,25 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
 			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytes);
 			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2);
-			std::vector< std::vector<uint32_t> > groups;
+			std::vector<BayesicSpace::HashGroup> groups;
 			constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
 			constexpr size_t correctVGsize{86};
 			groups.reserve( groupSizes.size() );
 			size_t gStart{0};
 			for (const auto &iGrpSize : groupSizes) {
-				groups.emplace_back(iGrpSize);
-				std::iota(groups.back().begin(), groups.back().end(), gStart);
-				gStart += iGrpSize;
+				BayesicSpace::HashGroup currGrp;
+				currGrp.locusIndexes.resize(iGrpSize);
+				std::iota(currGrp.locusIndexes.begin(), currGrp.locusIndexes.end(), gStart);
+				gStart                  += iGrpSize;
+				currGrp.cumulativeNpairs = gStart;
+				groups.emplace_back(currGrp);
 			}
-			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(0, groups.cbegin(), groups.cend())};
+			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(groups.cbegin(), groups.cend())};
 			REQUIRE(vectorizedGroups.size() == correctVGsize);
 			REQUIRE(std::all_of(
 						vectorizedGroups.cbegin(),
 						vectorizedGroups.cend(),
 						[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue == 0.0F;}
-					)
-			);
-			REQUIRE(std::is_sorted(
-						vectorizedGroups.cbegin(),
-						vectorizedGroups.cend(), 
-						[](BayesicSpace::IndexedPairSimilarity obj1, BayesicSpace::IndexedPairSimilarity obj2){return obj1.groupID < obj2.groupID;}
 					)
 			);
 			REQUIRE(std::all_of(
@@ -353,30 +350,30 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		constexpr float upperCutOff{0.9F};
 		constexpr uint32_t correctNlargeLD{2400};
 		uint32_t nLargeLD = std::count_if(
-				bedLD.cbegin(),
-				bedLD.cend(), 
-				[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+			bedLD.cbegin(),
+			bedLD.cend(), 
+			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
 		);
 		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
 		constexpr float lowerCutOff{0.1F};
 		constexpr uint32_t correctNsmallLD{48600};
 		uint32_t nSmallLD = std::count_if(
-				bedLD.cbegin(),
-				bedLD.cend(), 
-				[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+			bedLD.cbegin(),
+			bedLD.cend(), 
+			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
 		nLargeLD = std::count_if(
-				macLD.cbegin(),
-				macLD.cend(), 
-				[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+			macLD.cbegin(),
+			macLD.cend(), 
+			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
 		);
 		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
 		nSmallLD = std::count_if(
-				macLD.cbegin(),
-				macLD.cend(), 
-				[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+			macLD.cbegin(),
+			macLD.cend(), 
+			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
@@ -465,12 +462,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.groupID == static_cast<size_t>(0);}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedHLD.cbegin(),
-					bedHLD.cend(),
 					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue >= 0.0F;}
 				)
 		);
@@ -509,8 +500,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			lineStream.str(line);
 			std::string field;
 			BayesicSpace::IndexedPairSimilarity curRecord{};
-			curRecord.groupID = 0;
-			lineStream >> field;
 			lineStream >> field;
 			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
 			lineStream >> field;
@@ -533,35 +522,35 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
-		std::vector< std::vector<uint32_t> > groups{bedHSH.makeLDgroups(nRowsPerBand)};
+		std::vector<BayesicSpace::HashGroup> groups{bedHSH.makeLDgroups(nRowsPerBand)};
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),
 			groups.cend(),
-			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
-				return vec1.size() < vec2.size();
+			[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {
+				return grp1.locusIndexes.size() < grp2.locusIndexes.size();
 			}
 		);
-		REQUIRE(smallestSizeIt->size() >= 2);
+		REQUIRE(smallestSizeIt->locusIndexes.size() >= 2);
 		auto largestSizeIt = std::max_element(
 			groups.cbegin(),
 			groups.cend(),
-			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
-				return vec1.size() < vec2.size();
+			[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {
+				return grp1.locusIndexes.size() < grp2.locusIndexes.size();
 			}
 		);
-		REQUIRE(largestSizeIt->size() <= nIndividuals);
+		REQUIRE(largestSizeIt->locusIndexes.size() <= nIndividuals);
 		REQUIRE(std::all_of(
 				groups.cbegin(),
 				groups.cend(),
-				[](const std::vector<uint32_t> &eachGroup) {
-					return std::is_sorted( eachGroup.cbegin(), eachGroup.cend() );
+				[](const BayesicSpace::HashGroup &eachGroup) {
+					return std::is_sorted( eachGroup.locusIndexes.cbegin(), eachGroup.locusIndexes.cend() );
 				}
 			)
 		);
 		REQUIRE(std::is_sorted(
 				groups.cbegin(),
 				groups.cend(),
-				[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2){return vec1.at(0) < vec2.at(0);}
+				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2){return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
 			)
 		);
 		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{bedHSH.ldInGroups(nRowsPerBand)};
@@ -600,8 +589,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			lineStream.str(line);
 			std::string field;
 			BayesicSpace::IndexedPairSimilarity curRecord{};
-			curRecord.groupID = 0;
-			lineStream >> field;
 			lineStream >> field;
 			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
 			lineStream >> field;
@@ -613,16 +600,20 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		grpLDfile.close();
 		std::remove( tmpJacFile.c_str() ); // NOLINT
 		REQUIRE( fileLD.size() >= groupLD.size() );
-		std::sort(fileLD.begin(), fileLD.end(),
-					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
-						return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
-					}
-				);
-		auto lastUniqueIt = std::unique(fileLD.begin(), fileLD.end(),
-					[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
-						return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
-					}
-				);
+		std::sort(
+			fileLD.begin(),
+			fileLD.end(),
+			[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+				return (first.element1ind == second.element1ind ? first.element2ind < second.element2ind : first.element1ind < second.element1ind);
+			}
+		);
+		auto lastUniqueIt = std::unique(
+			fileLD.begin(),
+			fileLD.end(),
+			[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
+				return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
+			}
+		);
 		fileLD.erase( lastUniqueIt, fileLD.end() );
 		fileLD.shrink_to_fit();
 		REQUIRE(std::equal(
@@ -645,12 +636,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 					bedHLD.cbegin(),
 					bedHLD.cend(),
 					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedHLD.cbegin(),
-					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.groupID == static_cast<size_t>(0);}
 				)
 		);
 		REQUIRE(std::all_of(
@@ -694,8 +679,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			lineStream.str(line);
 			std::string field;
 			BayesicSpace::IndexedPairSimilarity curRecord{};
-			curRecord.groupID = 0;
-			lineStream >> field;
 			lineStream >> field;
 			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
 			lineStream >> field;
@@ -718,35 +701,35 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
-		std::vector< std::vector<uint32_t> > groups{vecHSH.makeLDgroups(nRowsPerBand)};
+		std::vector<BayesicSpace::HashGroup> groups{vecHSH.makeLDgroups(nRowsPerBand)};
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),
 			groups.cend(),
-			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
-				return vec1.size() < vec2.size();
+			[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {
+				return grp1.locusIndexes.size() < grp2.locusIndexes.size();
 			}
 		);
-		REQUIRE(smallestSizeIt->size() >= 2);
+		REQUIRE(smallestSizeIt->locusIndexes.size() >= 2);
 		auto largestSizeIt = std::max_element(
 			groups.cbegin(),
 			groups.cend(),
-			[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2) {
-				return vec1.size() < vec2.size();
+			[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {
+				return grp1.locusIndexes.size() < grp2.locusIndexes.size();
 			}
 		);
-		REQUIRE(largestSizeIt->size() <= nIndividuals);
+		REQUIRE(largestSizeIt->locusIndexes.size() <= nIndividuals);
 		REQUIRE(std::all_of(
 				groups.cbegin(),
 				groups.cend(),
-				[](const std::vector<uint32_t> &eachGroup) {
-					return std::is_sorted( eachGroup.cbegin(), eachGroup.cend() );
+				[](const BayesicSpace::HashGroup &eachGroup) {
+					return std::is_sorted( eachGroup.locusIndexes.cbegin(), eachGroup.locusIndexes.cend() );
 				}
 			)
 		);
 		REQUIRE(std::is_sorted(
 				groups.cbegin(),
 				groups.cend(),
-				[](const std::vector<uint32_t> &vec1, const std::vector<uint32_t> &vec2){return vec1.at(0) < vec2.at(0);}
+				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2){return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
 			)
 		);
 		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{vecHSH.ldInGroups(nRowsPerBand)};
@@ -785,8 +768,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			lineStream.str(line);
 			std::string field;
 			BayesicSpace::IndexedPairSimilarity curRecord{};
-			curRecord.groupID = 0;
-			lineStream >> field;
 			lineStream >> field;
 			curRecord.element1ind = stoi(field) - 1; // the saved indexes are base-1
 			lineStream >> field;

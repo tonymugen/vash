@@ -47,6 +47,7 @@ namespace BayesicSpace {
 	struct IndividualAndSketchCounts;
 	struct BedDataStats;
 	struct InOutFileNames;
+	struct HashGroup;
 	struct IndexedPairSimilarity; 
 	struct IndexedPairLD; 
 	class GenoTableBin;
@@ -100,15 +101,24 @@ namespace BayesicSpace {
 		std::string outputFileName;
 	};
 
+	/** \brief Hash-derived group
+	 *
+	 * Includes the cumulative number of pairs from all previous
+	 * (including the current) groups.
+	 */
+	struct HashGroup {
+		uint64_t cumulativeNpairs;
+		std::vector<uint32_t> locusIndexes;
+	};
+
 	/** \brief Jaccard value with indexes
 	 *
-	 * Groups a Jaccard similarity value of two elements (e.g., loci or individuals) with their indexes and the ID of the group they belong to.
+	 * Groups a Jaccard similarity value of two elements (e.g., loci or individuals) with their indexes.
 	 */
 	struct IndexedPairSimilarity {
 		float similarityValue;
 		uint32_t element1ind;
 		uint32_t element2ind;
-		uint32_t groupID;
 	};
 
 	/** \brief LD value with indexes
@@ -462,7 +472,7 @@ namespace BayesicSpace {
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \return locus index hash table
 		 */
-		std::vector< std::vector<uint32_t> > makeLDgroups(const size_t &nRowsPerBand) const;
+		std::vector<HashGroup> makeLDgroups(const size_t &nRowsPerBand) const;
 		/** \brief Assign groups by LD and save to a file
 		 *
 		 * Assign groups as above and save locus indexes with their group IDs to a file.
@@ -648,4 +658,3 @@ namespace BayesicSpace {
 		void hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, std::vector<IndexedPairSimilarity> &hashJacVec) const;
 	};
 }
-
