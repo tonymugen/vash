@@ -40,9 +40,12 @@
 #include <fstream>
 #include <sstream>
 
+#include <iostream>
+
 #include "random.hpp"
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
+#include "similarityMatrix.hpp"
 
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers.hpp"
@@ -241,6 +244,72 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 	}
 }
 
+TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
+	constexpr std::array<uint32_t, 7> rowIndexes{4, 5, 5, 6, 6, 8, 8};
+	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};
+	constexpr std::array<uint8_t, 7>  values{54, 81, 84, 141, 124, 199, 146};
+	constexpr uint32_t nRows{9};
+	constexpr uint64_t previousIdx{7};
+	constexpr uint64_t previousIdxTooBig{14};
+
+	std::vector<BayesicSpace::RowColIdx> idxPairs;
+	idxPairs.reserve( rowIndexes.size() );
+	size_t vecIdx{0};
+	while ( vecIdx < rowIndexes.size() ) {
+		BayesicSpace::RowColIdx currPair{};
+		currPair.iRow = rowIndexes.at(vecIdx);
+		currPair.jCol = colIndexes.at(vecIdx);
+		idxPairs.emplace_back(currPair);
+		++vecIdx;
+	}
+
+	// the first chunk in the overall matrix
+	BayesicSpace::MatrixInitializer firstInit{};
+	firstInit.previousCumulativeIndex = 0;
+	firstInit.nRows                   = nRows;
+	BayesicSpace::SimilarityMatrix firstMatrix(firstInit);
+	constexpr size_t initialSize{20};
+	REQUIRE(firstMatrix.size() == initialSize);
+	vecIdx = 0;
+	while ( vecIdx < values.size() ) {
+		firstMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
+		++vecIdx;
+	}
+	REQUIRE( firstMatrix.size() == ( initialSize + sizeof(BayesicSpace::IndexedSimilarity) * idxPairs.size() ) );
+
+	// a later chunk in the overall matrix
+	BayesicSpace::MatrixInitializer laterInit{};
+	firstInit.previousCumulativeIndex = previousIdx;
+	firstInit.nRows                   = nRows;
+	BayesicSpace::SimilarityMatrix laterMatrix(laterInit);
+	REQUIRE(laterMatrix.size() == initialSize);
+	vecIdx = 0;
+	while ( vecIdx < values.size() ) {
+		laterMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
+		++vecIdx;
+	}
+	REQUIRE( laterMatrix.size() == firstMatrix.size() );
+
+	// throwing tests
+	BayesicSpace::RowColIdx wrongCombo{};
+	wrongCombo.iRow = 1;
+	wrongCombo.jCol = 1;
+	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
+		Catch::Matchers::StartsWith("ERROR: row and column indexes must be different in")
+	);
+
+	wrongCombo.iRow = 0;
+	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
+		Catch::Matchers::StartsWith("ERROR: row index must be > 0 in")
+	);
+
+	laterInit.previousCumulativeIndex = previousIdxTooBig;
+	BayesicSpace::SimilarityMatrix tooLateMatrix(laterInit);
+	REQUIRE_THROWS_WITH(tooLateMatrix.append(idxPairs.at(0), values.at(0)), 
+		Catch::Matchers::StartsWith("ERROR: new entry in front of the last element in")
+	);
+}
+
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	const std::string logFileName("../tests/binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
@@ -389,6 +458,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		);
 	}
 }
+
 TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	const std::string logFileName("../tests/binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
