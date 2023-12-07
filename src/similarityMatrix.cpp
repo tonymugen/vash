@@ -32,8 +32,12 @@
 #include <string>
 #include <iterator>
 #include <cstdint>
+#include <cstring>
+#include <cassert>
+#include <cmath>
 #include <algorithm>
-#include <limits>
+
+#include <iostream>
 
 #include "similarityMatrix.hpp"
 
@@ -66,6 +70,11 @@ constexpr std::array<float, 256> SimilarityMatrix::floatLookUp_{
 	0.9922F, 0.9961F, 1.0000F
 };
 
+constexpr uint32_t SimilarityMatrix::max24bit_{0x00FFFFFF};
+constexpr uint32_t SimilarityMatrix::valueMask_{0x000000FF};
+constexpr uint32_t SimilarityMatrix::padding_{0xFFFFFF00};
+constexpr uint32_t SimilarityMatrix::byteSize_{8};
+
 void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilarity) {
 	if (rowColPair.iRow == rowColPair.jCol) {
 		throw std::string("ERROR: row and column indexes must be different in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -76,6 +85,9 @@ void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilari
 	// make sure we are addressing the lower triangle
 	const auto iRow{static_cast<uint64_t>( std::max(rowColPair.iRow, rowColPair.jCol) )};
 	const auto jCol{static_cast<uint64_t>( std::min(rowColPair.iRow, rowColPair.jCol) )};
+	if (iRow >= nRows_) {
+		throw std::string("ERROR: row index must be smaller than the number of rows in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
 	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2 + jCol;
 
 	if (newVecIndex <= lastCumulativeIndex_) {
@@ -83,18 +95,45 @@ void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilari
 	}
 	uint64_t newDiff = newVecIndex - lastCumulativeIndex_;
 
-	// if the difference overflows uint32_t, pad with 0-valued entries
-	const uint64_t n32bits = newDiff / std::numeric_limits<uint32_t>::max();
-	IndexedSimilarity padding{};
-	padding.diffIndex  = std::numeric_limits<uint32_t>::max();
-	padding.similarity = 0;
-	std::vector<IndexedSimilarity> whole32bits(n32bits, padding);
-	std::move( whole32bits.begin(), whole32bits.end(), std::back_inserter(matrix_) );
-	newDiff = newDiff % std::numeric_limits<uint32_t>::max();
+	// if the difference overflows 24-bit unsigned int, pad with 0-valued entries
+	const uint64_t n24bits = newDiff / max24bit_;
+	std::vector<uint32_t> whole24bits(n24bits, padding_);
+	std::move( whole24bits.begin(), whole24bits.end(), std::back_inserter(matrix_) );
+	newDiff = newDiff % max24bit_;
 
-	IndexedSimilarity newEntry{};
-	newEntry.similarity = quantSimilarity;
-	newEntry.diffIndex  = static_cast<uint32_t>(newDiff);
-	matrix_.emplace_back(newEntry);
+	uint32_t newEntry{static_cast<uint32_t>(newDiff) << byteSize_};
+	memcpy(&newEntry, &quantSimilarity, 1);
+	matrix_.push_back(newEntry);
 	lastCumulativeIndex_ = newVecIndex;
 }
+
+void SimilarityMatrix::save() const {
+	if (nRows_ == 0) {
+		return;
+	}
+
+	uint64_t runningFullIdx{previousCumulativeIndex_};
+	const RowColIdx first{recoverRCindexes_(matrix_.cbegin(), runningFullIdx)};
+	for (auto eachVal : matrix_) {
+		std::cout << (eachVal >> byteSize_) << " ";
+	}
+	std::cout << "| " << previousCumulativeIndex_ << " " << first.iRow << " " << first.jCol << "\n";
+}
+
+RowColIdx SimilarityMatrix::recoverRCindexes_(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) const noexcept {
+	assert( (nRows_ > 0) // NOLINT
+			&& "ERROR: there must be some rows in the matrix in recoverRCindexes_()" );
+
+	const uint64_t thisFullIdx{recoverFullVIdx_(packedElementIt, precedingFullIdx)};
+	RowColIdx result{};
+	// got these expressions by combining various web sources and verifying
+	const size_t kpIdx = triangleSize_ - 1 - thisFullIdx;
+	const size_t pIdx  = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
+	result.iRow        = static_cast<uint32_t>(nRows_ - 2 - pIdx);
+	result.jCol        = static_cast<uint32_t>(nRows_ - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
+
+	precedingFullIdx = thisFullIdx;
+
+	return result;
+}
+

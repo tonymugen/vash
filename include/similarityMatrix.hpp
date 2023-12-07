@@ -35,20 +35,9 @@
 #include <cstddef>
 
 namespace BayesicSpace {
-	struct IndexedSimilarity;
 	struct MatrixInitializer;
 	struct RowColIdx;
 	class SimilarityMatrix;
-
-	/** \brief Index-similarity pair 
-	 *
-	 * The index is a distance from the preceding value in a vectorized similarity matrix.
-	 * Similarity values are quantized to fit in a single byte.
-	 */
-	struct IndexedSimilarity {
-		uint32_t diffIndex;
-		uint8_t  similarity;
-	};
 
 	/** \brief Object with constants to initialize a `SimilarityMatrix` object
 	 *
@@ -79,13 +68,14 @@ namespace BayesicSpace {
 	class SimilarityMatrix {
 	public:
 		/** \brief Default constructor */
-		SimilarityMatrix() noexcept : previousCumulativeIndex_{0}, lastCumulativeIndex_{0}, nRows_{0} {};
+		SimilarityMatrix() noexcept : previousCumulativeIndex_{0}, lastCumulativeIndex_{0}, nRows_{0}, triangleSize_{0} {};
 		/** \brief Constructor
 		 *
 		 * \param[in] initializer initializer object
 		 */
 		SimilarityMatrix(const MatrixInitializer &initializer) noexcept :
-			previousCumulativeIndex_{initializer.previousCumulativeIndex}, lastCumulativeIndex_{initializer.previousCumulativeIndex}, nRows_{initializer.nRows} {};
+			previousCumulativeIndex_{initializer.previousCumulativeIndex}, lastCumulativeIndex_{initializer.previousCumulativeIndex},
+			nRows_{initializer.nRows}, triangleSize_{initializer.nRows * (initializer.nRows - 1) / 2} {};
 		/** \brief Copy constructor
 		 *
 		 * \param[in] toCopy object to copy
@@ -112,10 +102,10 @@ namespace BayesicSpace {
 		~SimilarityMatrix() = default;
 
 		/** \brief Object size in bytes */
-		[[nodiscard]] size_t size() const noexcept { 
-			return	sizeof(IndexedSimilarity) * matrix_.size() + // matrix size
+		[[gnu::warn_unused_result]] size_t size() const noexcept { 
+			return	sizeof(uint32_t) * matrix_.size() +          // matrix size
 					sizeof(uint32_t) +                           // nRows_ size
-					2 * sizeof(uint64_t);                        // index sizes
+					3 * sizeof(uint64_t);                        // index and triangle sizes
 		};
 		/** \brief Append a value (updating the index) 
 		 *
@@ -128,20 +118,64 @@ namespace BayesicSpace {
 		 * \param[in] quantSimilarity quantized similarity value
 		 */
 		void append(const RowColIdx &rowColPair, uint8_t quantSimilarity);
+		/** \brief Save to file */
+		void save() const;
 	private:
-		/** \brief Vectorized data representation */
-		std::vector<IndexedSimilarity> matrix_;
+		/** \brief Vectorized data representation 
+		 *
+		 * The differential index and value are packed into 32-bit integers.
+		 * The first byte is the quantized similarity value (indexing the look-up table).
+		 * The rest encode the distance in vectorized index space from the previous non-zero element.
+		 */
+		std::vector<uint32_t> matrix_;
 		/** \brief Last cumulative index of the previous sub-matrix */
 		uint64_t previousCumulativeIndex_;
 		/** \brief Cumulative (for the whole matrix) value of the last index */
 		uint64_t lastCumulativeIndex_;
 		/** \brief Number of rows (or columns) in the full matrix */
 		uint32_t nRows_;
+		/** \brief Triangle size */
+		uint64_t triangleSize_;
+
 		/** \brief Floating point look-up table
 		 *
 		 * Used to substitute floating-point values that correspond to the
 		 * quantized eight-bit representation in `IndexedSimilarity`.
 		 */
 		static const std::array<float, 256> floatLookUp_;
+		/** \brief Maximal 24-bit integer value */
+		static const uint32_t max24bit_;
+		/** \brief Mask that isolates the value byte */
+		static const uint32_t valueMask_;
+		/** \brief Padding value 
+		 *
+		 * All maximal 24-bit index and 0 value.
+		 * Is added when the distance between indexes exceeds 24-bit unsigned integer max.
+		 */
+		static const uint32_t padding_;
+		/** \brief Size of a byte in bits */
+		static const uint32_t byteSize_;
+
+		/** \brief Reconstruct vectorized index 
+		 *
+		 * Recovers the full index of the vectorized matrix from the differential indexed stored in `matrix_`.
+		 *
+		 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
+		 * \param[in] precedingFullIdx full index of the preceding element
+		 * \return full index
+		 */
+		[[gnu::warn_unused_result]] static uint64_t recoverFullVIdx_(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept {
+			return precedingFullIdx + static_cast<uint64_t>( (*packedElementIt) >> byteSize_ );
+		};
+		/** \brief Recover row and column indexes 
+		 *
+		 * Recovers the row and column indexes from the differential index of the vectorized matrix.
+		 * Updates the preceding full index to the new full index value.
+		 *
+		 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
+		 * \param[in,out] precedingFullIdx full index of the preceding element
+		 * \return row and column index pair
+		 */
+		[[gnu::warn_unused_result]] RowColIdx recoverRCindexes_(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) const noexcept;
 	};
 }

@@ -268,19 +268,19 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	firstInit.previousCumulativeIndex = 0;
 	firstInit.nRows                   = nRows;
 	BayesicSpace::SimilarityMatrix firstMatrix(firstInit);
-	constexpr size_t initialSize{20};
+	constexpr size_t initialSize{28};
 	REQUIRE(firstMatrix.size() == initialSize);
 	vecIdx = 0;
 	while ( vecIdx < values.size() ) {
 		firstMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
 		++vecIdx;
 	}
-	REQUIRE( firstMatrix.size() == ( initialSize + sizeof(BayesicSpace::IndexedSimilarity) * idxPairs.size() ) );
+	REQUIRE( firstMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 
 	// a later chunk in the overall matrix
 	BayesicSpace::MatrixInitializer laterInit{};
-	firstInit.previousCumulativeIndex = previousIdx;
-	firstInit.nRows                   = nRows;
+	laterInit.previousCumulativeIndex = previousIdx;
+	laterInit.nRows                   = nRows;
 	BayesicSpace::SimilarityMatrix laterMatrix(laterInit);
 	REQUIRE(laterMatrix.size() == initialSize);
 	vecIdx = 0;
@@ -289,6 +289,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		++vecIdx;
 	}
 	REQUIRE( laterMatrix.size() == firstMatrix.size() );
+	laterMatrix.save();
 
 	// throwing tests
 	BayesicSpace::RowColIdx wrongCombo{};
@@ -301,6 +302,11 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	wrongCombo.iRow = 0;
 	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
 		Catch::Matchers::StartsWith("ERROR: row index must be > 0 in")
+	);
+
+	wrongCombo.iRow = nRows;
+	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
+		Catch::Matchers::StartsWith("ERROR: row index must be smaller than the number of rows in")
 	);
 
 	laterInit.previousCumulativeIndex = previousIdxTooBig;
