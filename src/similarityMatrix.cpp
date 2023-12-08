@@ -36,12 +36,30 @@
 #include <cassert>
 #include <cmath>
 #include <algorithm>
-
-#include <iostream>
+#include <fstream>
 
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
+
+uint64_t BayesicSpace::recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept {
+	constexpr uint32_t byteSize{8};
+	return precedingFullIdx + static_cast<uint64_t>( (*packedElementIt) >> byteSize );
+};
+
+RowColIdx BayesicSpace::recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept {
+	const uint64_t thisFullIdx{recoverFullVIdx(packedElementIt, precedingFullIdx)};
+	constexpr double tfiCoeff{8.0};
+	RowColIdx result{};
+
+	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(thisFullIdx))) / 2.0);
+	result.jCol    = static_cast<uint32_t>(thisFullIdx - row * (row - 1) / 2);
+	result.iRow    = static_cast<uint32_t>(row);
+
+	precedingFullIdx = thisFullIdx;
+
+	return result;
+}
 
 constexpr std::array<float, 256> SimilarityMatrix::floatLookUp_{
 	0.0000F, 0.0039F, 0.0078F, 0.0118F, 0.0157F, 0.0196F, 0.0235F, 0.0275F, 0.0314F, 0.0353F, 0.0392F, 
@@ -80,20 +98,17 @@ void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilari
 		throw std::string("ERROR: row and column indexes must be different in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (rowColPair.iRow == 0) {
-		throw std::string("ERROR: row index must be > 0 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+		throw std::string("ERROR: row index must be non-zero in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	// make sure we are addressing the lower triangle
 	const auto iRow{static_cast<uint64_t>( std::max(rowColPair.iRow, rowColPair.jCol) )};
 	const auto jCol{static_cast<uint64_t>( std::min(rowColPair.iRow, rowColPair.jCol) )};
-	if (iRow >= nRows_) {
-		throw std::string("ERROR: row index must be smaller than the number of rows in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
 	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2 + jCol;
 
-	if (newVecIndex <= lastCumulativeIndex_) {
-		throw std::string("ERROR: new entry in front of the last element in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	if ( matrix_.empty() ) {
+		firstCumulativeIndex_ = newVecIndex;
 	}
-	uint64_t newDiff = newVecIndex - lastCumulativeIndex_;
+	uint64_t newDiff = newVecIndex - firstCumulativeIndex_;
 
 	// if the difference overflows 24-bit unsigned int, pad with 0-valued entries
 	const uint64_t n24bits = newDiff / max24bit_;
@@ -107,33 +122,29 @@ void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilari
 	lastCumulativeIndex_ = newVecIndex;
 }
 
-void SimilarityMatrix::save() const {
-	if (nRows_ == 0) {
-		return;
-	}
+void SimilarityMatrix::save(const std::string &outFileName) const {
+	std::fstream outStream;
+	outStream.open(outFileName, std::ios::out | std::ios::trunc);
 
-	uint64_t runningFullIdx{previousCumulativeIndex_};
-	const RowColIdx first{recoverRCindexes_(matrix_.cbegin(), runningFullIdx)};
-	for (auto eachVal : matrix_) {
-		std::cout << (eachVal >> byteSize_) << " ";
+	uint64_t runningFullIdx{firstCumulativeIndex_};
+	for (auto matIt = matrix_.begin(); matIt != matrix_.end(); ++matIt) {
+		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
+		const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+		outStream << currentPair.iRow + 1 << "\t" << currentPair.jCol + 1 << "\t" << similarityValue << "\n";
 	}
-	std::cout << "| " << previousCumulativeIndex_ << " " << first.iRow << " " << first.jCol << "\n";
+	outStream.close();
 }
 
-RowColIdx SimilarityMatrix::recoverRCindexes_(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) const noexcept {
-	assert( (nRows_ > 0) // NOLINT
-			&& "ERROR: there must be some rows in the matrix in recoverRCindexes_()" );
-
-	const uint64_t thisFullIdx{recoverFullVIdx_(packedElementIt, precedingFullIdx)};
-	RowColIdx result{};
-	// got these expressions by combining various web sources and verifying
-	const size_t kpIdx = triangleSize_ - 1 - thisFullIdx;
-	const size_t pIdx  = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
-	result.iRow        = static_cast<uint32_t>(nRows_ - 2 - pIdx);
-	result.jCol        = static_cast<uint32_t>(nRows_ - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
-
-	precedingFullIdx = thisFullIdx;
-
-	return result;
+void SimilarityMatrix::binSave(const std::string &outFileName) const {
+	uint64_t runningFullIdx{firstCumulativeIndex_};
+	std::string outBuffer;
+	for (auto matIt = matrix_.begin(); matIt != matrix_.end(); ++matIt) {
+		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
+		const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+		outBuffer += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + std::to_string(similarityValue) + "\n";
+	}
+	std::fstream outStream;
+	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);
+	outStream.write( outBuffer.c_str(), static_cast<std::streamsize>( outBuffer.size() ) );
+	outStream.close();
 }
-

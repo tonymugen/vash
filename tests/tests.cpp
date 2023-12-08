@@ -248,72 +248,107 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 7> rowIndexes{4, 5, 5, 6, 6, 8, 8};
 	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};
 	constexpr std::array<uint8_t, 7>  values{54, 81, 84, 141, 124, 199, 146};
-	constexpr uint32_t nRows{9};
+	constexpr std::array<float, 7> correctFloatValues{0.2118, 0.3176, 0.3294, 0.5529, 0.4863, 0.7804, 0.5725};
 	constexpr uint64_t previousIdx{7};
-	constexpr uint64_t previousIdxTooBig{14};
 
-	std::vector<BayesicSpace::RowColIdx> idxPairs;
-	idxPairs.reserve( rowIndexes.size() );
-	size_t vecIdx{0};
-	while ( vecIdx < rowIndexes.size() ) {
-		BayesicSpace::RowColIdx currPair{};
-		currPair.iRow = rowIndexes.at(vecIdx);
-		currPair.jCol = colIndexes.at(vecIdx);
-		idxPairs.emplace_back(currPair);
-		++vecIdx;
+	SECTION("Auxiliary functions") {
+		constexpr uint32_t byteSize{8};
+		constexpr std::array<uint32_t, 4> diffIdxArray{(2 << byteSize), (2 << byteSize), (1 << byteSize), (5 << byteSize)};
+		const std::vector<uint32_t> diffIdx( diffIdxArray.cbegin(), diffIdxArray.cend() );
+		constexpr uint64_t correctFullIdx{9};
+		REQUIRE(BayesicSpace::recoverFullVIdx(diffIdx.cbegin(), previousIdx) == correctFullIdx);
+		uint64_t previousIdxMutable{previousIdx};
+		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes(diffIdx.cbegin(), previousIdxMutable)};
+		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
+		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
 	}
+	SECTION("SimilarityMatrix methods") {
+		std::vector<BayesicSpace::RowColIdx> idxPairs;
+		idxPairs.reserve( rowIndexes.size() );
+		size_t vecIdx{0};
+		while ( vecIdx < rowIndexes.size() ) {
+			BayesicSpace::RowColIdx currPair{};
+			currPair.iRow = rowIndexes.at(vecIdx);
+			currPair.jCol = colIndexes.at(vecIdx);
+			idxPairs.emplace_back(currPair);
+			++vecIdx;
+		}
 
-	// the first chunk in the overall matrix
-	BayesicSpace::MatrixInitializer firstInit{};
-	firstInit.previousCumulativeIndex = 0;
-	firstInit.nRows                   = nRows;
-	BayesicSpace::SimilarityMatrix firstMatrix(firstInit);
-	constexpr size_t initialSize{28};
-	REQUIRE(firstMatrix.size() == initialSize);
-	vecIdx = 0;
-	while ( vecIdx < values.size() ) {
-		firstMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
-		++vecIdx;
+		// the first chunk in the overall matrix
+		BayesicSpace::SimilarityMatrix smallMatrix;
+		constexpr size_t initialSize{2 * sizeof(uint64_t)};
+		REQUIRE(smallMatrix.size() == initialSize);
+		vecIdx = 0;
+		while ( vecIdx < values.size() ) {
+			smallMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
+			++vecIdx;
+		}
+		REQUIRE( smallMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
+
+		// test file save
+		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
+		smallMatrix.save(outputFileName);
+
+		std::fstream testSMoutfile(outputFileName, std::ios::in);
+		std::string line;
+		std::array<uint32_t, values.size()> rowsFromFile{};
+		std::array<uint32_t, values.size()> colsFromFile{};
+		std::array<float, values.size()> floatsFromFile{};
+		size_t arrayIdx{0};
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrayIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrayIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrayIdx) = stof(field);
+			++arrayIdx;
+		}
+		testSMoutfile.close();
+		//std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE(std::equal(rowsFromFile.cbegin(), rowsFromFile.cend(), rowIndexes.cbegin()));
+		REQUIRE(std::equal(colsFromFile.cbegin(), colsFromFile.cend(), colIndexes.cbegin()));
+		REQUIRE(std::equal(floatsFromFile.cbegin(), floatsFromFile.cend(), correctFloatValues.cbegin()));
+
+		// throwing tests
+		BayesicSpace::RowColIdx wrongCombo{};
+		BayesicSpace::SimilarityMatrix wrongMatrix;
+		wrongCombo.iRow = 1;
+		wrongCombo.jCol = 1;
+		REQUIRE_THROWS_WITH(wrongMatrix.append(wrongCombo, values.at(0)), 
+			Catch::Matchers::StartsWith("ERROR: row and column indexes must be different in")
+		);
+
+		wrongCombo.iRow = 0;
+		REQUIRE_THROWS_WITH(wrongMatrix.append(wrongCombo, values.at(0)), 
+			Catch::Matchers::StartsWith("ERROR: row index must be non-zero in")
+		);
 	}
-	REQUIRE( firstMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
-
-	// a later chunk in the overall matrix
-	BayesicSpace::MatrixInitializer laterInit{};
-	laterInit.previousCumulativeIndex = previousIdx;
-	laterInit.nRows                   = nRows;
-	BayesicSpace::SimilarityMatrix laterMatrix(laterInit);
-	REQUIRE(laterMatrix.size() == initialSize);
-	vecIdx = 0;
-	while ( vecIdx < values.size() ) {
-		laterMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
-		++vecIdx;
+	// save timing
+	//constexpr size_t largeNrows{5000};
+	/*
+	constexpr size_t largeNrows{10};
+	std::vector<uint32_t> manyRows(largeNrows);
+	std::iota(manyRows.begin(), manyRows.end(), 0);
+	BayesicSpace::SimilarityMatrix largeMatrix;
+	for (auto mrIt = manyRows.cbegin() + 1; mrIt != manyRows.cend(); ++mrIt) {
+		std::for_each(
+			manyRows.cbegin(),
+			mrIt,
+			[&largeMatrix, mrIt](uint32_t colIdx){
+				BayesicSpace::RowColIdx currRCI{};
+				currRCI.iRow = (*mrIt);
+				currRCI.jCol = colIdx;
+				std::cout << currRCI.iRow << " " << currRCI.jCol << "\n";
+				largeMatrix.append(currRCI, 1);
+			});
 	}
-	REQUIRE( laterMatrix.size() == firstMatrix.size() );
-	laterMatrix.save();
-
-	// throwing tests
-	BayesicSpace::RowColIdx wrongCombo{};
-	wrongCombo.iRow = 1;
-	wrongCombo.jCol = 1;
-	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
-		Catch::Matchers::StartsWith("ERROR: row and column indexes must be different in")
-	);
-
-	wrongCombo.iRow = 0;
-	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
-		Catch::Matchers::StartsWith("ERROR: row index must be > 0 in")
-	);
-
-	wrongCombo.iRow = nRows;
-	REQUIRE_THROWS_WITH(laterMatrix.append(wrongCombo, values.at(0)), 
-		Catch::Matchers::StartsWith("ERROR: row index must be smaller than the number of rows in")
-	);
-
-	laterInit.previousCumulativeIndex = previousIdxTooBig;
-	BayesicSpace::SimilarityMatrix tooLateMatrix(laterInit);
-	REQUIRE_THROWS_WITH(tooLateMatrix.append(idxPairs.at(0), values.at(0)), 
-		Catch::Matchers::StartsWith("ERROR: new entry in front of the last element in")
-	);
+	const std::string timedOutFN("../tests/timedSMout.tsv");
+	largeMatrix.save(timedOutFN);
+	*/
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {

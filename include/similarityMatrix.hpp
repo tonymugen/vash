@@ -31,6 +31,7 @@
 
 #include <vector>
 #include <array>
+#include <string>
 #include <cstdint>
 #include <cstddef>
 
@@ -39,43 +40,41 @@ namespace BayesicSpace {
 	struct RowColIdx;
 	class SimilarityMatrix;
 
-	/** \brief Object with constants to initialize a `SimilarityMatrix` object
-	 *
-	 * `previousCumulativeIndex` is the overall index of the last element of the previous portion
-	 * of the overall matrix.
-	 * `nRows` is the number of rows (or columns, since `SimilarityMatrix` is square) of the overall matrix.
-	 */
-	struct MatrixInitializer {
-		uint64_t previousCumulativeIndex;
-		uint32_t nRows;
-	};
-
 	/** \brief Row and column index pair */
 	struct RowColIdx {
 		uint32_t iRow;
 		uint32_t jCol;
 	};
 
+	/** \brief Reconstruct vectorized index 
+	 *
+	 * Recovers the full index of the vectorized matrix from a differential index.
+	 *
+	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
+	 * \param[in] precedingFullIdx full index of the preceding element
+	 * \return full index
+	 */
+	[[gnu::warn_unused_result]] uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept;
+	/** \brief Recover row and column indexes 
+	 *
+	 * Recovers the row and column indexes from the differential index of the vectorized matrix.
+	 * Updates the preceding full index to the new full index value.
+	 *
+	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
+	 * \param[in,out] precedingFullIdx full index of the preceding element
+	 * \return row and column index pair
+	 */
+	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept;
 	/** \brief Similarity matrix
 	 *
 	 * A representation of a symmetric similarity matrix, excluding the diagonal.
 	 * Stores the lower triangle by row.
 	 * The representation is efficient if the matrix is sparse.
-	 * The object can be a section of a larger matrix. In this case,
-	 * a start index (that addresses the end of the vectorized preceding chunk of the larger matrix)
-	 * can also be provided.
 	 */
 	class SimilarityMatrix {
 	public:
 		/** \brief Default constructor */
-		SimilarityMatrix() noexcept : previousCumulativeIndex_{0}, lastCumulativeIndex_{0}, nRows_{0}, triangleSize_{0} {};
-		/** \brief Constructor
-		 *
-		 * \param[in] initializer initializer object
-		 */
-		SimilarityMatrix(const MatrixInitializer &initializer) noexcept :
-			previousCumulativeIndex_{initializer.previousCumulativeIndex}, lastCumulativeIndex_{initializer.previousCumulativeIndex},
-			nRows_{initializer.nRows}, triangleSize_{initializer.nRows * (initializer.nRows - 1) / 2} {};
+		SimilarityMatrix() noexcept  = default;
 		/** \brief Copy constructor
 		 *
 		 * \param[in] toCopy object to copy
@@ -104,22 +103,26 @@ namespace BayesicSpace {
 		/** \brief Object size in bytes */
 		[[gnu::warn_unused_result]] size_t size() const noexcept { 
 			return	sizeof(uint32_t) * matrix_.size() +          // matrix size
-					sizeof(uint32_t) +                           // nRows_ size
-					3 * sizeof(uint64_t);                        // index and triangle sizes
+					2 * sizeof(uint64_t);                        // full index sizes
 		};
 		/** \brief Append a value (updating the index) 
 		 *
 		 * Appending the data according to the provided row and column indexes.
 		 * The indexes should belong the to overall matrix.
 		 * Row index must be larger than the column index. If not, the values are swapped.
-		 * If the indexes are equal or fall in front of the last included value, throws an exception.
+		 * If the indexes are equal or the row index is 0, throws an exception.
 		 *
 		 * \param[in] rowColPair row and index pair
 		 * \param[in] quantSimilarity quantized similarity value
 		 */
 		void append(const RowColIdx &rowColPair, uint8_t quantSimilarity);
-		/** \brief Save to file */
-		void save() const;
+		/** \brief Save to file 
+		 *
+		 * \param[in] outFileName output file name
+		 */
+		void save(const std::string &outFileName) const;
+		/** \brief Test save function */
+		void binSave(const std::string &outFileName) const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -128,14 +131,10 @@ namespace BayesicSpace {
 		 * The rest encode the distance in vectorized index space from the previous non-zero element.
 		 */
 		std::vector<uint32_t> matrix_;
-		/** \brief Last cumulative index of the previous sub-matrix */
-		uint64_t previousCumulativeIndex_;
-		/** \brief Cumulative (for the whole matrix) value of the last index */
-		uint64_t lastCumulativeIndex_;
-		/** \brief Number of rows (or columns) in the full matrix */
-		uint32_t nRows_;
-		/** \brief Triangle size */
-		uint64_t triangleSize_;
+		/** \brief Full (cumulative) index of the first element */
+		uint64_t firstCumulativeIndex_{0};
+		/** \brief Full (cumulative) index of the last element */
+		uint64_t lastCumulativeIndex_{0};
 
 		/** \brief Floating point look-up table
 		 *
@@ -156,26 +155,5 @@ namespace BayesicSpace {
 		/** \brief Size of a byte in bits */
 		static const uint32_t byteSize_;
 
-		/** \brief Reconstruct vectorized index 
-		 *
-		 * Recovers the full index of the vectorized matrix from the differential indexed stored in `matrix_`.
-		 *
-		 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-		 * \param[in] precedingFullIdx full index of the preceding element
-		 * \return full index
-		 */
-		[[gnu::warn_unused_result]] static uint64_t recoverFullVIdx_(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept {
-			return precedingFullIdx + static_cast<uint64_t>( (*packedElementIt) >> byteSize_ );
-		};
-		/** \brief Recover row and column indexes 
-		 *
-		 * Recovers the row and column indexes from the differential index of the vectorized matrix.
-		 * Updates the preceding full index to the new full index value.
-		 *
-		 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-		 * \param[in,out] precedingFullIdx full index of the preceding element
-		 * \return row and column index pair
-		 */
-		[[gnu::warn_unused_result]] RowColIdx recoverRCindexes_(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) const noexcept;
 	};
 }
