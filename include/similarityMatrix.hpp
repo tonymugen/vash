@@ -105,17 +105,16 @@ namespace BayesicSpace {
 			return	sizeof(uint32_t) * matrix_.size() +          // matrix size
 					2 * sizeof(uint64_t);                        // full index sizes
 		};
-		/** \brief Append a value (updating the index) 
+		/** \brief Insert a value (updating the index) 
 		 *
-		 * Appending the data according to the provided row and column indexes.
-		 * The indexes should belong the to overall matrix.
+		 * Inserts a new value into the matrix.
 		 * Row index must be larger than the column index. If not, the values are swapped.
 		 * If the indexes are equal or the row index is 0, throws an exception.
 		 *
 		 * \param[in] rowColPair row and index pair
 		 * \param[in] quantSimilarity quantized similarity value
 		 */
-		void append(const RowColIdx &rowColPair, uint8_t quantSimilarity);
+		void insert(const RowColIdx &rowColPair, uint8_t quantSimilarity);
 		/** \brief Save to file 
 		 *
 		 * \param[in] outFileName output file name

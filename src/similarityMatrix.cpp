@@ -38,6 +38,8 @@
 #include <algorithm>
 #include <fstream>
 
+#include <iostream>
+
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
@@ -93,7 +95,7 @@ constexpr uint32_t SimilarityMatrix::valueMask_{0x000000FF};
 constexpr uint32_t SimilarityMatrix::padding_{0xFFFFFF00};
 constexpr uint32_t SimilarityMatrix::byteSize_{8};
 
-void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilarity) {
+void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilarity) {
 	if (rowColPair.iRow == rowColPair.jCol) {
 		throw std::string("ERROR: row and column indexes must be different in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
@@ -101,14 +103,78 @@ void SimilarityMatrix::append(const RowColIdx &rowColPair, uint8_t quantSimilari
 		throw std::string("ERROR: row index must be non-zero in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	// make sure we are addressing the lower triangle
-	const auto iRow{static_cast<uint64_t>( std::max(rowColPair.iRow, rowColPair.jCol) )};
-	const auto jCol{static_cast<uint64_t>( std::min(rowColPair.iRow, rowColPair.jCol) )};
+	const auto rowColOrdered = std::minmax(rowColPair.iRow, rowColPair.jCol);
+	const auto jCol{static_cast<uint64_t>(rowColOrdered.first)};
+	const auto iRow{static_cast<uint64_t>(rowColOrdered.second)};
 	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2 + jCol;
 
 	if ( matrix_.empty() ) {
 		firstCumulativeIndex_ = newVecIndex;
+		lastCumulativeIndex_  = newVecIndex;
+		matrix_.push_back( static_cast<uint32_t>(quantSimilarity) );
+		return;
 	}
-	uint64_t newDiff = newVecIndex - firstCumulativeIndex_;
+	if ( (newVecIndex == lastCumulativeIndex_) || (newVecIndex == firstCumulativeIndex_) ) { // a redundant element
+		return;
+	}
+	matrix_.reserve(matrix_.size() + 1);
+	if (newVecIndex < lastCumulativeIndex_) {                                                // will be inserting the new element
+		/*
+		if (newVecIndex < firstCumulativeIndex_) {                                           // inserting in front
+			const uint64_t newDiff = firstCumulativeIndex_ - newVecIndex;
+			// if the difference overflows 24-bit unsigned int, pad with 0-valued entries
+			const uint64_t n24bits = newDiff / max24bit_;
+			std::vector<uint32_t> whole24bits(n24bits + 1, padding_);
+			whole24bits[0] = static_cast<uint32_t>(quantSimilarity);
+			matrix_.insert( matrix_.cbegin(), whole24bits.cbegin(), whole24bits.cend() );
+			firstCumulativeIndex_ = newVecIndex;
+			return;
+		}
+		*/
+		// general insertion
+		for (const auto &eachEl : matrix_) {
+			std::cout << (eachEl >> byteSize_) << " ";
+		}
+		std::cout << "\n=======\n";
+
+		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, newVecIndex)};
+		//const uint64_t newLasctCumIdx{std::max(lastCumulativeIndex_, newVecIndex)};
+		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};           // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
+
+		// resolution of the possible 24-bit overload by padding with 0 values
+		const uint64_t n24bits = firstDiff / max24bit_;
+		std::vector<uint32_t> whole24bits(n24bits, padding_);
+		firstDiff = firstDiff % max24bit_;
+
+		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << byteSize_;
+		memcpy(&firstElement, &quantSimilarity, 1);
+		matrix_[0] = firstElement;                                                  // if the firstCumulativeIndex_ has not changed, still 0 index
+		auto matIt = matrix_.begin();
+		uint64_t currentIdx{recoverFullVIdx(matIt, newFirstCumIdx)};
+		while (currentIdx <= newVecIndex) {
+			++matIt;
+			currentIdx = recoverFullVIdx(matIt, currentIdx);
+		}
+		auto nextDiff = static_cast<uint32_t>(currentIdx - newVecIndex);
+		auto currDiff = ( (*matIt) >> byteSize_ ) - nextDiff;
+		currDiff      = currDiff << byteSize_;
+		memcpy(&currDiff, &quantSimilarity, 1);
+		matIt = std::next( matrix_.insert(matIt, currDiff) );
+		const uint32_t nextVal = *matIt;
+		nextDiff = nextDiff << byteSize_;
+		memcpy(&nextDiff, &nextVal, 1);
+		*matIt = nextDiff;
+		matrix_.insert( matrix_.cbegin(), whole24bits.cbegin(), whole24bits.cend() );
+		matrix_[0] = matrix_[0] & valueMask_;
+
+		for (const auto &eachEl : matrix_) {
+			std::cout << (eachEl >> byteSize_) << " ";
+		}
+		std::cout << "\n";
+		//const auto newDiff = static_cast<uint32_t>(currentIdx - newVecIndex);
+		return;
+	}
+	uint64_t newDiff = newVecIndex - lastCumulativeIndex_;
 
 	// if the difference overflows 24-bit unsigned int, pad with 0-valued entries
 	const uint64_t n24bits = newDiff / max24bit_;

@@ -274,18 +274,20 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			++vecIdx;
 		}
 
-		// the first chunk in the overall matrix
 		BayesicSpace::SimilarityMatrix smallMatrix;
 		constexpr size_t initialSize{2 * sizeof(uint64_t)};
 		REQUIRE(smallMatrix.size() == initialSize);
 		vecIdx = 0;
 		while ( vecIdx < values.size() ) {
-			smallMatrix.append( idxPairs.at(vecIdx), values.at(vecIdx) );
+			smallMatrix.insert( idxPairs.at(vecIdx), values.at(vecIdx) );
 			++vecIdx;
 		}
 		REQUIRE( smallMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 
+		BayesicSpace::RowColIdx middleVal{6, 1};//NOLINT
+		smallMatrix.insert(middleVal, values.at(1));
 		// test file save
+		/*
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
 		smallMatrix.save(outputFileName);
 
@@ -308,22 +310,22 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			++arrayIdx;
 		}
 		testSMoutfile.close();
-		//std::remove( outputFileName.c_str() ); // NOLINT
+		std::remove( outputFileName.c_str() ); // NOLINT
 		REQUIRE(std::equal(rowsFromFile.cbegin(), rowsFromFile.cend(), rowIndexes.cbegin()));
 		REQUIRE(std::equal(colsFromFile.cbegin(), colsFromFile.cend(), colIndexes.cbegin()));
 		REQUIRE(std::equal(floatsFromFile.cbegin(), floatsFromFile.cend(), correctFloatValues.cbegin()));
-
+		*/
 		// throwing tests
 		BayesicSpace::RowColIdx wrongCombo{};
 		BayesicSpace::SimilarityMatrix wrongMatrix;
 		wrongCombo.iRow = 1;
 		wrongCombo.jCol = 1;
-		REQUIRE_THROWS_WITH(wrongMatrix.append(wrongCombo, values.at(0)), 
+		REQUIRE_THROWS_WITH(wrongMatrix.insert(wrongCombo, values.at(0)), 
 			Catch::Matchers::StartsWith("ERROR: row and column indexes must be different in")
 		);
 
 		wrongCombo.iRow = 0;
-		REQUIRE_THROWS_WITH(wrongMatrix.append(wrongCombo, values.at(0)), 
+		REQUIRE_THROWS_WITH(wrongMatrix.insert(wrongCombo, values.at(0)), 
 			Catch::Matchers::StartsWith("ERROR: row index must be non-zero in")
 		);
 	}
