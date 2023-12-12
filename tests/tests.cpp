@@ -284,13 +284,16 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		}
 		REQUIRE( smallMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 
-		BayesicSpace::RowColIdx middleVal{6, 1};//NOLINT
-		smallMatrix.insert(middleVal, values.at(1));
+		BayesicSpace::RowColIdx middleVal{8, 6};//NOLINT
+		BayesicSpace::RowColIdx earlyVal{3, 0};//NOLINT
+		BayesicSpace::RowColIdx dupVal{5, 1};//NOLINT
+		BayesicSpace::RowColIdx hugeVal{6000, 595};//NOLINT
+		smallMatrix.insert(earlyVal, values.at(1));
 		// test file save
-		/*
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
 		smallMatrix.save(outputFileName);
 
+		/*
 		std::fstream testSMoutfile(outputFileName, std::ios::in);
 		std::string line;
 		std::array<uint32_t, values.size()> rowsFromFile{};

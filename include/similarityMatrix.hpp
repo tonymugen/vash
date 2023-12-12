@@ -36,7 +36,6 @@
 #include <cstddef>
 
 namespace BayesicSpace {
-	struct MatrixInitializer;
 	struct RowColIdx;
 	class SimilarityMatrix;
 
@@ -72,6 +71,7 @@ namespace BayesicSpace {
 	 * The representation is efficient if the matrix is sparse.
 	 */
 	class SimilarityMatrix {
+	friend uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept;
 	public:
 		/** \brief Default constructor */
 		SimilarityMatrix() noexcept  = default;
@@ -138,21 +138,21 @@ namespace BayesicSpace {
 		/** \brief Floating point look-up table
 		 *
 		 * Used to substitute floating-point values that correspond to the
-		 * quantized eight-bit representation in `IndexedSimilarity`.
+		 * quantized representation in `IndexedSimilarity`.
 		 */
 		static const std::array<float, 256> floatLookUp_;
-		/** \brief Maximal 24-bit integer value */
-		static const uint32_t max24bit_;
-		/** \brief Mask that isolates the value byte */
+		/** \brief Maximal index bit-field value */
+		static const uint32_t maxIdxBitfield_;
+		/** \brief Mask that isolates the value bit-field */
 		static const uint32_t valueMask_;
 		/** \brief Padding value 
 		 *
-		 * All maximal 24-bit index and 0 value.
-		 * Is added when the distance between indexes exceeds 24-bit unsigned integer max.
+		 * The maximal index and 0 value.
+		 * Is added when the distance between indexes exceeds the index bit-field max.
 		 */
 		static const uint32_t padding_;
-		/** \brief Size of a byte in bits */
-		static const uint32_t byteSize_;
+		/** \brief Size of the value bit-field in bits */
+		static const uint32_t valueSize_;
 
 	};
 }
