@@ -38,8 +38,6 @@
 #include <algorithm>
 #include <fstream>
 
-#include <iostream>
-
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
@@ -121,9 +119,9 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, newVecIndex)};
 		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};                          // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
 
-		// resolution of the possible 24-bit overload by padding with 0 values
-		const uint64_t n24bits = firstDiff / maxIdxBitfield_;
-		std::vector<uint32_t> whole24bits(n24bits, padding_);
+		// resolution of the possible index bit-field overload by padding with 0 values
+		const uint64_t nBFmax = firstDiff / maxIdxBitfield_;
+		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
 		firstDiff = firstDiff % maxIdxBitfield_;
 
 		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << valueSize_;
@@ -151,17 +149,17 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 		nextDiff  = nextDiff << valueSize_;
 		nextDiff |= nextVal;
 		*matIt    = nextDiff;
-		matrix_.insert( matrix_.cbegin(), whole24bits.cbegin(), whole24bits.cend() );
+		matrix_.insert( matIt, wholeBitField.cbegin(), wholeBitField.cend() );
 		matrix_[0]           &= valueMask_;
 		firstCumulativeIndex_ = newFirstCumIdx;
 		return;
 	}
 	uint64_t newDiff = newVecIndex - lastCumulativeIndex_;
 
-	// if the difference overflows 24-bit unsigned int, pad with 0-valued entries
-	const size_t n24bits = newDiff / maxIdxBitfield_;
-	std::vector<uint32_t> whole24bits(n24bits, padding_);
-	std::move( whole24bits.begin(), whole24bits.end(), std::back_inserter(matrix_) );
+	// if the difference overflows the bit-field, pad with 0-valued entries
+	const size_t nBFmax = newDiff / maxIdxBitfield_;
+	std::vector<uint32_t> wholeBitField(nBFmax, padding_);
+	std::move( wholeBitField.begin(), wholeBitField.end(), std::back_inserter(matrix_) );
 	newDiff = newDiff % maxIdxBitfield_;
 
 	uint32_t newEntry{static_cast<uint32_t>(newDiff) << valueSize_};
@@ -177,8 +175,10 @@ void SimilarityMatrix::save(const std::string &outFileName) const {
 	uint64_t runningFullIdx{firstCumulativeIndex_};
 	for (auto matIt = matrix_.begin(); matIt != matrix_.end(); ++matIt) {
 		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
-		const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
-		outStream << currentPair.iRow + 1 << "\t" << currentPair.jCol + 1 << "\t" << similarityValue << "\n";
+		if (*matIt != padding_) {
+			const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			outStream << currentPair.iRow + 1 << "\t" << currentPair.jCol + 1 << "\t" << similarityValue << "\n";
+		}
 	}
 	outStream.close();
 }
@@ -188,8 +188,10 @@ void SimilarityMatrix::binSave(const std::string &outFileName) const {
 	std::string outBuffer;
 	for (auto matIt = matrix_.begin(); matIt != matrix_.end(); ++matIt) {
 		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
-		const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
-		outBuffer += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + std::to_string(similarityValue) + "\n";
+		if (*matIt == padding_) {
+			const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			outBuffer += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + std::to_string(similarityValue) + "\n";
+		}
 	}
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);

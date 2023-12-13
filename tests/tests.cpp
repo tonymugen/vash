@@ -247,8 +247,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 7> rowIndexes{4, 5, 5, 6, 6, 8, 8};
 	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};
-	constexpr std::array<uint8_t, 7>  values{54, 81, 84, 141, 124, 199, 146};
-	constexpr std::array<float, 7> correctFloatValues{0.2118, 0.3176, 0.3294, 0.5529, 0.4863, 0.7804, 0.5725};
+	constexpr std::array<uint8_t,  7> values{54, 81, 84, 141, 124, 199, 146};
+	constexpr std::array<uint32_t, 3> addRowIndexes{8, 3, 5};
+	constexpr std::array<uint32_t, 3> addColIndexes{6, 0, 1};
+	constexpr std::array<uint8_t,  3> addValues{97, 223, 134};
+	constexpr std::array<uint32_t, 9> correctRowIndexes{3, 4, 5, 5, 6, 6, 8, 8, 8};
+	constexpr std::array<uint32_t, 9> correctColIndexes{0, 3, 1, 2, 2, 4, 1, 6, 7};
+	constexpr std::array<float,    9> correctFloatValues{0.8745, 0.2118, 0.3176, 0.3294, 0.5529, 0.4863, 0.7804, 0.3804, 0.5725};
 	constexpr uint64_t previousIdx{7};
 
 	SECTION("Auxiliary functions") {
@@ -274,31 +279,41 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			++vecIdx;
 		}
 
-		BayesicSpace::SimilarityMatrix smallMatrix;
-		constexpr size_t initialSize{2 * sizeof(uint64_t)};
-		REQUIRE(smallMatrix.size() == initialSize);
+		std::vector<BayesicSpace::RowColIdx> addIdxPairs;
+		addIdxPairs.reserve( addRowIndexes.size() );
 		vecIdx = 0;
-		while ( vecIdx < values.size() ) {
-			smallMatrix.insert( idxPairs.at(vecIdx), values.at(vecIdx) );
+		while ( vecIdx < addRowIndexes.size() ) {
+			BayesicSpace::RowColIdx currPair{};
+			currPair.iRow = addRowIndexes.at(vecIdx);
+			currPair.jCol = addColIndexes.at(vecIdx);
+			addIdxPairs.emplace_back(currPair);
 			++vecIdx;
 		}
-		REQUIRE( smallMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 
-		BayesicSpace::RowColIdx middleVal{8, 6};//NOLINT
-		BayesicSpace::RowColIdx earlyVal{3, 0};//NOLINT
-		BayesicSpace::RowColIdx dupVal{5, 1};//NOLINT
-		BayesicSpace::RowColIdx hugeVal{6000, 595};//NOLINT
-		smallMatrix.insert(earlyVal, values.at(1));
+		BayesicSpace::SimilarityMatrix testMatrix;
+		constexpr size_t initialSize{2 * sizeof(uint64_t)};
+		REQUIRE(testMatrix.size() == initialSize);
+		vecIdx = 0;
+		while ( vecIdx < values.size() ) {
+			testMatrix.insert( idxPairs.at(vecIdx), values.at(vecIdx) );
+			++vecIdx;
+		}
+		REQUIRE( testMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
+		vecIdx = 0;
+		while ( vecIdx < addValues.size() ) {
+			testMatrix.insert( addIdxPairs.at(vecIdx), addValues.at(vecIdx) );
+			++vecIdx;
+		}
+		REQUIRE( testMatrix.size() == ( initialSize + sizeof(uint32_t) * correctFloatValues.size() ) );
+
 		// test file save
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
-		smallMatrix.save(outputFileName);
-
-		/*
+		testMatrix.save(outputFileName);
 		std::fstream testSMoutfile(outputFileName, std::ios::in);
 		std::string line;
-		std::array<uint32_t, values.size()> rowsFromFile{};
-		std::array<uint32_t, values.size()> colsFromFile{};
-		std::array<float, values.size()> floatsFromFile{};
+		std::array<uint32_t, correctFloatValues.size()> rowsFromFile{};
+		std::array<uint32_t, correctFloatValues.size()> colsFromFile{};
+		std::array<float,    correctFloatValues.size()> floatsFromFile{};
 		size_t arrayIdx{0};
 		while ( std::getline(testSMoutfile, line) ) {
 			std::stringstream lineStream;
@@ -314,10 +329,60 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		}
 		testSMoutfile.close();
 		std::remove( outputFileName.c_str() ); // NOLINT
-		REQUIRE(std::equal(rowsFromFile.cbegin(), rowsFromFile.cend(), rowIndexes.cbegin()));
-		REQUIRE(std::equal(colsFromFile.cbegin(), colsFromFile.cend(), colIndexes.cbegin()));
+		REQUIRE(std::equal(rowsFromFile.cbegin(),   rowsFromFile.cend(),   correctRowIndexes.cbegin()));
+		REQUIRE(std::equal(colsFromFile.cbegin(),   colsFromFile.cend(),   correctColIndexes.cbegin()));
 		REQUIRE(std::equal(floatsFromFile.cbegin(), floatsFromFile.cend(), correctFloatValues.cbegin()));
-		*/
+
+		// values that require padding
+		constexpr std::array<uint32_t, 3> largeIdxRows{20001, 9999, 40005};
+		constexpr std::array<uint32_t, 3> largeIdxCols{10001, 9899, 30005};
+		constexpr std::array<uint8_t,  3> largeValues{3, 246, 39};
+		constexpr std::array<float,    3> largeFloats{0.9647F, 0.0118F, 0.1529F};
+		constexpr size_t correctLargeSize{46};
+		std::vector<BayesicSpace::RowColIdx> largeIdxPairs;
+		largeIdxPairs.reserve( largeIdxRows.size() );
+		vecIdx = 0;
+		while ( vecIdx < largeIdxRows.size() ) {
+			BayesicSpace::RowColIdx currPair{};
+			currPair.iRow = largeIdxRows.at(vecIdx);
+			currPair.jCol = largeIdxCols.at(vecIdx);
+			largeIdxPairs.emplace_back(currPair);
+			++vecIdx;
+		}
+		vecIdx = 0;
+		BayesicSpace::SimilarityMatrix largeMatrix;
+		while ( vecIdx < largeValues.size() ) {
+			largeMatrix.insert( largeIdxPairs.at(vecIdx), largeValues.at(vecIdx) );
+			++vecIdx;
+		}
+		REQUIRE(largeMatrix.size() == initialSize + sizeof(uint32_t) * correctLargeSize);
+
+		largeMatrix.save(outputFileName);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		std::array<uint32_t, largeValues.size()> lgRowsFromFile{};
+		std::array<uint32_t, largeValues.size()> lgColsFromFile{};
+		std::array<float,    largeValues.size()> lgFloatsFromFile{};
+		arrayIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lgRowsFromFile.at(arrayIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			lgColsFromFile.at(arrayIdx) = stoi(field) - 1;
+			lineStream >> field;
+			lgFloatsFromFile.at(arrayIdx) = stof(field);
+			++arrayIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		constexpr std::array<uint32_t, 3> correctLargeIdxRows{9999, 20001, 40005};
+		constexpr std::array<uint32_t, 3> correctLargeIdxCols{9899, 10001, 30005};
+		REQUIRE(std::equal(lgRowsFromFile.cbegin(),   lgRowsFromFile.cend(),   correctLargeIdxRows.cbegin()));
+		REQUIRE(std::equal(lgColsFromFile.cbegin(),   lgColsFromFile.cend(),   correctLargeIdxCols.cbegin()));
+		REQUIRE(std::equal(lgFloatsFromFile.cbegin(), lgFloatsFromFile.cend(), largeFloats.cbegin()));
+
 		// throwing tests
 		BayesicSpace::RowColIdx wrongCombo{};
 		BayesicSpace::SimilarityMatrix wrongMatrix;
