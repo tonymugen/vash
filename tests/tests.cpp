@@ -256,6 +256,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 9> correctColIndexes{0, 3, 1, 2, 2, 4, 1, 6, 7};
 	constexpr std::array<float,    9> correctFloatValues{0.8745, 0.2118, 0.3176, 0.3294, 0.5529, 0.4863, 0.7804, 0.3804, 0.5725};
 	constexpr uint64_t previousIdx{7};
+	constexpr size_t nThreads{6};
 
 	SECTION("Auxiliary functions") {
 		constexpr uint32_t byteSize{8};
@@ -309,7 +310,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		// test file save
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
-		testMatrix.save(outputFileName);
+		testMatrix.save(outputFileName, nThreads);
 		std::fstream testSMoutfile(outputFileName, std::ios::in);
 		std::string line;
 		std::array<uint32_t, correctFloatValues.size()> rowsFromFile{};
@@ -358,7 +359,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		}
 		REQUIRE(largeMatrix.size() == initialSize + sizeof(uint32_t) * correctLargeSize);
 
-		largeMatrix.save(outputFileName);
+		largeMatrix.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		std::array<uint32_t, largeValues.size()> lgRowsFromFile{};
 		std::array<uint32_t, largeValues.size()> lgColsFromFile{};
@@ -398,38 +399,6 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			Catch::Matchers::StartsWith("ERROR: row index must be non-zero in")
 		);
 	}
-}
-
-TEST_CASE("SM timing", "[SMtime]") {
-	constexpr size_t largeNrows{2000};
-	//constexpr size_t largeNrows{10};
-	std::vector<uint32_t> manyRows(largeNrows);
-	std::iota(manyRows.begin(), manyRows.end(), 0);
-	BayesicSpace::SimilarityMatrix largeMatrix;
-	for (auto mrIt = manyRows.cbegin(); mrIt != manyRows.cend(); ++mrIt) {
-		std::for_each(
-			manyRows.cbegin(),
-			mrIt,
-			[&largeMatrix, mrIt](uint32_t colIdx){
-				BayesicSpace::RowColIdx currRCI{};
-				currRCI.iRow = (*mrIt);
-				currRCI.jCol = colIdx;
-				largeMatrix.insert(currRCI, 1);
-			});
-	}
-	const std::string timedOutFN("../tests/timedSMout.tsv");
-	std::chrono::duration<float, std::milli> saveTime{};
-	auto time1 = std::chrono::high_resolution_clock::now();
-	largeMatrix.save(timedOutFN);
-	auto time2 = std::chrono::high_resolution_clock::now();
-	saveTime = time2 - time1;
-	std::chrono::duration<float, std::milli> saveBinTime{};
-	time1 = std::chrono::high_resolution_clock::now();
-	constexpr size_t nThreads{6};
-	largeMatrix.binSave(timedOutFN, nThreads);
-	time2 = std::chrono::high_resolution_clock::now();
-	saveBinTime = time2 - time1;
-	std::cout << "regular matrix save: " << saveTime.count() << "; bin save: " << saveBinTime.count() << "\n";
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {

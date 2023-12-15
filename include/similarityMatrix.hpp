@@ -118,11 +118,12 @@ namespace BayesicSpace {
 		void insert(const RowColIdx &rowColPair, uint8_t quantSimilarity);
 		/** \brief Save to file 
 		 *
+		 * Uses multi-threaded data prep to speed up saving.
+		 *
 		 * \param[in] outFileName output file name
+		 * \param[in] nThreads number of threads
 		 */
-		void save(const std::string &outFileName) const;
-		/** \brief Test save function */
-		void binSave(const std::string &outFileName, const size_t &nThreads) const;
+		void save(const std::string &outFileName, const size_t &nThreads) const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -140,9 +141,15 @@ namespace BayesicSpace {
 		/** \brief Floating point look-up table
 		 *
 		 * Used to substitute floating-point values that correspond to the
-		 * quantized representation in `IndexedSimilarity`.
+		 * quantized representation in the `matrix_`.
 		 */
 		static const std::array<float, 256> floatLookUp_;
+		/** \brief String look-up table
+		 *
+		 * Used to substitute string representations (for display) of the floating-point values
+		 * that correspond to the quantized representation in the `matrix_`.
+		 */
+		static const std::array<const char*, 256> stringLookUp_;
 		/** \brief Maximal index bit-field value */
 		static const uint32_t maxIdxBitfield_;
 		/** \brief Mask that isolates the value bit-field */
@@ -155,6 +162,16 @@ namespace BayesicSpace {
 		static const uint32_t padding_;
 		/** \brief Size of the value bit-field in bits */
 		static const uint32_t valueSize_;
+		/** \brief Convert matrix data to string
+		 *
+		 * Construct a string from a portion of the matrix for saving.
+		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
+		 *
+		 * \param[in] start start iterator for the matrix
+		 * \param[in] end end iterator for the matrix
+		 * \param[in] startCumulativeIndex cumulative index of the start iterator position
+		 * \param[out] outString output string
+		 */
 		static void stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
 								const uint64_t &startCumulativeIndex, std::string &outString);
 
