@@ -64,6 +64,7 @@ namespace BayesicSpace {
 	 * \return row and column index pair
 	 */
 	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept;
+
 	/** \brief Similarity matrix
 	 *
 	 * A representation of a symmetric similarity matrix, excluding the diagonal.
@@ -121,7 +122,7 @@ namespace BayesicSpace {
 		 */
 		void save(const std::string &outFileName) const;
 		/** \brief Test save function */
-		void binSave(const std::string &outFileName) const;
+		void binSave(const std::string &outFileName, const size_t &nThreads) const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -135,6 +136,7 @@ namespace BayesicSpace {
 		/** \brief Full (cumulative) index of the last element */
 		uint64_t lastCumulativeIndex_{0};
 
+		// static members
 		/** \brief Floating point look-up table
 		 *
 		 * Used to substitute floating-point values that correspond to the
@@ -153,6 +155,8 @@ namespace BayesicSpace {
 		static const uint32_t padding_;
 		/** \brief Size of the value bit-field in bits */
 		static const uint32_t valueSize_;
+		static void stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+								const uint64_t &startCumulativeIndex, std::string &outString);
 
 	};
 }

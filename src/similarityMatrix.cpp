@@ -30,6 +30,7 @@
 #include <vector>
 #include <array>
 #include <string>
+#include <utility>  // for std::pair
 #include <iterator>
 #include <cstdint>
 #include <cstring>
@@ -37,6 +38,8 @@
 #include <cmath>
 #include <algorithm>
 #include <fstream>
+#include <future>
+#include <thread>
 
 #include "similarityMatrix.hpp"
 
@@ -114,7 +117,6 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 	if ( (newVecIndex == firstCumulativeIndex_) || (newVecIndex == lastCumulativeIndex_) ) { // redundant elements at either end
 		return;
 	}
-	matrix_.reserve(matrix_.size() + 1);
 	if (newVecIndex < lastCumulativeIndex_) {                                                // will be inserting the new element
 		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, newVecIndex)};
 		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};                          // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
@@ -183,18 +185,86 @@ void SimilarityMatrix::save(const std::string &outFileName) const {
 	outStream.close();
 }
 
-void SimilarityMatrix::binSave(const std::string &outFileName) const {
-	uint64_t runningFullIdx{firstCumulativeIndex_};
-	std::string outBuffer;
-	for (auto matIt = matrix_.begin(); matIt != matrix_.end(); ++matIt) {
-		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
-		if (*matIt == padding_) {
-			const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
-			outBuffer += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + std::to_string(similarityValue) + "\n";
+void SimilarityMatrix::binSave(const std::string &outFileName, const size_t &nThreads) const {
+	std::vector<std::vector<uint32_t>::difference_type> threadChunkSizes( nThreads,
+									static_cast<std::vector<uint32_t>::difference_type>(matrix_.size() / nThreads) );
+	// spread the left over elements among chunks
+	std::for_each(
+		threadChunkSizes.begin(),
+		threadChunkSizes.begin() + static_cast<std::vector<size_t>::difference_type >(matrix_.size() % nThreads),
+		[](std::vector<uint32_t>::difference_type &currSize){return ++currSize;}
+	);
+
+	std::vector< std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> > threadPairs;
+
+	std::vector<uint32_t>::difference_type cumChunkSize{0};
+	std::for_each(
+		threadChunkSizes.cbegin(),
+		threadChunkSizes.cend(),
+		[&threadPairs, &cumChunkSize, this](const std::vector<uint32_t>::difference_type &chunkSize){
+			std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
+						matrix_.cbegin() + cumChunkSize,
+						matrix_.cbegin() + cumChunkSize + chunkSize
+			};
+			threadPairs.emplace_back(tmpPair);
+			cumChunkSize += chunkSize;
 		}
+	);
+
+	std::vector<uint64_t> cumIndexes;
+	uint64_t runningFullIdx{firstCumulativeIndex_};
+	std::for_each(
+		threadPairs.cbegin(),
+		threadPairs.cend(),
+		[&runningFullIdx, &cumIndexes](auto eachPair){
+			cumIndexes.push_back(runningFullIdx);
+			for (auto matIt = eachPair.first; matIt != eachPair.second; ++matIt) {
+				runningFullIdx = recoverFullVIdx(matIt, runningFullIdx);
+			}
+		}
+	);
+
+	std::vector<std::string> outStrings(nThreads);
+	std::vector< std::future<void> > tasks;
+	tasks.reserve(nThreads);
+	auto cumIndexesIt = cumIndexes.cbegin();
+	auto outStringsIt = outStrings.begin();
+	std::for_each(
+		threadPairs.cbegin(),
+		threadPairs.cend(),
+		[&cumIndexesIt, &tasks, &outStringsIt](auto pairIt){
+			tasks.emplace_back(
+				std::async(
+					[&cumIndexesIt, &pairIt, &outStringsIt]{
+						stringify_(pairIt.first, pairIt.second, *cumIndexesIt, *outStringsIt);
+					}
+				)
+			);
+			++cumIndexesIt;
+			++outStringsIt;
+		}
+	);
+
+	for (const auto &eachThread : tasks) {
+		eachThread.wait();
 	}
+
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);
-	outStream.write( outBuffer.c_str(), static_cast<std::streamsize>( outBuffer.size() ) );
+	for (const auto &eachString : outStrings) {
+		outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );
+	}
 	outStream.close();
+}
+
+void SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+									const uint64_t &startCumulativeIndex, std::string &outString) {
+	uint64_t runningFullIdx{startCumulativeIndex};
+	for (auto matIt = start; matIt != end; ++matIt) {
+		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
+		if (*matIt != padding_) {
+			const float similarityValue = floatLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + std::to_string(similarityValue) + "\n";
+		}
+	}
 }

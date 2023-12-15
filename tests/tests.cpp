@@ -41,6 +41,7 @@
 #include <sstream>
 
 #include <iostream>
+#include <chrono>
 
 #include "random.hpp"
 #include "gvarHash.hpp"
@@ -397,14 +398,15 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			Catch::Matchers::StartsWith("ERROR: row index must be non-zero in")
 		);
 	}
-	// save timing
-	//constexpr size_t largeNrows{5000};
-	/*
-	constexpr size_t largeNrows{10};
+}
+
+TEST_CASE("SM timing", "[SMtime]") {
+	constexpr size_t largeNrows{2000};
+	//constexpr size_t largeNrows{10};
 	std::vector<uint32_t> manyRows(largeNrows);
 	std::iota(manyRows.begin(), manyRows.end(), 0);
 	BayesicSpace::SimilarityMatrix largeMatrix;
-	for (auto mrIt = manyRows.cbegin() + 1; mrIt != manyRows.cend(); ++mrIt) {
+	for (auto mrIt = manyRows.cbegin(); mrIt != manyRows.cend(); ++mrIt) {
 		std::for_each(
 			manyRows.cbegin(),
 			mrIt,
@@ -412,13 +414,22 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 				BayesicSpace::RowColIdx currRCI{};
 				currRCI.iRow = (*mrIt);
 				currRCI.jCol = colIdx;
-				std::cout << currRCI.iRow << " " << currRCI.jCol << "\n";
-				largeMatrix.append(currRCI, 1);
+				largeMatrix.insert(currRCI, 1);
 			});
 	}
 	const std::string timedOutFN("../tests/timedSMout.tsv");
+	std::chrono::duration<float, std::milli> saveTime{};
+	auto time1 = std::chrono::high_resolution_clock::now();
 	largeMatrix.save(timedOutFN);
-	*/
+	auto time2 = std::chrono::high_resolution_clock::now();
+	saveTime = time2 - time1;
+	std::chrono::duration<float, std::milli> saveBinTime{};
+	time1 = std::chrono::high_resolution_clock::now();
+	constexpr size_t nThreads{6};
+	largeMatrix.binSave(timedOutFN, nThreads);
+	time2 = std::chrono::high_resolution_clock::now();
+	saveBinTime = time2 - time1;
+	std::cout << "regular matrix save: " << saveTime.count() << "; bin save: " << saveBinTime.count() << "\n";
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {
