@@ -245,6 +245,33 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 	}
 }
 
+TEST_CASE("merge test", "[merge]") {
+	constexpr std::array<uint32_t, 5> rowIndexes1{3, 4, 5, 6, 6};
+	constexpr std::array<uint32_t, 5> colIndexes1{0, 3, 2, 2, 4};
+	constexpr std::array<uint32_t, 5> rowIndexes2{5, 6, 8, 8, 8};
+	constexpr std::array<uint32_t, 5> colIndexes2{1, 5, 1, 6, 7};
+	constexpr uint8_t value{223};
+	BayesicSpace::SimilarityMatrix matrix1;
+	size_t arrIdx{0};
+	while ( arrIdx < rowIndexes1.size() ) {
+		BayesicSpace::RowColIdx tmp{};
+		tmp.iRow = rowIndexes1.at(arrIdx);
+		tmp.jCol = colIndexes1.at(arrIdx);
+		matrix1.insert(tmp, value);
+		++arrIdx;
+	}
+	BayesicSpace::SimilarityMatrix matrix2;
+	arrIdx = 0;
+	while ( arrIdx < rowIndexes2.size() ) {
+		BayesicSpace::RowColIdx tmp{};
+		tmp.iRow = rowIndexes2.at(arrIdx);
+		tmp.jCol = colIndexes2.at(arrIdx);
+		matrix2.insert(tmp, value);
+		++arrIdx;
+	}
+	matrix1.merge( std::move(matrix2) );
+}
+
 TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 7> rowIndexes{4, 5, 5, 6, 6, 8, 8};
 	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};

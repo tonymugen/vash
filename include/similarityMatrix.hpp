@@ -37,6 +37,7 @@
 
 namespace BayesicSpace {
 	struct RowColIdx;
+	struct FullIdxValue;
 	class SimilarityMatrix;
 
 	/** \brief Row and column index pair */
@@ -44,16 +45,21 @@ namespace BayesicSpace {
 		uint32_t iRow;
 		uint32_t jCol;
 	};
+	/** \brief Full vectorized index and similarity value */
+	struct FullIdxValue {
+		uint64_t fullIdx;
+		uint8_t quantSimilarity;
+	};
 
 	/** \brief Reconstruct vectorized index 
 	 *
 	 * Recovers the full index of the vectorized matrix from a differential index.
 	 *
 	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-	 * \param[in] precedingFullIdx full index of the preceding element
+	 * \param[in] precedingFullIdx full index of the preceding element, passed by value
 	 * \return full index
 	 */
-	[[gnu::warn_unused_result]] uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept;
+	[[gnu::warn_unused_result]] uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept;
 	/** \brief Recover row and column indexes 
 	 *
 	 * Recovers the row and column indexes from the differential index of the vectorized matrix.
@@ -72,7 +78,7 @@ namespace BayesicSpace {
 	 * The representation is efficient if the matrix is sparse.
 	 */
 	class SimilarityMatrix {
-	friend uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept;
+	friend uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept;
 	public:
 		/** \brief Default constructor */
 		SimilarityMatrix() noexcept  = default;
@@ -116,6 +122,13 @@ namespace BayesicSpace {
 		 * \param[in] quantSimilarity quantized similarity value
 		 */
 		void insert(const RowColIdx &rowColPair, uint8_t quantSimilarity);
+		/** \brief Merge two matrices 
+		 *
+		 * Merge a matrix with the current object, destroying the donor object.
+		 *
+		 * \param[in] toMerge object to merge
+		 */
+		void merge(SimilarityMatrix &&toMerge);
 		/** \brief Save to file 
 		 *
 		 * Uses multi-threaded data prep to speed up saving.
@@ -174,6 +187,12 @@ namespace BayesicSpace {
 		 */
 		static void stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
 								const uint64_t &startCumulativeIndex, std::string &outString);
-
+		/** \brief Insert a value (updating the index) 
+		 *
+		 * Inserts a new value into the matrix according to the full vectorized matrix index.
+		 *
+		 * \param[in] fullIndexWithSimilarity full index and the corresponding quantized similarity
+		 */
+		void insert_(const FullIdxValue &fullIndexWithSimilarity);
 	};
 }

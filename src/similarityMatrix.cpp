@@ -41,11 +41,13 @@
 #include <future>
 #include <thread>
 
+#include <iostream>
+
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
 
-uint64_t BayesicSpace::recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, const uint64_t &precedingFullIdx) noexcept {
+uint64_t BayesicSpace::recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept {
 	return precedingFullIdx + static_cast<uint64_t>( (*packedElementIt) >> SimilarityMatrix::valueSize_ );
 };
 
@@ -135,66 +137,33 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 	const auto iRow{static_cast<uint64_t>(rowColOrdered.second)};
 	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2 + jCol;
 
-	if ( matrix_.empty() ) {
-		firstCumulativeIndex_ = newVecIndex;
-		lastCumulativeIndex_  = newVecIndex;
-		matrix_.push_back( static_cast<uint32_t>(quantSimilarity) );
+	FullIdxValue tmp{};
+	tmp.fullIdx         = newVecIndex;
+	tmp.quantSimilarity = quantSimilarity;
+	this->insert_(tmp);
+}
+
+void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
+	// figure out which matrix goes in front
+	if (firstCumulativeIndex_ > toMerge.firstCumulativeIndex_) {
+		// TODO: fill out this branch
 		return;
 	}
-	if ( (newVecIndex == firstCumulativeIndex_) || (newVecIndex == lastCumulativeIndex_) ) { // redundant elements at either end
-		return;
+
+	auto firstMoveIt = toMerge.matrix_.begin();
+	uint64_t runningFullIdx{toMerge.firstCumulativeIndex_};
+	while ( (runningFullIdx < lastCumulativeIndex_) && ( firstMoveIt != toMerge.matrix_.end() ) ) {   // toMerge may be fully within *this
+		FullIdxValue tmp{};
+		tmp.fullIdx         = runningFullIdx;
+		tmp.quantSimilarity = static_cast<uint8_t>(*firstMoveIt);
+		this->insert_(tmp);
+		runningFullIdx = recoverFullVIdx(firstMoveIt, runningFullIdx);
+		++firstMoveIt;
 	}
-	if (newVecIndex < lastCumulativeIndex_) {                                                // will be inserting the new element
-		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, newVecIndex)};
-		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};                          // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
-
-		// resolution of the possible index bit-field overload by padding with 0 values
-		const uint64_t nBFmax = firstDiff / maxIdxBitfield_;
-		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
-		firstDiff = firstDiff % maxIdxBitfield_;
-
-		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << valueSize_;
-		const auto firstValue{matrix_[0] & valueMask_};
-		firstElement |= firstValue;
-		matrix_[0]    = firstElement;                                                        // if the firstCumulativeIndex_ has not changed, still 0 index
-		auto matIt    = matrix_.begin();
-		uint64_t currentIdx{recoverFullVIdx(matIt, newFirstCumIdx)};
-		while (currentIdx < newVecIndex) {
-			++matIt;
-			currentIdx = recoverFullVIdx(matIt, currentIdx);
-		}
-
-		if (currentIdx == newVecIndex) {  // ignore if the element already present
-			matrix_[0] &= valueMask_;
-			return;
-		}
-
-		auto nextDiff = static_cast<uint32_t>(currentIdx - newVecIndex);
-		auto currDiff = ( (*matIt) >> valueSize_ ) - nextDiff;
-		currDiff      = currDiff << valueSize_;
-		currDiff     |= static_cast<uint32_t>(quantSimilarity);
-		matIt = std::next( matrix_.insert(matIt, currDiff) );
-		const uint32_t nextVal{(*matIt) & valueMask_};
-		nextDiff  = nextDiff << valueSize_;
-		nextDiff |= nextVal;
-		*matIt    = nextDiff;
-		matrix_.insert( matIt, wholeBitField.cbegin(), wholeBitField.cend() );
-		matrix_[0]           &= valueMask_;
-		firstCumulativeIndex_ = newFirstCumIdx;
-		return;
-	}
-	uint64_t newDiff = newVecIndex - lastCumulativeIndex_;
-
-	// if the difference overflows the bit-field, pad with 0-valued entries
-	const size_t nBFmax = newDiff / maxIdxBitfield_;
-	std::vector<uint32_t> wholeBitField(nBFmax, padding_);
-	std::move( wholeBitField.begin(), wholeBitField.end(), std::back_inserter(matrix_) );
-	newDiff = newDiff % maxIdxBitfield_;
-
-	uint32_t newEntry{static_cast<uint32_t>(newDiff) << valueSize_};
-	newEntry |= static_cast<uint32_t>(quantSimilarity);
-	matrix_.push_back(newEntry);
-	lastCumulativeIndex_ = newVecIndex;
+	std::cout << "firstCumulativeIndex_: " << firstCumulativeIndex_ << 
+		"; runningFullIdx: " << runningFullIdx << "; firstMoveIt: " << ( (*firstMoveIt) >> valueSize_ ) << "\n";
+	std::move( firstMoveIt, toMerge.matrix_.end(), std::back_inserter(matrix_) );
+	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);              // toMerge may be fully within *this
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads) const {
@@ -215,8 +184,8 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 		threadChunkSizes.cend(),
 		[&threadPairs, &cumChunkSize, this](const std::vector<uint32_t>::difference_type &chunkSize){
 			std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
-						matrix_.cbegin() + cumChunkSize,
-						matrix_.cbegin() + cumChunkSize + chunkSize
+				matrix_.cbegin() + cumChunkSize,
+				matrix_.cbegin() + cumChunkSize + chunkSize
 			};
 			threadPairs.emplace_back(tmpPair);
 			cumChunkSize += chunkSize;
@@ -276,4 +245,68 @@ void SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, s
 			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
 		}
 	}
+}
+
+void SimilarityMatrix::insert_(const FullIdxValue &fullIndexWithSimilarity) {
+	if ( matrix_.empty() ) {
+		firstCumulativeIndex_ = fullIndexWithSimilarity.fullIdx;
+		lastCumulativeIndex_  = fullIndexWithSimilarity.fullIdx;
+		matrix_.push_back( static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity) );
+		return;
+	}
+	if ( (fullIndexWithSimilarity.fullIdx == firstCumulativeIndex_) ||
+			(fullIndexWithSimilarity.fullIdx == lastCumulativeIndex_) ) {                    // redundant elements at either end
+		return;
+	}
+	if (fullIndexWithSimilarity.fullIdx < lastCumulativeIndex_) {                                                  // will be inserting the new element
+		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, fullIndexWithSimilarity.fullIdx)};
+		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};                          // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
+
+		// resolution of the possible index bit-field overload by padding with 0 values
+		const uint64_t nBFmax = firstDiff / maxIdxBitfield_;
+		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
+		firstDiff = firstDiff % maxIdxBitfield_;
+
+		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << valueSize_;
+		const auto firstValue{matrix_[0] & valueMask_};
+		firstElement |= firstValue;
+		matrix_[0]    = firstElement;                                                        // if the firstCumulativeIndex_ has not changed, still 0 index
+		auto matIt    = matrix_.begin();
+		uint64_t currentIdx{recoverFullVIdx(matIt, newFirstCumIdx)};
+		while (currentIdx < fullIndexWithSimilarity.fullIdx) {
+			++matIt;
+			currentIdx = recoverFullVIdx(matIt, currentIdx);
+		}
+
+		if (currentIdx == fullIndexWithSimilarity.fullIdx) {  // ignore if the element already present
+			matrix_[0] &= valueMask_;
+			return;
+		}
+
+		auto nextDiff = static_cast<uint32_t>(currentIdx - fullIndexWithSimilarity.fullIdx);
+		auto currDiff = ( (*matIt) >> valueSize_ ) - nextDiff;
+		currDiff      = currDiff << valueSize_;
+		currDiff     |= static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity);
+		matIt = std::next( matrix_.insert(matIt, currDiff) );
+		const uint32_t nextVal{(*matIt) & valueMask_};
+		nextDiff  = nextDiff << valueSize_;
+		nextDiff |= nextVal;
+		*matIt    = nextDiff;
+		matrix_.insert( matIt, wholeBitField.cbegin(), wholeBitField.cend() );
+		matrix_[0]           &= valueMask_;
+		firstCumulativeIndex_ = newFirstCumIdx;
+		return;
+	}
+	uint64_t newDiff = fullIndexWithSimilarity.fullIdx - lastCumulativeIndex_;
+
+	// if the difference overflows the bit-field, pad with 0-valued entries
+	const size_t nBFmax = newDiff / maxIdxBitfield_;
+	std::vector<uint32_t> wholeBitField(nBFmax, padding_);
+	std::move( wholeBitField.begin(), wholeBitField.end(), std::back_inserter(matrix_) );
+	newDiff = newDiff % maxIdxBitfield_;
+
+	uint32_t newEntry{static_cast<uint32_t>(newDiff) << valueSize_};
+	newEntry |= static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity);
+	matrix_.push_back(newEntry);
+	lastCumulativeIndex_ = fullIndexWithSimilarity.fullIdx;
 }
