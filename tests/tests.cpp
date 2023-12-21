@@ -250,14 +250,18 @@ TEST_CASE("merge test", "[merge]") {
 	constexpr std::array<uint32_t, 5> colIndexes1{0, 3, 2, 2, 4};
 	constexpr std::array<uint32_t, 5> rowIndexes2{5, 6, 8, 8, 8};
 	constexpr std::array<uint32_t, 5> colIndexes2{1, 5, 1, 6, 7};
-	constexpr uint8_t value{223};
+	constexpr std::array<uint32_t, 3> rowIndexes3{4, 5, 6};
+	constexpr std::array<uint32_t, 3> colIndexes3{1, 0, 1};
+	constexpr uint8_t value1{21};
+	constexpr uint8_t value2{223};
+	constexpr size_t nThreads{6};
 	BayesicSpace::SimilarityMatrix matrix1;
 	size_t arrIdx{0};
 	while ( arrIdx < rowIndexes1.size() ) {
 		BayesicSpace::RowColIdx tmp{};
 		tmp.iRow = rowIndexes1.at(arrIdx);
 		tmp.jCol = colIndexes1.at(arrIdx);
-		matrix1.insert(tmp, value);
+		matrix1.insert(tmp, value1);
 		++arrIdx;
 	}
 	BayesicSpace::SimilarityMatrix matrix2;
@@ -266,10 +270,22 @@ TEST_CASE("merge test", "[merge]") {
 		BayesicSpace::RowColIdx tmp{};
 		tmp.iRow = rowIndexes2.at(arrIdx);
 		tmp.jCol = colIndexes2.at(arrIdx);
-		matrix2.insert(tmp, value);
+		matrix2.insert(tmp, value2);
+		++arrIdx;
+	}
+	BayesicSpace::SimilarityMatrix matrix3;
+	arrIdx = 0;
+	while ( arrIdx < rowIndexes3.size() ) {
+		BayesicSpace::RowColIdx tmp{};
+		tmp.iRow = rowIndexes3.at(arrIdx);
+		tmp.jCol = colIndexes3.at(arrIdx);
+		matrix3.insert(tmp, value2);
 		++arrIdx;
 	}
 	matrix1.merge( std::move(matrix2) );
+	//matrix1.merge( std::move(matrix3) );
+	const std::string outputFileName("../tests/mergeMatrix.tsv");
+	matrix1.save(outputFileName, nThreads);
 }
 
 TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {

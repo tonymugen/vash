@@ -41,8 +41,6 @@
 #include <future>
 #include <thread>
 
-#include <iostream>
-
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
@@ -147,23 +145,50 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	// figure out which matrix goes in front
 	if (firstCumulativeIndex_ > toMerge.firstCumulativeIndex_) {
 		// TODO: fill out this branch
+
+		// complete the move by resetting all matrix parameters
+		toMerge.firstCumulativeIndex_ = 0;
+		toMerge.lastCumulativeIndex_  = 0;
 		return;
 	}
 
 	auto firstMoveIt = toMerge.matrix_.begin();
 	uint64_t runningFullIdx{toMerge.firstCumulativeIndex_};
-	while ( (runningFullIdx < lastCumulativeIndex_) && ( firstMoveIt != toMerge.matrix_.end() ) ) {   // toMerge may be fully within *this
+	while ( (runningFullIdx < lastCumulativeIndex_) && ( firstMoveIt != toMerge.matrix_.end() ) ) {
 		FullIdxValue tmp{};
 		tmp.fullIdx         = runningFullIdx;
 		tmp.quantSimilarity = static_cast<uint8_t>(*firstMoveIt);
 		this->insert_(tmp);
-		runningFullIdx = recoverFullVIdx(firstMoveIt, runningFullIdx);
 		++firstMoveIt;
+		runningFullIdx = recoverFullVIdx(firstMoveIt, runningFullIdx);
 	}
-	std::cout << "firstCumulativeIndex_: " << firstCumulativeIndex_ << 
-		"; runningFullIdx: " << runningFullIdx << "; firstMoveIt: " << ( (*firstMoveIt) >> valueSize_ ) << "\n";
-	std::move( firstMoveIt, toMerge.matrix_.end(), std::back_inserter(matrix_) );
-	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);              // toMerge may be fully within *this
+	if ( firstMoveIt != toMerge.matrix_.end() ) {
+		assert( (lastCumulativeIndex_ <= runningFullIdx) //NOLINT
+			&& "ERROR: lastCumulativeIndex_ must be smaller than runningFullIdx in SimilarityMatrix::merge()");
+
+		// fix the differential value for the first element that will be moved
+		// it used to count off the previous element in toMerge.matrix_ (if any),
+		// now needs to be off the last element in this->matrix_
+		// the rest will be automatically correct
+		uint64_t firstMoveDiff{runningFullIdx - lastCumulativeIndex_};
+
+		// resolution of the possible index bit-field overload by padding with 0 values
+		const uint64_t nBFmax = firstMoveDiff / maxIdxBitfield_;
+		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
+		firstMoveDiff = firstMoveDiff % maxIdxBitfield_;
+
+		uint32_t firstElement = static_cast<uint32_t>(firstMoveDiff) << valueSize_;
+		const auto firstValue{(*firstMoveIt) & valueMask_};
+		firstElement |= firstValue;
+		*firstMoveIt  = firstElement;
+
+		std::move( firstMoveIt, toMerge.matrix_.end(), std::back_inserter(matrix_) );
+	}
+	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);
+
+	// complete the move by resetting all matrix parameters
+	toMerge.firstCumulativeIndex_ = 0;
+	toMerge.lastCumulativeIndex_  = 0;
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads) const {
