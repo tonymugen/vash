@@ -245,49 +245,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 	}
 }
 
-TEST_CASE("merge test", "[merge]") {
-	constexpr std::array<uint32_t, 5> rowIndexes1{3, 4, 5, 6, 6};
-	constexpr std::array<uint32_t, 5> colIndexes1{0, 3, 2, 2, 4};
-	constexpr std::array<uint32_t, 5> rowIndexes2{5, 6, 8, 8, 8};
-	constexpr std::array<uint32_t, 5> colIndexes2{1, 5, 1, 6, 7};
-	constexpr std::array<uint32_t, 3> rowIndexes3{4, 5, 6};
-	constexpr std::array<uint32_t, 3> colIndexes3{1, 0, 1};
-	constexpr uint8_t value1{21};
-	constexpr uint8_t value2{223};
-	constexpr size_t nThreads{6};
-	BayesicSpace::SimilarityMatrix matrix1;
-	size_t arrIdx{0};
-	while ( arrIdx < rowIndexes1.size() ) {
-		BayesicSpace::RowColIdx tmp{};
-		tmp.iRow = rowIndexes1.at(arrIdx);
-		tmp.jCol = colIndexes1.at(arrIdx);
-		matrix1.insert(tmp, value1);
-		++arrIdx;
-	}
-	BayesicSpace::SimilarityMatrix matrix2;
-	arrIdx = 0;
-	while ( arrIdx < rowIndexes2.size() ) {
-		BayesicSpace::RowColIdx tmp{};
-		tmp.iRow = rowIndexes2.at(arrIdx);
-		tmp.jCol = colIndexes2.at(arrIdx);
-		matrix2.insert(tmp, value2);
-		++arrIdx;
-	}
-	BayesicSpace::SimilarityMatrix matrix3;
-	arrIdx = 0;
-	while ( arrIdx < rowIndexes3.size() ) {
-		BayesicSpace::RowColIdx tmp{};
-		tmp.iRow = rowIndexes3.at(arrIdx);
-		tmp.jCol = colIndexes3.at(arrIdx);
-		matrix3.insert(tmp, value2);
-		++arrIdx;
-	}
-	matrix1.merge( std::move(matrix2) );
-	//matrix1.merge( std::move(matrix3) );
-	const std::string outputFileName("../tests/mergeMatrix.tsv");
-	matrix1.save(outputFileName, nThreads);
-}
-
 TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 7> rowIndexes{4, 5, 5, 6, 6, 8, 8};
 	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};
@@ -441,6 +398,286 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE_THROWS_WITH(wrongMatrix.insert(wrongCombo, values.at(0)), 
 			Catch::Matchers::StartsWith("ERROR: row index must be non-zero in")
 		);
+	}
+	SECTION("SimilarityMatrix merge") {
+		constexpr std::array<uint32_t, 5> rowIndexes1{3, 4, 5, 6, 6};
+		constexpr std::array<uint32_t, 5> colIndexes1{0, 3, 2, 2, 4};
+		constexpr std::array<uint8_t,  5> qValues1{87, 8, 77, 68, 96};
+		constexpr std::array<uint32_t, 5> rowIndexes2{5, 6, 8, 8, 8};
+		constexpr std::array<uint32_t, 5> colIndexes2{1, 5, 1, 6, 7};
+		constexpr std::array<uint8_t,  5> qValues2{217, 160, 228, 176, 167};
+		constexpr std::array<uint32_t, 3> rowIndexes3{4, 5, 6};
+		constexpr std::array<uint32_t, 3> colIndexes3{1, 0, 1};
+		constexpr std::array<uint8_t,  3> qValues3{140, 138, 136};
+
+		constexpr size_t nThreads{2};
+		BayesicSpace::SimilarityMatrix matrix1;
+		size_t arrIdx{0};
+		while ( arrIdx < rowIndexes1.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = rowIndexes1.at(arrIdx);
+			tmp.jCol = colIndexes1.at(arrIdx);
+			matrix1.insert( tmp, qValues1.at(arrIdx) );
+			++arrIdx;
+		}
+		BayesicSpace::SimilarityMatrix matrix2;
+		arrIdx = 0;
+		while ( arrIdx < rowIndexes2.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = rowIndexes2.at(arrIdx);
+			tmp.jCol = colIndexes2.at(arrIdx);
+			matrix2.insert( tmp, qValues2.at(arrIdx) );
+			++arrIdx;
+		}
+		BayesicSpace::SimilarityMatrix matrix3;
+		arrIdx = 0;
+		while ( arrIdx < rowIndexes3.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = rowIndexes3.at(arrIdx);
+			tmp.jCol = colIndexes3.at(arrIdx);
+			matrix3.insert( tmp, qValues3.at(arrIdx) );
+			++arrIdx;
+		}
+		BayesicSpace::SimilarityMatrix tmp1 = matrix1;
+		BayesicSpace::SimilarityMatrix tmp2 = matrix2;
+		tmp1.merge( std::move(tmp2) );
+		const std::string outputFileName("../tests/mergeMatrix.tsv");
+		tmp1.save(outputFileName, nThreads);
+		constexpr std::array<uint32_t, 10> correct12mergeRow{3, 4, 5, 5, 6, 6, 6, 8, 8, 8};
+		constexpr std::array<uint32_t, 10> correct12mergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7};
+		constexpr std::array<float,    10> correct12mergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275, 0.8941, 0.6902, 0.6549};
+
+		std::fstream testSMoutfile(outputFileName, std::ios::in);
+		std::string line;
+		std::array<uint32_t, correct12mergeValues.size()> rowsFromFile{};
+		std::array<uint32_t, correct12mergeValues.size()> colsFromFile{};
+		std::array<float,    correct12mergeValues.size()> floatsFromFile{};
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// merge of an empty matrix
+		tmp1.merge( std::move(tmp2) );
+		tmp1.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		tmp2.merge( std::move(tmp1) );
+		tmp2.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// matrix with smaller indexes as second
+		tmp1 = matrix1;
+		matrix2.merge( std::move(tmp1) );
+		matrix2.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// a matrix completely within another
+		constexpr std::array<uint32_t, 8> correct13mergeRow{3, 4, 4, 5, 5, 6, 6, 6};
+		constexpr std::array<uint32_t, 8> correct13mergeCol{0, 1, 3, 0, 2, 1, 2, 4};
+		constexpr std::array<float,    8> correct13mergeValues{0.3412, 0.5490, 0.0314, 0.5412, 0.3020, 0.5333, 0.2667, 0.3765};
+		tmp1 = matrix1;
+		tmp2 = matrix3;
+		tmp1.merge( std::move(tmp2) );
+		tmp1.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend() - 2,   correct13mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend() - 2,   correct13mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend() - 2, correct13mergeValues.cbegin() ) );
+
+		matrix3.merge( std::move(matrix1) );
+		matrix3.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend() - 2,   correct13mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend() - 2,   correct13mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend() - 2, correct13mergeValues.cbegin() ) );
+
+		constexpr std::array<uint32_t, 5> rowIndexes4{3, 4, 5, 5, 6};
+		constexpr std::array<uint32_t, 5> colIndexes4{0, 3, 1, 2, 2};
+		constexpr std::array<uint8_t,  5> qValues4{87, 8, 217, 77, 68};
+		constexpr std::array<uint32_t, 5> rowIndexes5{6, 6, 8, 8, 8};
+		constexpr std::array<uint32_t, 5> colIndexes5{4, 5, 1, 6, 7};
+		constexpr std::array<uint8_t,  5> qValues5{96, 160, 228, 176, 167};
+
+		BayesicSpace::SimilarityMatrix matrix4;
+		arrIdx = 0;
+		while ( arrIdx < rowIndexes4.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = rowIndexes4.at(arrIdx);
+			tmp.jCol = colIndexes4.at(arrIdx);
+			matrix4.insert( tmp, qValues4.at(arrIdx) );
+			++arrIdx;
+		}
+		BayesicSpace::SimilarityMatrix matrix5;
+		arrIdx = 0;
+		while ( arrIdx < rowIndexes5.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = rowIndexes5.at(arrIdx);
+			tmp.jCol = colIndexes5.at(arrIdx);
+			matrix5.insert( tmp, qValues5.at(arrIdx) );
+			++arrIdx;
+		}
+		matrix4.merge( std::move(matrix5) );
+		matrix4.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// indexes far from the current (require padding)
+		constexpr std::array<uint32_t, 3> largeIdxRows{9999, 20001, 40005};
+		constexpr std::array<uint32_t, 3> largeIdxCols{9899, 10001, 30005};
+		constexpr std::array<uint8_t,  3> largeValues{246, 3, 39};
+		BayesicSpace::SimilarityMatrix matrixFar;
+		arrIdx = 0;
+		while ( arrIdx < largeIdxRows.size() ) {
+			BayesicSpace::RowColIdx tmp{};
+			tmp.iRow = largeIdxRows.at(arrIdx);
+			tmp.jCol = largeIdxCols.at(arrIdx);
+			matrixFar.insert( tmp, largeValues.at(arrIdx) );
+			++arrIdx;
+		}
+		matrix4.merge( std::move(matrixFar) );
+		matrix4.save(outputFileName, nThreads);
+		constexpr std::array<uint32_t, 13> correctFarMergeRow{3, 4, 5, 5, 6, 6, 6, 8, 8, 8, 9999, 20001, 40005};
+		constexpr std::array<uint32_t, 13> correctFarMergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7, 9899, 10001, 30005};
+		constexpr std::array<float,    13> correctFarMergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275,
+																	0.8941, 0.6902, 0.6549, 0.9647, 0.0118, 0.1529};
+		testSMoutfile.open(outputFileName, std::ios::in);
+		std::array<uint32_t, correctFarMergeValues.size()> rowsFromFileFar{};
+		std::array<uint32_t, correctFarMergeValues.size()> colsFromFileFar{};
+		std::array<float,    correctFarMergeValues.size()> floatsFromFileFar{};
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFileFar.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFileFar.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFileFar.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFileFar.cbegin(),   rowsFromFileFar.cend(),   correctFarMergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFileFar.cbegin(),   colsFromFileFar.cend(),   correctFarMergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFileFar.cbegin(), floatsFromFileFar.cend(), correctFarMergeValues.cbegin() ) );
 	}
 }
 

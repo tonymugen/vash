@@ -27,6 +27,7 @@
  *
  */
 
+#include <type_traits>
 #include <vector>
 #include <array>
 #include <string>
@@ -142,14 +143,18 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 }
 
 void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
+	if ( matrix_.empty() ) {
+		*this = std::move(toMerge);
+		return;
+	}
+	if ( toMerge.matrix_.empty() ) {
+		return;
+	}
 	// figure out which matrix goes in front
 	if (firstCumulativeIndex_ > toMerge.firstCumulativeIndex_) {
-		// TODO: fill out this branch
-
-		// complete the move by resetting all matrix parameters
-		toMerge.firstCumulativeIndex_ = 0;
-		toMerge.lastCumulativeIndex_  = 0;
-		return;
+		std::swap(matrix_, toMerge.matrix_);
+		std::swap(firstCumulativeIndex_, toMerge.firstCumulativeIndex_);
+		std::swap(lastCumulativeIndex_, toMerge.lastCumulativeIndex_);
 	}
 
 	auto firstMoveIt = toMerge.matrix_.begin();
@@ -175,6 +180,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		// resolution of the possible index bit-field overload by padding with 0 values
 		const uint64_t nBFmax = firstMoveDiff / maxIdxBitfield_;
 		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
+		std::move( wholeBitField.begin(), wholeBitField.end(), std::back_inserter(matrix_) );
 		firstMoveDiff = firstMoveDiff % maxIdxBitfield_;
 
 		uint32_t firstElement = static_cast<uint32_t>(firstMoveDiff) << valueSize_;
@@ -186,7 +192,8 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	}
 	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);
 
-	// complete the move by resetting all matrix parameters
+	// complete the move by resetting all members of toMerge
+	toMerge.matrix_.clear();
 	toMerge.firstCumulativeIndex_ = 0;
 	toMerge.lastCumulativeIndex_  = 0;
 }
