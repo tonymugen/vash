@@ -123,12 +123,18 @@ constexpr uint32_t SimilarityMatrix::valueMask_{0x000000FF};
 constexpr uint32_t SimilarityMatrix::padding_{0xFFFFFF00};
 constexpr uint32_t SimilarityMatrix::valueSize_{8};
 
-void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilarity) {
+void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &jaccardCounts) {
 	if (rowColPair.iRow == rowColPair.jCol) {
 		throw std::string("ERROR: row and column indexes must be different in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (rowColPair.iRow == 0) {
 		throw std::string("ERROR: row index must be non-zero in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	if (jaccardCounts.nIntersect > jaccardCounts.nUnion) {
+		throw std::string("ERROR: intersection count cannot be larger than the union count in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	if (jaccardCounts.nUnion == 0) {
+		throw std::string("ERROR: union count cannot be 0 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	// make sure we are addressing the lower triangle
 	const auto rowColOrdered = std::minmax(rowColPair.iRow, rowColPair.jCol);
@@ -136,6 +142,7 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, uint8_t quantSimilari
 	const auto iRow{static_cast<uint64_t>(rowColOrdered.second)};
 	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2 + jCol;
 
+	const auto quantSimilarity = static_cast<uint8_t>( (jaccardCounts.nIntersect * valueMask_) / jaccardCounts.nUnion );
 	FullIdxValue tmp{};
 	tmp.fullIdx         = newVecIndex;
 	tmp.quantSimilarity = quantSimilarity;
@@ -162,7 +169,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	while ( (runningFullIdx < lastCumulativeIndex_) && ( firstMoveIt != toMerge.matrix_.end() ) ) {
 		FullIdxValue tmp{};
 		tmp.fullIdx         = runningFullIdx;
-		tmp.quantSimilarity = static_cast<uint8_t>(*firstMoveIt);
+		tmp.quantSimilarity = static_cast<uint8_t>( (*firstMoveIt) & valueMask_ );
 		this->insert_(tmp);
 		++firstMoveIt;
 		runningFullIdx = recoverFullVIdx(firstMoveIt, runningFullIdx);

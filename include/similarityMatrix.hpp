@@ -38,6 +38,7 @@
 namespace BayesicSpace {
 	struct RowColIdx;
 	struct FullIdxValue;
+	struct JaccardPair;
 	class SimilarityMatrix;
 
 	/** \brief Row and column index pair */
@@ -49,6 +50,11 @@ namespace BayesicSpace {
 	struct FullIdxValue {
 		uint64_t fullIdx;
 		uint8_t quantSimilarity;
+	};
+	/** \brief Pair of integers to calculate Jaccard similarity */
+	struct JaccardPair {
+		uint64_t nIntersect;
+		uint64_t nUnion;
 	};
 
 	/** \brief Reconstruct vectorized index 
@@ -114,14 +120,15 @@ namespace BayesicSpace {
 		};
 		/** \brief Insert a value (updating the index) 
 		 *
-		 * Inserts a new value into the matrix.
-		 * Row index must be larger than the column index. If not, the values are swapped.
+		 * Inserts a new value into the matrix. Addresses the lower triangle of the similarity matrix,
+		 * therefore the row index must be larger than the column index. If not, the values are swapped.
 		 * If the indexes are equal or the row index is 0, throws an exception.
+		 * Inserts a quantized value of the Jaccard similarity calculated from the intersection and union counts provided.
 		 *
 		 * \param[in] rowColPair row and index pair
-		 * \param[in] quantSimilarity quantized similarity value
+		 * \param[in] jaccardCounts intersection and union counts for Jaccard similarity
 		 */
-		void insert(const RowColIdx &rowColPair, uint8_t quantSimilarity);
+		void insert(const RowColIdx &rowColPair, const JaccardPair &jaccardCounts);
 		/** \brief Merge two matrices 
 		 *
 		 * Merge a matrix with the current object, destroying the donor object.
