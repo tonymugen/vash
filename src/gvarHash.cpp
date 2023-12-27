@@ -227,6 +227,18 @@ std::vector<IndexedPairLD> GenoTableBin::allJaccardLD() const {
 	return LDmat;
 }
 
+SimilarityMatrix GenoTableBin::allJaccardLDsm() const {
+	if (nLoci_ > maxNlocusPairs_) {
+		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
+		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
+			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates and passing the result to the calling function\n";
+	SimilarityMatrix result;
+
+	return result;
+}
+
 void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 	if (nLoci_ > maxNlocusPairs_) {
 		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";

@@ -68,6 +68,14 @@ namespace BayesicSpace {
 	[[gnu::warn_unused_result]] uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept;
 	/** \brief Recover row and column indexes 
 	 *
+	 * Recovers the row and column indexes from the full vectorized matrix index.
+	 *
+	 * \param[in] fullIdx full index of the element
+	 * \return row and column index pair
+	 */
+	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &fullIdx) noexcept;
+	/** \brief Recover row and column indexes 
+	 *
 	 * Recovers the row and column indexes from the differential index of the vectorized matrix.
 	 * Updates the preceding full index to the new full index value.
 	 *

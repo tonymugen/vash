@@ -40,6 +40,7 @@
 #include <mutex>
 
 #include "random.hpp"
+#include "similarityMatrix.hpp"
 
 namespace BayesicSpace {
 	struct LocationWithLength;
@@ -231,6 +232,7 @@ namespace BayesicSpace {
 		 *
 		 */
 		std::vector<IndexedPairLD> allJaccardLD() const;
+		SimilarityMatrix allJaccardLDsm() const;
 		/** \brief All by all Jaccard similarity LD
 		 *
 		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.

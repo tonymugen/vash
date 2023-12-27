@@ -38,6 +38,7 @@
 
 #include "random.hpp"
 #include "gvarHash.hpp"
+#include "similarityMatrix.hpp"
 
 namespace BayesicSpace {
 	/** \brief Number of 32-bit values in `size_t` */
@@ -151,6 +152,15 @@ namespace BayesicSpace {
 	 * \return vector of index ranges
 	 */
 	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
+	/** \brief Build chunk ranges 
+	 *
+	 * Build ranges of row/column index pairs for each chunk for a given length of a vectorized similarity matrix.
+	 *
+	 * \param[in] nElements length of the vectorized matrix
+	 * \param[in] nChunks number of chunks
+	 * \return vector of row/column pair ranges, an element per chunk
+	 */
+	std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const size_t &nElements, const size_t nChunks);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.

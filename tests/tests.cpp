@@ -146,15 +146,47 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		REQUIRE(std::all_of(
 				threadRanges.cbegin(),
 				threadRanges.cend(),
-				[](const std::pair<size_t, size_t> &eachRange){return eachRange.first <= eachRange.second;}
+				[](const std::pair<size_t, size_t> &eachRange) {return eachRange.first <= eachRange.second;}
 			)
 		);
 		REQUIRE(std::equal(
 				threadRanges.cbegin(),
 				threadRanges.cend(),
 				correctRanges.cbegin(),
-				[](const std::pair<size_t, size_t> &pair1, const std::pair<size_t, size_t>&pair2){
+				[](const std::pair<size_t, size_t> &pair1, const std::pair<size_t, size_t>&pair2) {
 					return (pair1.first == pair2.first) && (pair1.second == pair2.second);
+				}
+			)
+		);
+
+		constexpr size_t nVecElements{35};
+		constexpr size_t nChunks{4};
+		constexpr std::array<uint32_t, nChunks> correctRowStarts{1, 4, 6, 7};
+		constexpr std::array<uint32_t, nChunks> correctRowEnds{4, 6, 7, 8};
+		constexpr std::array<uint32_t, nChunks> correctColStarts{0, 3, 3, 6};
+		constexpr std::array<uint32_t, nChunks> correctColEnds{3, 3, 6, 7};
+		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > correctRowColPairs;
+		size_t iChunk{0};
+		while (iChunk < nChunks) {
+			std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> tmpPair;
+			tmpPair.first.iRow  = correctRowStarts.at(iChunk);
+			tmpPair.first.jCol  = correctColStarts.at(iChunk);
+			tmpPair.second.iRow = correctRowEnds.at(iChunk);
+			tmpPair.second.jCol = correctColEnds.at(iChunk);
+			correctRowColPairs.emplace_back(tmpPair);
+			++iChunk;
+		}
+		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > rowColPairs{BayesicSpace::makeChunkRanges(nVecElements, nChunks)};
+		REQUIRE(std::equal(
+				rowColPairs.cbegin(),
+				rowColPairs.cend(),
+				correctRowColPairs.cbegin(),
+				[](const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair1,
+							const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair2) {
+					return  (pair1.first.iRow  == pair2.first.iRow) &&
+							(pair1.first.jCol  == pair2.first.jCol) &&
+							(pair1.second.iRow == pair2.second.iRow) &&
+							(pair1.second.jCol == pair2.second.jCol);
 				}
 			)
 		);
@@ -170,13 +202,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		REQUIRE(std::all_of(
 				pairSegment.cbegin(),
 				pairSegment.cend(),
-				[](const BayesicSpace::IndexedPairSimilarity &obj){return obj.element1ind < obj.element2ind;}
+				[](const BayesicSpace::IndexedPairSimilarity &obj) {return obj.element1ind < obj.element2ind;}
 			)
 		);
 		REQUIRE(std::all_of(
 				pairSegment.cbegin(),
 				pairSegment.cend(),
-				[&allN](const BayesicSpace::IndexedPairSimilarity &obj){return (obj.element1ind < allN) || (obj.element2ind < allN);}
+				[&allN](const BayesicSpace::IndexedPairSimilarity &obj) {return (obj.element1ind < allN) || (obj.element2ind < allN);}
 			)
 		);
 	}
@@ -232,13 +264,13 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			REQUIRE(std::all_of(
 						vectorizedGroups.cbegin(),
 						vectorizedGroups.cend(),
-						[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue == 0.0F;}
+						[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue == 0.0F;}
 					)
 			);
 			REQUIRE(std::all_of(
 						vectorizedGroups.cbegin(),
 						vectorizedGroups.cend(),
-						[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+						[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
 					)
 			);
 		}
@@ -271,6 +303,9 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE(BayesicSpace::recoverFullVIdx(diffIdx.cbegin(), previousIdx) == correctFullIdx);
 		uint64_t previousIdxMutable{previousIdx};
 		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes(diffIdx.cbegin(), previousIdxMutable)};
+		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
+		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
+		rowColValues = BayesicSpace::recoverRCindexes(correctFullIdx);
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
 		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
 	}
@@ -761,31 +796,31 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE(std::all_of(
 					bedLD.cbegin(),
 					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedLD.cbegin(),
 					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= 1.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= 1.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedLD.cbegin(),
 					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= 0.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= 0.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedLD.cbegin(),
 					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq <= 1.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq <= 1.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedLD.cbegin(),
 					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq >= 0.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
 				)
 		);
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
@@ -803,31 +838,31 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE(std::all_of(
 					macLD.cbegin(),
 					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
 				)
 		);
 		REQUIRE(std::all_of(
 					macLD.cbegin(),
 					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= 1.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= 1.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					macLD.cbegin(),
 					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= 0.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= 0.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					macLD.cbegin(),
 					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq <= 1.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq <= 1.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					macLD.cbegin(),
 					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.rSq >= 0.0F;}
+					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
 				)
 		);
 		constexpr float upperCutOff{0.9F};
@@ -835,7 +870,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		uint32_t nLargeLD = std::count_if(
 			bedLD.cbegin(),
 			bedLD.cend(), 
-			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= upperCutOff;}
 		);
 		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
 		constexpr float lowerCutOff{0.1F};
@@ -843,20 +878,20 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		uint32_t nSmallLD = std::count_if(
 			bedLD.cbegin(),
 			bedLD.cend(), 
-			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= lowerCutOff;}
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
 		nLargeLD = std::count_if(
 			macLD.cbegin(),
 			macLD.cend(), 
-			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard >= upperCutOff;}
+			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= upperCutOff;}
 		);
 		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
 		nSmallLD = std::count_if(
 			macLD.cbegin(),
 			macLD.cend(), 
-			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj){return eachObj.jaccard <= lowerCutOff;}
+			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= lowerCutOff;}
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
@@ -867,7 +902,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				bedLD.cbegin(), 
 				bedLD.cend(), 
 				movedBedLD.cbegin(), 
-				[](const BayesicSpace::IndexedPairLD &first, const BayesicSpace::IndexedPairLD &second){return std::fabs(first.jaccard - second.jaccard) <= FPREC; }
+				[](const BayesicSpace::IndexedPairLD &first, const BayesicSpace::IndexedPairLD &second) {return std::fabs(first.jaccard - second.jaccard) <= FPREC; }
 			) 
 		);
 	}
@@ -940,32 +975,32 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue >= 0.0F;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue >= 0.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue <= 1.0F;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue <= 1.0F;}
 				)
 		);
 		// testing discreteness of the Jaccard values that arises from the chosen sketch size
 		REQUIRE(std::none_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
 				)
 		);
 		REQUIRE(std::none_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
 				)
 		);
 		const std::string tmpJacFile("../tests/tmpJac.tsv");
@@ -1034,7 +1069,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::is_sorted(
 				groups.cbegin(),
 				groups.cend(),
-				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2){return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
+				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
 			)
 		);
 		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{bedHSH.ldInGroups(nRowsPerBand)};
@@ -1042,7 +1077,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::is_sorted(
 				groupLD.cbegin(),
 				groupLD.cend(),
-				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second){
+				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
 					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
 				}
 			)
@@ -1050,11 +1085,11 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::all_of(
 				groupLD.cbegin(),
 				groupLD.cend(),
-				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair){
+				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair) {
 					auto findIt = std::find_if(
 							bedHLD.cbegin(),
 							bedHLD.cend(),
-							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair){
+							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair) {
 								return (eachGrpPair.element1ind == allPair.element1ind) && 
 										(eachGrpPair.element2ind == allPair.element2ind) &&
 										(std::fabs(eachGrpPair.similarityValue - allPair.similarityValue) <= invKlowBound);
@@ -1119,32 +1154,32 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.element1ind < eachObj.element2ind;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue >= 0.0F;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue >= 0.0F;}
 				)
 		);
 		REQUIRE(std::all_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return eachObj.similarityValue <= 1.0F;}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue <= 1.0F;}
 				)
 		);
 		// testing discreteness of the Jaccard values that arises from the chosen sketch size
 		REQUIRE(std::none_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return (eachObj.similarityValue > 0.0F) && (eachObj.similarityValue <= invKlowBound);}
 				)
 		);
 		REQUIRE(std::none_of(
 					bedHLD.cbegin(),
 					bedHLD.cend(),
-					[](const BayesicSpace::IndexedPairSimilarity &eachObj){return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
+					[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return (eachObj.similarityValue >= invKhighBound) && (eachObj.similarityValue < 1.0F);}
 				)
 		);
 		const std::string tmpJacFile("../tests/tmpJac.tsv");
@@ -1213,7 +1248,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::is_sorted(
 				groups.cbegin(),
 				groups.cend(),
-				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2){return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
+				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
 			)
 		);
 		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{vecHSH.ldInGroups(nRowsPerBand)};
@@ -1221,7 +1256,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::is_sorted(
 				groupLD.cbegin(),
 				groupLD.cend(),
-				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second){
+				[](const BayesicSpace::IndexedPairSimilarity &first, const BayesicSpace::IndexedPairSimilarity &second) {
 					return (first.element1ind == second.element1ind) && (first.element2ind == second.element2ind);
 				}
 			)
@@ -1229,11 +1264,11 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE(std::all_of(
 				groupLD.cbegin(),
 				groupLD.cend(),
-				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair){
+				[&bedHLD](const BayesicSpace::IndexedPairSimilarity &eachGrpPair) {
 					auto findIt = std::find_if(
 							bedHLD.cbegin(),
 							bedHLD.cend(),
-							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair){
+							[&eachGrpPair](const BayesicSpace::IndexedPairSimilarity &allPair) {
 								return (eachGrpPair.element1ind == allPair.element1ind) && 
 										(eachGrpPair.element2ind == allPair.element2ind) &&
 										(std::fabs(eachGrpPair.similarityValue - allPair.similarityValue) <= invKlowBound);

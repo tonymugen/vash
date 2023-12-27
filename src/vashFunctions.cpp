@@ -37,9 +37,11 @@
 #include <unordered_map>
 #include <utility>  // for std::pair
 #include <limits>
+#include <algorithm>
 #include <immintrin.h>
 
 #include "gvarHash.hpp"
+#include "similarityMatrix.hpp"
 #include "vashFunctions.hpp"
 
 using namespace BayesicSpace;
@@ -235,6 +237,32 @@ std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const Co
 	return threadRanges;
 }
 
+std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(const size_t &nElements, const size_t nChunks) {
+	std::vector<size_t> chunkSizes(nChunks, nElements / nChunks);
+	// spread the left over elements among chunks
+	std::for_each(
+		chunkSizes.begin(),
+		chunkSizes.begin() + static_cast<std::vector<size_t>::difference_type >(nElements % nChunks),
+		[](size_t &currSize) {return ++currSize;}
+	);
+	std::vector< std::pair<RowColIdx, RowColIdx> > chunkPairs;
+
+	size_t cumChunkSize{0};
+	std::for_each(
+		chunkSizes.cbegin(),
+		chunkSizes.cend(),
+		[&chunkPairs, &cumChunkSize](const size_t &chunkSize) {
+			std::pair<RowColIdx, RowColIdx> tmpPair;
+			tmpPair.first  = recoverRCindexes(cumChunkSize);
+			tmpPair.second = recoverRCindexes(cumChunkSize + chunkSize);
+			chunkPairs.emplace_back(tmpPair);
+			cumChunkSize += chunkSize;
+		}
+	);
+
+	return chunkPairs;
+}
+
 void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 														const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
 	RanDraw prng;
@@ -243,7 +271,7 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
 	constexpr size_t word64mask{-word64size};                                                  // for rounding down to nearest divisible by 8 number 
 	constexpr size_t word32mask{-word32size};                                                  // for rounding down to nearest divisible by 4 number 
-	constexpr uint64_t secondBitMask{0xaaaaaaaaaaaaaaaa};                                      // all bed second bits set
+	constexpr uint64_t secondBitMask{0xAAAAAAAAAAAAAAAA};                                      // all bed second bits set
 	constexpr uint64_t firstBitMask{~secondBitMask};                                           // all bed first bits set
 	const size_t nEvenBedBytes{bedLocusWindow.length & word64mask};                            // number of bed bytes that fully fit into 64-bit words
 	std::vector<uint32_t> missWords;                                                           // 32-bit words with missing genotype masks

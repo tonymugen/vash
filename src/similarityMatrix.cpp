@@ -50,14 +50,21 @@ uint64_t BayesicSpace::recoverFullVIdx(std::vector<uint32_t>::const_iterator pac
 	return precedingFullIdx + static_cast<uint64_t>( (*packedElementIt) >> SimilarityMatrix::valueSize_ );
 };
 
-RowColIdx BayesicSpace::recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept {
-	const uint64_t thisFullIdx{recoverFullVIdx(packedElementIt, precedingFullIdx)};
+RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &fullIdx) noexcept {
 	constexpr double tfiCoeff{8.0};
 	RowColIdx result{};
 
-	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(thisFullIdx))) / 2.0);
-	result.jCol    = static_cast<uint32_t>(thisFullIdx - row * (row - 1) / 2);
+	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(fullIdx))) / 2.0);
+	result.jCol    = static_cast<uint32_t>(fullIdx - row * (row - 1) / 2);
 	result.iRow    = static_cast<uint32_t>(row);
+
+	return result;
+}
+
+RowColIdx BayesicSpace::recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept {
+	const uint64_t thisFullIdx{recoverFullVIdx(packedElementIt, precedingFullIdx)};
+
+	RowColIdx result{recoverRCindexes(thisFullIdx)};
 
 	precedingFullIdx = thisFullIdx;
 
@@ -212,7 +219,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	std::for_each(
 		threadChunkSizes.begin(),
 		threadChunkSizes.begin() + static_cast<std::vector<size_t>::difference_type >(matrix_.size() % nThreads),
-		[](std::vector<uint32_t>::difference_type &currSize){return ++currSize;}
+		[](std::vector<uint32_t>::difference_type &currSize) {return ++currSize;}
 	);
 
 	std::vector< std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> > threadPairs;
@@ -221,7 +228,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	std::for_each(
 		threadChunkSizes.cbegin(),
 		threadChunkSizes.cend(),
-		[&threadPairs, &cumChunkSize, this](const std::vector<uint32_t>::difference_type &chunkSize){
+		[&threadPairs, &cumChunkSize, this](const std::vector<uint32_t>::difference_type &chunkSize) {
 			std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
 				matrix_.cbegin() + cumChunkSize,
 				matrix_.cbegin() + cumChunkSize + chunkSize
@@ -236,7 +243,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	std::for_each(
 		threadPairs.cbegin(),
 		threadPairs.cend(),
-		[&runningFullIdx, &cumIndexes](auto eachPair){
+		[&runningFullIdx, &cumIndexes](auto eachPair) {
 			cumIndexes.push_back(runningFullIdx);
 			for (auto matIt = eachPair.first; matIt != eachPair.second; ++matIt) {
 				runningFullIdx = recoverFullVIdx(matIt, runningFullIdx);
@@ -251,7 +258,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	std::for_each(
 		threadPairs.cbegin(),
 		threadPairs.cend(),
-		[&iThread, &tasks, &outStrings, &cumIndexes, this](auto pairIt){
+		[&iThread, &tasks, &outStrings, &cumIndexes, this](auto pairIt) {
 			tasks.emplace_back(
 				std::async(
 					[iThread, &cumIndexes, pairIt, &outStrings, this]{
