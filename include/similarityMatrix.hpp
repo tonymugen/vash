@@ -147,11 +147,13 @@ namespace BayesicSpace {
 		/** \brief Save to file 
 		 *
 		 * Uses multi-threaded data prep to speed up saving.
+		 * If the output file already exists, appends to it.
 		 *
 		 * \param[in] outFileName output file name
 		 * \param[in] nThreads number of threads
+		 * \param[in] locusNameFile name of the file with locus names (empty by default)
 		 */
-		void save(const std::string &outFileName, const size_t &nThreads) const;
+		void save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile = "") const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -198,10 +200,23 @@ namespace BayesicSpace {
 		 * \param[in] start start iterator for the matrix
 		 * \param[in] end end iterator for the matrix
 		 * \param[in] startCumulativeIndex cumulative index of the start iterator position
-		 * \param[out] outString output string
+		 *  \return output string
 		 */
-		static void stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
-								const uint64_t &startCumulativeIndex, std::string &outString);
+		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+								const uint64_t &startCumulativeIndex);
+		/** \brief Convert matrix data to string with locus names
+		 *
+		 * Construct a string from a portion of the matrix for saving. Add locus names.
+		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
+		 *
+		 * \param[in] start start iterator for the matrix
+		 * \param[in] end end iterator for the matrix
+		 * \param[in] startCumulativeIndex cumulative index of the start iterator position
+		 * \param[in] locusNames locus name vector
+		 *  \return output string
+		 */
+		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+								const uint64_t &startCumulativeIndex, const std::vector<std::string> &locusNames);
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix according to the full vectorized matrix index.

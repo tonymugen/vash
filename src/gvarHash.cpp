@@ -52,6 +52,7 @@
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
+#include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
 
@@ -61,10 +62,9 @@ constexpr uint8_t  GenoTableBin::oneBit_         = 0b00000001;       // One set 
 constexpr uint8_t  GenoTableBin::byteSize_       = 8;                // Size of one byte in bits
 constexpr uint8_t  GenoTableBin::bedGenoPerByte_ = 4;                // Number of genotypes in a .bed byte
 constexpr uint8_t  GenoTableBin::llWordSize_     = 8;                // 64 bit word size in bytes
-constexpr size_t   GenoTableBin::maxNlocusPairs_ = 6074000999;       // approximate number of loci that does not overflow with n*(n-1)/2
 
 // Constructors
-GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads)
+GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads)
 															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
@@ -83,7 +83,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	}
 	nThreads_ = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
 	nThreads_ = std::max(nThreads_, 1UL);
-	const size_t nBedBytesPerLocus = nIndividuals_ / bedGenoPerByte_ + static_cast<size_t>( (nIndividuals_ % bedGenoPerByte_) > 0);
+	const uint32_t nBedBytesPerLocus = nIndividuals_ / bedGenoPerByte_ + static_cast<uint32_t>( (nIndividuals_ % bedGenoPerByte_) > 0);
 	std::fstream inStr;
 	// Start by measuring file size
 	inStr.open(inputFileName, std::ios::in | std::ios::binary | std::ios::ate);
@@ -98,11 +98,11 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	}
 	const size_t nTotalBedBytes{static_cast<uint64_t>(endPosition) - nMagicBytes_};
 	inStr.close();
-	nLoci_ = nTotalBedBytes / nBedBytesPerLocus;
-	if ( nLoci_ > std::numeric_limits<uint32_t>::max() ) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
-		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	if ( nTotalBedBytes > std::numeric_limits<uint32_t>::max() ) {
+		logMessages_ += "ERROR: .bed file (" + inputFileName + ") too large\n";
+		throw std::string("ERROR: there must be fewer than 2^32 bytes in the .bed file ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	nLoci_ = static_cast<uint32_t>(nTotalBedBytes) / nBedBytesPerLocus;
 	logMessages_ += "Number of individuals: " + std::to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: "        + std::to_string(nLoci_) + "\n";
 	logMessages_ += "Number of threads: "     + std::to_string(nThreads_) + "\n";
@@ -115,8 +115,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	BedDataStats locusGroupAttributes{};
-	const size_t ramSize                = getAvailableRAM() / 2UL;                               // measuring here, after all the major allocations; use half to leave resources for other operations
-	locusGroupAttributes.nLociToRead    = std::min(ramSize / nBedBytesPerLocus, nLoci_);         // number of .bed loci to read at a time
+	const size_t ramSize                = getAvailableRAM() / 2UL;                                                 // measuring here, after all the major allocations; use half to leave resources for other operations
+	locusGroupAttributes.nLociToRead    = std::min( ramSize / nBedBytesPerLocus, static_cast<size_t>(nLoci_) );    // number of .bed loci to read at a time
 	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
 	const size_t remainingBytes         = remainingLoci * nBedBytesPerLocus;
@@ -143,16 +143,16 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const size_t &nIndi
 	inStr.close();
 }
 
-GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads)
-							: nIndividuals_{nIndividuals}, nLoci_{maCounts.size() / nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
+GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads)
+							: nIndividuals_{nIndividuals}, nLoci_{static_cast<uint32_t>( maCounts.size() / static_cast<size_t>(nIndividuals) )}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
 	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype binarization from minor allele count vector started on " + logStream.str() + "\n";
 	logStream.clear();
-	if ( nLoci_ > std::numeric_limits<uint32_t>::max() ) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
+	if ( ( maCounts.size() / static_cast<size_t>(nIndividuals) ) > std::numeric_limits<uint32_t>::max() ) {
+		logMessages_ += "ERROR: too many loci \n";
 		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	if (nIndividuals <= 1) {
@@ -209,11 +209,6 @@ void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 }
 
 std::vector<IndexedPairLD> GenoTableBin::allJaccardLD() const {
-	if (nLoci_ > maxNlocusPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
 	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates and passing the result to the calling function\n";
 	const size_t nPairs{nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2)};
 	std::vector<IndexedPairLD> LDmat(nPairs);
@@ -228,24 +223,16 @@ std::vector<IndexedPairLD> GenoTableBin::allJaccardLD() const {
 }
 
 SimilarityMatrix GenoTableBin::allJaccardLDsm() const {
-	if (nLoci_ > maxNlocusPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
 	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates and passing the result to the calling function\n";
-	SimilarityMatrix result;
 
-	return result;
+	const size_t nPairs{nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2)};
+	const size_t nThreads{std::min(nPairs, nThreads_)};
+	std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(nPairs, nThreads)};
+
+	return jaccardThreaded_(threadRanges);
 }
 
 void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
-	if (nLoci_ > maxNlocusPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
-
 	const size_t maxInRAM             = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
 	const size_t nPairs               = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
 	const size_t nChunks              = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
@@ -287,12 +274,6 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 }
 
 void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
-	if (nLoci_ > maxNlocusPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxNlocusPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
-
 	const size_t maxInRAM       = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
 	const size_t nPairs         = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
 	const size_t nChunks        = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
@@ -522,6 +503,51 @@ void GenoTableBin::jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange,
 		++curJacMatInd;
 	}
 }
+		
+SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const {
+	SimilarityMatrix result;
+	std::vector<uint8_t> locus(binLocusSize_);
+	uint32_t iRow{blockRange.first.iRow};
+	while ( iRow < (blockRange.second.iRow - 1) ) { // complete triangle
+		for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+			RowColIdx localRC{};
+			localRC.iRow = iRow;
+			localRC.jCol = jCol;
+			JaccardPair localJP{};
+			const size_t rowBin = iRow * binLocusSize_;
+			const size_t colBin = jCol * binLocusSize_;
+			for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+				locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
+			}
+			localJP.nIntersect = countSetBits(locus);
+			for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+				locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
+			}
+			localJP.nUnion = countSetBits(locus);
+			result.insert(localRC, localJP);
+		}
+		++iRow;
+	}
+	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {
+		RowColIdx localRC{};
+		localRC.iRow = iRow;
+		localRC.jCol = jColRem;
+		JaccardPair localJP{};
+		const size_t rowBin = iRow * binLocusSize_;
+		const size_t colBin = jColRem * binLocusSize_;
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
+		}
+		localJP.nIntersect = countSetBits(locus);
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
+		}
+		localJP.nUnion = countSetBits(locus);
+		result.insert(localRC, localJP);
+	}
+
+	return result;
+}
 
 size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const {
 	size_t overallPairInd = blockStartAll;
@@ -539,6 +565,35 @@ size_t GenoTableBin::jaccardThreaded_(const std::vector< std::pair<size_t, size_
 		eachThread.wait();
 	}
 	return overallPairInd;
+}
+
+SimilarityMatrix GenoTableBin::jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const {
+	std::vector<SimilarityMatrix> threadResults( indexPairs.size() );
+	std::vector< std::future<void> > tasks;
+	tasks.reserve( indexPairs.size() );
+	size_t iThread{0};
+	for (const auto &eachRange : indexPairs) {
+		tasks.emplace_back(
+			std::async([this, eachRange, iThread, &threadResults]{
+				threadResults.at(iThread) = jaccardBlock_(eachRange);
+			})
+		);
+		++iThread;
+	}
+
+	for (const auto &eachThread : tasks) {
+		eachThread.wait();
+	}
+
+	std::for_each(
+		threadResults.begin() + 1,
+		threadResults.end(),
+		[&threadResults](SimilarityMatrix &eachMatrix) {
+			threadResults.at(0).merge( std::move(eachMatrix) );
+		}
+	);
+
+	return threadResults.at(0);
 }
 
 // GenoTableHash methods

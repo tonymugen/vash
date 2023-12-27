@@ -29,6 +29,7 @@
  */
 
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -51,7 +52,7 @@ namespace BayesicSpace {
 	 *
 	 */
 	void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
-		const size_t nIndiv{static_cast<size_t>( intVariables.at("n-individuals") )};
+		const auto nIndiv{static_cast<uint32_t>( intVariables.at("n-individuals") )};
 		BayesicSpace::GenoTableBin allJaccard;
 		try {
 			if (intVariables.at("threads") < 1) {

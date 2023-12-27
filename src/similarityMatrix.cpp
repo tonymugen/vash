@@ -43,6 +43,7 @@
 #include <thread>
 
 #include "similarityMatrix.hpp"
+#include "vashFunctions.hpp"
 
 using namespace BayesicSpace;
 
@@ -212,7 +213,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	toMerge.lastCumulativeIndex_  = 0;
 }
 
-void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads) const {
+void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile) const {
 	std::vector<std::vector<uint32_t>::difference_type> threadChunkSizes( nThreads,
 									static_cast<std::vector<uint32_t>::difference_type>(matrix_.size() / nThreads) );
 	// spread the left over elements among chunks
@@ -252,37 +253,60 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	);
 
 	std::vector<std::string> outStrings(nThreads);
-	std::vector< std::future<void> > tasks;
-	tasks.reserve(nThreads);
-	size_t iThread{0};
-	std::for_each(
-		threadPairs.cbegin(),
-		threadPairs.cend(),
-		[&iThread, &tasks, &outStrings, &cumIndexes, this](auto pairIt) {
-			tasks.emplace_back(
-				std::async(
-					[iThread, &cumIndexes, pairIt, &outStrings, this]{
-						stringify_( pairIt.first, pairIt.second, cumIndexes.at(iThread), outStrings.at(iThread) );
-					}
-				)
-			);
-			++iThread;
+	if ( locusNameFile.empty() ) {
+		std::vector< std::future<void> > tasks;
+		tasks.reserve(nThreads);
+		size_t iThread{0};
+		std::for_each(
+			threadPairs.cbegin(),
+			threadPairs.cend(),
+			[&iThread, &tasks, &outStrings, &cumIndexes, this](auto pairIt) {
+				tasks.emplace_back(
+					std::async(
+						[iThread, &cumIndexes, pairIt, &outStrings, this]{
+							outStrings.at(iThread) = stringify_( pairIt.first, pairIt.second, cumIndexes.at(iThread) );
+						}
+					)
+				);
+				++iThread;
+			}
+		);
+	} else {
+		const std::vector<std::string> locusNames{getLocusNames(locusNameFile)};
+		const RowColIdx lastRC{recoverRCindexes(lastCumulativeIndex_)};
+		if ( lastRC.iRow >= locusNames.size() ) {
+			throw std::string("ERROR: number of rows exceeds locus name count in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 		}
-	);
-
-	for (const auto &eachThread : tasks) {
-		eachThread.wait();
+		std::vector< std::future<void> > tasks;
+		tasks.reserve(nThreads);
+		size_t iThread{0};
+		std::for_each(
+			threadPairs.cbegin(),
+			threadPairs.cend(),
+			[&iThread, &tasks, &outStrings, &cumIndexes, &locusNames, this](auto pairIt) {
+				tasks.emplace_back(
+					std::async(
+						[iThread, &cumIndexes, pairIt, &outStrings, &locusNames, this]{
+							outStrings.at(iThread) = stringify_(pairIt.first, pairIt.second, cumIndexes.at(iThread), locusNames);
+						}
+					)
+				);
+				++iThread;
+			}
+		);
 	}
+
 	std::fstream outStream;
-	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::trunc);
+	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
 	for (const auto &eachString : outStrings) {
 		outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );
 	}
 	outStream.close();
 }
 
-void SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
-									const uint64_t &startCumulativeIndex, std::string &outString) {
+std::string SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+									const uint64_t &startCumulativeIndex) {
+	std::string outString;
 	uint64_t runningFullIdx{startCumulativeIndex};
 	for (auto matIt = start; matIt != end; ++matIt) {
 		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
@@ -291,6 +315,21 @@ void SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, s
 			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
 		}
 	}
+	return outString;
+}
+
+std::string SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
+									const uint64_t &startCumulativeIndex, const std::vector<std::string> &locusNames) {
+	std::string outString;
+	uint64_t runningFullIdx{startCumulativeIndex};
+	for (auto matIt = start; matIt != end; ++matIt) {
+		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
+		if (*matIt != padding_) {
+			const std::string &similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			outString += locusNames.at(currentPair.iRow) + "\t" + locusNames.at(currentPair.jCol) + "\t" + similarityValue + "\n";
+		}
+	}
+	return outString;
 }
 
 void SimilarityMatrix::insert_(const FullIdxValue &fullIndexWithSimilarity) {
@@ -300,13 +339,15 @@ void SimilarityMatrix::insert_(const FullIdxValue &fullIndexWithSimilarity) {
 		matrix_.push_back( static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity) );
 		return;
 	}
+	// redundant elements at either end
 	if ( (fullIndexWithSimilarity.fullIdx == firstCumulativeIndex_) ||
-			(fullIndexWithSimilarity.fullIdx == lastCumulativeIndex_) ) {                    // redundant elements at either end
+			(fullIndexWithSimilarity.fullIdx == lastCumulativeIndex_) ) {
 		return;
 	}
-	if (fullIndexWithSimilarity.fullIdx < lastCumulativeIndex_) {                                                  // will be inserting the new element
+	// will be inserting the new element
+	if (fullIndexWithSimilarity.fullIdx < lastCumulativeIndex_) {
 		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, fullIndexWithSimilarity.fullIdx)};
-		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx};                          // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
+		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx}; // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
 
 		// resolution of the possible index bit-field overload by padding with 0 values
 		const uint64_t nBFmax = firstDiff / maxIdxBitfield_;
@@ -316,15 +357,15 @@ void SimilarityMatrix::insert_(const FullIdxValue &fullIndexWithSimilarity) {
 		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << valueSize_;
 		const auto firstValue{matrix_[0] & valueMask_};
 		firstElement |= firstValue;
-		matrix_[0]    = firstElement;                                                        // if the firstCumulativeIndex_ has not changed, still 0 index
+		matrix_[0]    = firstElement;   // if the firstCumulativeIndex_ has not changed, still 0 index
 		auto matIt    = matrix_.begin();
 		uint64_t currentIdx{recoverFullVIdx(matIt, newFirstCumIdx)};
 		while (currentIdx < fullIndexWithSimilarity.fullIdx) {
 			++matIt;
 			currentIdx = recoverFullVIdx(matIt, currentIdx);
 		}
-
-		if (currentIdx == fullIndexWithSimilarity.fullIdx) {  // ignore if the element already present
+		// ignore if the element already present
+		if (currentIdx == fullIndexWithSimilarity.fullIdx) {
 			matrix_[0] &= valueMask_;
 			return;
 		}

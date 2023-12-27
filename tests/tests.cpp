@@ -377,6 +377,27 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correctColIndexes.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correctFloatValues.cbegin() ) );
 
+		const std::string bimFile("../tests/ind197_397.bim");
+		testMatrix.save(outputFileName, nThreads, bimFile);
+		arrayIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lineStream >> field;
+			lineStream >> field;
+			floatsFromFile.at(arrayIdx) = stof(field);
+			++arrayIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correctFloatValues.cbegin() ) );
+
+		const std::string smallFile("../tests/small.bim");
+		REQUIRE_THROWS_WITH(testMatrix.save(outputFileName, nThreads, smallFile),
+			Catch::Matchers::StartsWith("ERROR: number of rows exceeds locus name count in") );
+
 		// values that require padding
 		constexpr std::array<uint32_t, 3> largeIdxRows{20001, 9999, 40005};
 		constexpr std::array<uint32_t, 3> largeIdxCols{10001, 9899, 30005};
@@ -762,15 +783,12 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	const std::string logFileName("../tests/binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
-	constexpr size_t nIndividuals{197};
+	constexpr uint32_t nIndividuals{197};
 	constexpr size_t nThreads{4};
 	SECTION("Failed GenoTableBin constructors") {
 		constexpr size_t smallNind{1};
-		constexpr size_t largeNind{std::numeric_limits<size_t>::max() - 3};
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, smallNind, logFileName, nThreads),
 				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
-		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, largeNind, logFileName, nThreads),
-				Catch::Matchers::ContainsSubstring("is too big to make a square relationship matrix") );
 		const std::string absentFileName("../tests/noSuchFile.bed");
 		const std::string noLociFile("../tests/threeByte.bed");
 		const std::string wrongMagicBytes("../tests/wrongMB.bed");
@@ -823,6 +841,9 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
 				)
 		);
+		BayesicSpace::SimilarityMatrix bedLDmat{bedGTB.allJaccardLDsm()};
+		const std::string ldFile("../tests/tmpLDfile.tsv");
+		bedLDmat.save(ldFile, nThreads);
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
 		std::fstream inAlleleCounts;
 		std::string eachLine;

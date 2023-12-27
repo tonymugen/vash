@@ -153,7 +153,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName) : 
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName) : 
 						GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
@@ -167,7 +167,7 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const std::string &inputFileName, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads);
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -180,7 +180,7 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName) :
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, std::string logFileName) :
 						GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
@@ -196,7 +196,7 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const size_t &nIndividuals, std::string logFileName, const size_t &nThreads);
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
@@ -267,9 +267,9 @@ namespace BayesicSpace {
 		 */
 		std::vector<uint8_t> binGenotypes_;
 		/** \brief Number of individuals */
-		size_t nIndividuals_;
+		uint32_t nIndividuals_;
 		/** \brief Number of loci */
-		size_t nLoci_;
+		uint32_t nLoci_;
 		/** \brief Binarized locus size in bytes */
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
@@ -284,8 +284,6 @@ namespace BayesicSpace {
 		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
-		/** \brief Maximum number of loci for all by all LD */
-		static const size_t maxNlocusPairs_;
 		/** \brief Log messages */
 		mutable std::string logMessages_;
 		/** \brief Log file name */
@@ -334,6 +332,7 @@ namespace BayesicSpace {
 		 * \param[out] ldVec vectorized lower triangle of the Jaccard and D similarity matrix with locus pair indexes
 		 */
 		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
 		/** \brief Jaccard similarity between locus pairs using multiple threads
 		 *
 		 * \param[in] pairIndRanges vector of pair ranges, one range per thread
@@ -342,6 +341,7 @@ namespace BayesicSpace {
 		 * \return new block start index
 		 */
 		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
