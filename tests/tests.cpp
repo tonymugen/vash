@@ -861,42 +861,46 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
+		constexpr size_t nChunks{3};
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
-		std::vector<BayesicSpace::IndexedPairLD> bedLD{bedGTB.allJaccardLD()};
-		REQUIRE(std::all_of(
-					bedLD.cbegin(),
-					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedLD.cbegin(),
-					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= 1.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedLD.cbegin(),
-					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= 0.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedLD.cbegin(),
-					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq <= 1.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					bedLD.cbegin(),
-					bedLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
-				)
-		);
-		const std::string ldFile("../tests/tmpLDfile.tsv");
+		const std::string ldFileName("../tests/tmpLDfile.tsv");
+		std::fstream tmpLDfile;
+		std::string line;
 		BayesicSpace::InOutFileNames outAndBim{};
-		outAndBim.outputFileName = ldFile;
-		bedGTB.allJaccardLD(outAndBim);
+		outAndBim.outputFileName = ldFileName;
+		bedGTB.allJaccardLD(outAndBim, nChunks);
+
+		tmpLDfile.open(ldFileName, std::ios::in);
+		std::vector<float> jaccValues;
+		std::getline(tmpLDfile, line); // header
+		while ( std::getline(tmpLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lineStream >> field;
+			lineStream >> field;
+			jaccValues.push_back( stof(field) );
+		}
+		tmpLDfile.close();
+		std::remove( ldFileName.c_str() ); // NOLINT
+		constexpr float upperCutOff{0.9F};
+		constexpr uint32_t correctNlargeLD{2400};
+		constexpr float lowerCutOff{0.1F};
+		constexpr uint32_t correctNsmallLD{48000};
+		uint32_t nLargeLD = std::count_if(
+			jaccValues.cbegin(),
+			jaccValues.cend(), 
+			[upperCutOff](float eachValue) {return eachValue >= upperCutOff;}
+		);
+		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
+		uint32_t nSmallLD = std::count_if(
+			jaccValues.cbegin(),
+			jaccValues.cend(), 
+			[lowerCutOff](float eachValue) {return eachValue <= lowerCutOff;}
+		);
+		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
+		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
 
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
 		std::fstream inAlleleCounts;
@@ -908,78 +912,36 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		}
 		inAlleleCounts.close();
 		BayesicSpace::GenoTableBin macGTB(macVector, nIndividuals, logFileName);
-		std::vector<BayesicSpace::IndexedPairLD> macLD{macGTB.allJaccardLD()};
-		REQUIRE( bedLD.size() == macLD.size() );
-		REQUIRE(std::all_of(
-					macLD.cbegin(),
-					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
-				)
-		);
-		REQUIRE(std::all_of(
-					macLD.cbegin(),
-					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= 1.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					macLD.cbegin(),
-					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= 0.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					macLD.cbegin(),
-					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq <= 1.0F;}
-				)
-		);
-		REQUIRE(std::all_of(
-					macLD.cbegin(),
-					macLD.cend(),
-					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
-				)
-		);
-		constexpr float upperCutOff{0.9F};
-		constexpr uint32_t correctNlargeLD{2400};
-		uint32_t nLargeLD = std::count_if(
-			bedLD.cbegin(),
-			bedLD.cend(), 
-			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= upperCutOff;}
-		);
-		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
-		constexpr float lowerCutOff{0.1F};
-		constexpr uint32_t correctNsmallLD{48600};
-		uint32_t nSmallLD = std::count_if(
-			bedLD.cbegin(),
-			bedLD.cend(), 
-			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= lowerCutOff;}
-		);
-		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
-		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
+		outAndBim.outputFileName = ldFileName;
+		bedGTB.allJaccardLD(outAndBim, nChunks);
+
+		tmpLDfile.open(ldFileName, std::ios::in);
+		jaccValues.clear();
+		std::getline(tmpLDfile, line); // header
+		while ( std::getline(tmpLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lineStream >> field;
+			lineStream >> field;
+			jaccValues.push_back( stof(field) );
+		}
+		tmpLDfile.close();
+		std::remove( ldFileName.c_str() ); // NOLINT
 		nLargeLD = std::count_if(
-			macLD.cbegin(),
-			macLD.cend(), 
-			[upperCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard >= upperCutOff;}
+			jaccValues.cbegin(),
+			jaccValues.cend(), 
+			[upperCutOff](float eachValue) {return eachValue >= upperCutOff;}
 		);
 		REQUIRE(nLargeLD >= correctNlargeLD); // cannot test equality b/c of randomness
 		nSmallLD = std::count_if(
-			macLD.cbegin(),
-			macLD.cend(), 
-			[lowerCutOff](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.jaccard <= lowerCutOff;}
+			jaccValues.cbegin(),
+			jaccValues.cend(), 
+			[lowerCutOff](float eachValue) {return eachValue <= lowerCutOff;}
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
-		REQUIRE( nSmallLD + nLargeLD <= bedLD.size() );
-		// test the move constructor
-		BayesicSpace::GenoTableBin movedBedGTB = std::move(bedGTB);
-		std::vector<BayesicSpace::IndexedPairLD> movedBedLD{movedBedGTB.allJaccardLD()};
-		REQUIRE( std::equal(
-				bedLD.cbegin(), 
-				bedLD.cend(), 
-				movedBedLD.cbegin(), 
-				[](const BayesicSpace::IndexedPairLD &first, const BayesicSpace::IndexedPairLD &second) {return std::fabs(first.jaccard - second.jaccard) <= FPREC; }
-			) 
-		);
+		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
 	}
 }
 

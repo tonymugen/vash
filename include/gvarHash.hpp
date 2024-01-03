@@ -223,27 +223,6 @@ namespace BayesicSpace {
 		 * \param[in] outFileName output file name
 		 */
 		void saveGenoBinary(const std::string &outFileName) const;
-		/** \brief All by all Jaccard similarity in memory 
-		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
-		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
-		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
-		 *
-		 */
-		std::vector<IndexedPairLD> allJaccardLD() const;
-		SimilarityMatrix allJaccardLDsm() const;
-		/** \brief All by all Jaccard similarity LD
-		 *
-		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
-		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * Row and column (1-base) indexes of the similarity matrix are also included in the tab-delimited output file.
-		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
-		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
-		 *
-		 * \param[in] ldFileName name of the output file
-		 */
-		void allJaccardLD(const std::string &ldFileName) const;
 		/** \brief All by all Jaccard similarity LD with locus names
 		 *
 		 * Calculates linkage disequilibrium among all loci using Jaccard similarity and \f$r^2\f$ as the statistics.
@@ -327,20 +306,15 @@ namespace BayesicSpace {
 		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen);
 		/** \brief Jaccard similarity in a block of loci
 		 *
-		 * \param[in] blockVecRange block index range in `ldVec`
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] ldVec vectorized lower triangle of the Jaccard and D similarity matrix with locus pair indexes
+		 * \param[in] blockRange row/column index pair range
+		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		void jaccardBlock_(const std::pair<size_t, size_t> &blockVecRange, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
 		[[gnu::warn_unused_result]] SimilarityMatrix jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
 		/** \brief Jaccard similarity between locus pairs using multiple threads
 		 *
-		 * \param[in] pairIndRanges vector of pair ranges, one range per thread
-		 * \param[in] blockStartAll index of the block start in the overall vectorized LD matrix
-		 * \param[out] ldVec vectorized lower triangle of the Jaccard and D similarity matrix with locus pair indexes
-		 * \return new block start index
+		 * \param[in] indexPairs vector of row/column index ranges, one per thread
+		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		size_t jaccardThreaded_(const std::vector< std::pair<size_t, size_t> > &pairIndRanges, const size_t &blockStartAll, std::vector<IndexedPairLD> &ldVec) const;
 		[[gnu::warn_unused_result]] SimilarityMatrix jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
 	};
 	/** \brief Class to store compressed genotype tables

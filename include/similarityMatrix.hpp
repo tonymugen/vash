@@ -192,21 +192,10 @@ namespace BayesicSpace {
 		static const uint32_t padding_;
 		/** \brief Size of the value bit-field in bits */
 		static const uint32_t valueSize_;
-		/** \brief Convert matrix data to string
-		 *
-		 * Construct a string from a portion of the matrix for saving.
-		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
-		 *
-		 * \param[in] start start iterator for the matrix
-		 * \param[in] end end iterator for the matrix
-		 * \param[in] startCumulativeIndex cumulative index of the start iterator position
-		 *  \return output string
-		 */
-		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
-								const uint64_t &startCumulativeIndex);
 		/** \brief Convert matrix data to string with locus names
 		 *
-		 * Construct a string from a portion of the matrix for saving. Add locus names.
+		 * Construct a string from a portion of the matrix for saving.
+		 * Add locus names if the `locusNames` vector is not empty.
 		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
 		 *
 		 * \param[in] start start iterator for the matrix

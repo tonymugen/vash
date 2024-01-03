@@ -67,7 +67,9 @@ namespace BayesicSpace {
 				bimAndLD.outputFileName = stringVariables.at("out-file");
 				allJaccard.allJaccardLD(bimAndLD);
 			} else {
-				allJaccard.allJaccardLD( stringVariables.at("out-file") );
+				InOutFileNames bimAndLD{};
+				bimAndLD.outputFileName = stringVariables.at("out-file");
+				allJaccard.allJaccardLD(bimAndLD);
 			}
 			if (stringVariables.at("log-file") != "none") {
 				allJaccard.saveLogFile();

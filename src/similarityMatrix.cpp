@@ -27,7 +27,6 @@
  *
  */
 
-#include <type_traits>
 #include <vector>
 #include <array>
 #include <string>
@@ -214,65 +213,54 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile) const {
-	const size_t actualNthreads = std::min( nThreads, matrix_.size() );
-	std::vector<size_t> threadChunkSizes{makeChunkSizes(matrix_.size(), actualNthreads)};
-	std::vector< std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> > threadPairs;
+	// determine how many line strings can fit in RAM
+	const RowColIdx lastIdxPair{recoverRCindexes(lastCumulativeIndex_)};
+	const std::string lastEntry{std::to_string(lastIdxPair.iRow + 1) + "\t" + std::to_string(lastIdxPair.jCol + 1) + "\t" + stringLookUp_[0] + "\n"};
+	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * lastEntry.size() );      // use half to leave resources for other operations
+	const size_t nChunks  = std::max(matrix_.size() / maxInRAM, 1UL);
+	std::vector<size_t> chunkSizes{makeChunkSizes(matrix_.size(), nChunks)};
 
-	std::vector<uint32_t>::difference_type cumChunkSize{0};
-	std::for_each(
-		threadChunkSizes.cbegin(),
-		threadChunkSizes.cend(),
-		[&threadPairs, &cumChunkSize, this](const size_t &chunkSize) {
-			std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
-				matrix_.cbegin() + cumChunkSize,
-				matrix_.cbegin() + cumChunkSize + static_cast<std::vector<uint32_t>::difference_type>(chunkSize)
-			};
-			threadPairs.emplace_back(tmpPair);
-			cumChunkSize += static_cast<std::vector<uint32_t>::difference_type>(chunkSize);
-		}
-	);
-
-	// pre-calculate cumulative index ranges
-	std::vector<uint64_t> cumIndexes;
+	std::fstream outStream;
+	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
 	uint64_t runningFullIdx{firstCumulativeIndex_};
-	std::for_each(
-		threadPairs.cbegin(),
-		threadPairs.cend(),
-		[&runningFullIdx, &cumIndexes](auto eachPair) {
-			cumIndexes.push_back(runningFullIdx);
-			for (auto matIt = eachPair.first; matIt != eachPair.second; ++matIt) {
-				runningFullIdx = recoverFullVIdx(matIt, runningFullIdx);
-			}
-		}
-	);
+	std::vector<uint32_t>::difference_type cumChunkSize{0};
+	for (const auto &eachChunkSize : chunkSizes) {
+		const size_t actualNthreads = std::min(eachChunkSize, nThreads);
+		std::vector<size_t> threadChunkSizes{makeChunkSizes(eachChunkSize, actualNthreads)};
+		std::vector< std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> > threadPairs;
 
-	std::vector<std::string> outStrings(nThreads);
-	if ( locusNameFile.empty() ) {
-		std::vector< std::future<void> > tasks;
-		tasks.reserve(nThreads);
-		size_t iThread{0};
+		// pre-calculate cumulative index ranges
+		std::vector<uint64_t> cumIndexes;
+		std::vector<uint32_t>::difference_type cumThreadChunkSize{cumChunkSize};
 		std::for_each(
-			threadPairs.cbegin(),
-			threadPairs.cend(),
-			[&iThread, &tasks, &outStrings, &cumIndexes, this](auto pairIt) {
-				tasks.emplace_back(
-					std::async(
-						[iThread, &cumIndexes, pairIt, &outStrings, this]{
-							outStrings.at(iThread) = stringify_( pairIt.first, pairIt.second, cumIndexes.at(iThread) );
-						}
-					)
-				);
-				++iThread;
+			threadChunkSizes.cbegin(),
+			threadChunkSizes.cend(),
+			[&threadPairs, &cumThreadChunkSize, &runningFullIdx, &cumIndexes, this](const size_t &chunkSize) {
+				std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
+					matrix_.cbegin() + cumThreadChunkSize,
+					matrix_.cbegin() + cumThreadChunkSize + static_cast<std::vector<uint32_t>::difference_type>(chunkSize)
+				};
+				cumIndexes.push_back(runningFullIdx);
+				for (auto matIt = tmpPair.first; matIt != tmpPair.second; ++matIt) {
+					runningFullIdx = recoverFullVIdx(matIt, runningFullIdx);
+				}
+				threadPairs.emplace_back(tmpPair);
+				cumThreadChunkSize += static_cast<std::vector<uint32_t>::difference_type>(chunkSize);
 			}
 		);
-	} else {
-		const std::vector<std::string> locusNames{getLocusNames(locusNameFile)};
-		const RowColIdx lastRC{recoverRCindexes(lastCumulativeIndex_)};
-		if ( lastRC.iRow >= locusNames.size() ) {
-			throw std::string("ERROR: number of rows exceeds locus name count in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+
+		std::vector<std::string> outStrings(actualNthreads);
+		std::vector<std::string> locusNames;
+		if ( !locusNameFile.empty() ) {
+			locusNames = getLocusNames(locusNameFile);
+			const RowColIdx lastRC{recoverRCindexes(lastCumulativeIndex_)};
+			// testing only the row index, since the column index must be smaller
+			if ( lastRC.iRow >= locusNames.size() ) {
+				throw std::string("ERROR: number of rows exceeds locus name count in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+			}
 		}
 		std::vector< std::future<void> > tasks;
-		tasks.reserve(nThreads);
+		tasks.reserve(actualNthreads);
 		size_t iThread{0};
 		std::for_each(
 			threadPairs.cbegin(),
@@ -288,39 +276,37 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 				++iThread;
 			}
 		);
-	}
+		for (const auto &eachThread : tasks) {
+			eachThread.wait();
+		}
 
-	std::fstream outStream;
-	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
-	for (const auto &eachString : outStrings) {
-		outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );
+		for (const auto &eachString : outStrings) {
+			outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );
+		}
+		cumChunkSize += static_cast<std::vector<uint32_t>::difference_type>(eachChunkSize);
 	}
 	outStream.close();
-}
-
-std::string SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
-									const uint64_t &startCumulativeIndex) {
-	std::string outString;
-	uint64_t runningFullIdx{startCumulativeIndex};
-	for (auto matIt = start; matIt != end; ++matIt) {
-		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
-		if (*matIt != padding_) {
-			const std::string &similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
-			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
-		}
-	}
-	return outString;
 }
 
 std::string SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
 									const uint64_t &startCumulativeIndex, const std::vector<std::string> &locusNames) {
 	std::string outString;
 	uint64_t runningFullIdx{startCumulativeIndex};
+	if ( locusNames.empty() ) {
+		for (auto matIt = start; matIt != end; ++matIt) {
+			const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
+			if (*matIt != padding_) {
+				const std::string similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+				outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
+			}
+		}
+		return outString;
+	}
 	for (auto matIt = start; matIt != end; ++matIt) {
 		const RowColIdx currentPair{recoverRCindexes(matIt, runningFullIdx)};
 		if (*matIt != padding_) {
-			const std::string &similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
-			outString += locusNames.at(currentPair.iRow) + "\t" + locusNames.at(currentPair.jCol) + "\t" + similarityValue + "\n";
+			const std::string similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			outString += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
 		}
 	}
 	return outString;
