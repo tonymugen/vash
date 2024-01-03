@@ -254,7 +254,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] bimAndLDnames name of the input _.bim_ file that has locus names and the output LD value file name
 		 */
-		void allJaccardLD(const InOutFileNames &bimAndLDnames) const;
+		void allJaccardLD( const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.

@@ -214,31 +214,25 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile) const {
-	std::vector<std::vector<uint32_t>::difference_type> threadChunkSizes( nThreads,
-									static_cast<std::vector<uint32_t>::difference_type>(matrix_.size() / nThreads) );
-	// spread the left over elements among chunks
-	std::for_each(
-		threadChunkSizes.begin(),
-		threadChunkSizes.begin() + static_cast<std::vector<size_t>::difference_type >(matrix_.size() % nThreads),
-		[](std::vector<uint32_t>::difference_type &currSize) {return ++currSize;}
-	);
-
+	const size_t actualNthreads = std::min( nThreads, matrix_.size() );
+	std::vector<size_t> threadChunkSizes{makeChunkSizes(matrix_.size(), actualNthreads)};
 	std::vector< std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> > threadPairs;
 
 	std::vector<uint32_t>::difference_type cumChunkSize{0};
 	std::for_each(
 		threadChunkSizes.cbegin(),
 		threadChunkSizes.cend(),
-		[&threadPairs, &cumChunkSize, this](const std::vector<uint32_t>::difference_type &chunkSize) {
+		[&threadPairs, &cumChunkSize, this](const size_t &chunkSize) {
 			std::pair<std::vector<uint32_t>::const_iterator, std::vector<uint32_t>::const_iterator> tmpPair{
 				matrix_.cbegin() + cumChunkSize,
-				matrix_.cbegin() + cumChunkSize + chunkSize
+				matrix_.cbegin() + cumChunkSize + static_cast<std::vector<uint32_t>::difference_type>(chunkSize)
 			};
 			threadPairs.emplace_back(tmpPair);
-			cumChunkSize += chunkSize;
+			cumChunkSize += static_cast<std::vector<uint32_t>::difference_type>(chunkSize);
 		}
 	);
 
+	// pre-calculate cumulative index ranges
 	std::vector<uint64_t> cumIndexes;
 	uint64_t runningFullIdx{firstCumulativeIndex_};
 	std::for_each(

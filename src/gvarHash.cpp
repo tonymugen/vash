@@ -227,7 +227,10 @@ SimilarityMatrix GenoTableBin::allJaccardLDsm() const {
 
 	const size_t nPairs{nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2)};
 	const size_t nThreads{std::min(nPairs, nThreads_)};
-	std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(nPairs, nThreads)};
+	LocationWithLength startAndLength{};
+	startAndLength.start  = 0;
+	startAndLength.length = nPairs;
+	std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(startAndLength, nThreads)};
 
 	return jaccardThreaded_(threadRanges);
 }
@@ -273,51 +276,46 @@ void GenoTableBin::allJaccardLD(const std::string &ldFileName) const {
 	output.close();
 }
 
-void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames) const {
-	const size_t maxInRAM       = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairLD) );      // use half to leave resources for other operations
-	const size_t nPairs         = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
-	const size_t nChunks        = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
-	const size_t chunkSize      = std::min(nPairs, maxInRAM);
-	const size_t remainingPairs = nPairs % nChunks;
-
+void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
 	logMessages_ += "Calculating all pairwise LD using full Jaccard similarity estimates\n";
+	std::vector<std::string> locusNames{};
+	if ( !bimAndLDnames.inputFileName.empty() ) {
+		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
+		const bool bimExists = bimExistenceTest.good();
+		bimExistenceTest.close();
+		if (bimExists) {
+			logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
+			locusNames    = getLocusNames(bimAndLDnames.inputFileName);
+		}
+		assert( (locusNames.size() == nLoci_) // NOLINT
+				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+	}
+
+	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const size_t nPairs   = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
+	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
+	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
+
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; ";
 	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
 
-	logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
-	std::vector<std::string> locusNames{getLocusNames(bimAndLDnames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) // NOLINT
-			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
-	logMessages_ += "Read " + std::to_string( locusNames.size() ) + " locus names from the .bim file\n";
-
+	// set up the header
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\trSq\n";
-	const size_t nLocusPairsPerThread = std::max( chunkSize / nThreads_, static_cast<size_t>(1) );
-	size_t overallPairInd{0};
-	CountAndSize threadCounts{0, 0};
-	threadCounts.count = nThreads_;
-	threadCounts.size  = nLocusPairsPerThread;
-	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-	const size_t excessLoci    = maxInRAM - threadRanges.back().second;
-	threadRanges.back().second = maxInRAM;
-	for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-		std::vector<IndexedPairLD> LDmatChunk(maxInRAM);
-		overallPairInd  = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-		overallPairInd += excessLoci;
-		saveValues(LDmatChunk, locusNames, output);
-	}
-	if (remainingPairs > 0) {
-		std::vector<IndexedPairLD> LDmatChunk(remainingPairs);
-		const size_t nRemainPairsPerThread = std::max( remainingPairs / nThreads_, static_cast<size_t>(1) );
-		threadCounts.count                 = nThreads_;
-		threadCounts.size                  = nRemainPairsPerThread;
-		threadRanges                       = makeThreadRanges(threadCounts);
-		threadRanges.back().second         = remainingPairs;
-		overallPairInd                     = jaccardThreaded_(threadRanges, overallPairInd, LDmatChunk);
-		saveValues(LDmatChunk, locusNames, output);
-	}
 	output.close();
+	size_t cumChunkIdx{0};
+	for (const auto &eachChunkSize : chunkSizes) {
+		const size_t nThreads{std::min(eachChunkSize, nThreads_)};
+		LocationWithLength currStartAndSize{};
+		currStartAndSize.start  = cumChunkIdx;
+		currStartAndSize.length = eachChunkSize;
+		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
+
+		SimilarityMatrix result{jaccardThreaded_(threadRanges)};
+		result.save(bimAndLDnames.outputFileName, nThreads);
+		cumChunkIdx += eachChunkSize;
+	}
 }
 
 void GenoTableBin::saveLogFile() const {

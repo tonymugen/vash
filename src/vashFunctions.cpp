@@ -237,7 +237,7 @@ std::vector< std::pair<size_t, size_t> > BayesicSpace::makeThreadRanges(const Co
 	return threadRanges;
 }
 
-std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(const size_t &nElements, const size_t nChunks) {
+std::vector<size_t> BayesicSpace::makeChunkSizes(const size_t &nElements, const size_t &nChunks) {
 	std::vector<size_t> chunkSizes(nChunks, nElements / nChunks);
 	// spread the left over elements among chunks
 	std::for_each(
@@ -245,9 +245,14 @@ std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(con
 		chunkSizes.begin() + static_cast<std::vector<size_t>::difference_type >(nElements % nChunks),
 		[](size_t &currSize) {return ++currSize;}
 	);
-	std::vector< std::pair<RowColIdx, RowColIdx> > chunkPairs;
+	return chunkSizes;
+}
 
-	size_t cumChunkSize{0};
+std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks) {
+	std::vector<size_t> chunkSizes{makeChunkSizes(startAndChunkSize.length, nChunks)};
+
+	std::vector< std::pair<RowColIdx, RowColIdx> > chunkPairs;
+	size_t cumChunkSize{startAndChunkSize.start};
 	std::for_each(
 		chunkSizes.cbegin(),
 		chunkSizes.cend(),

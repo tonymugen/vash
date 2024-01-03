@@ -161,6 +161,24 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 
 		constexpr size_t nVecElements{35};
 		constexpr size_t nChunks{4};
+		constexpr std::array<size_t, nChunks> correctChunkSizes{9, 9, 9, 8};
+		const std::vector<size_t> chunkSizes{BayesicSpace::makeChunkSizes(nVecElements, nChunks)};
+		REQUIRE(std::equal(
+				chunkSizes.cbegin(),
+				chunkSizes.cend(),
+				correctChunkSizes.cbegin()
+			) 
+		);
+		constexpr size_t smallNelements{3};
+		const std::vector<size_t> smallChunkSizes{BayesicSpace::makeChunkSizes(smallNelements, nChunks)};
+		constexpr std::array<size_t, nChunks> correctSmallChunkSizes{1, 1, 1, 0};
+		REQUIRE(std::equal(
+				smallChunkSizes.cbegin(),
+				smallChunkSizes.cend(),
+				correctSmallChunkSizes.cbegin()
+			)
+		);
+
 		constexpr std::array<uint32_t, nChunks> correctRowStarts{1, 4, 6, 7};
 		constexpr std::array<uint32_t, nChunks> correctRowEnds{4, 6, 7, 8};
 		constexpr std::array<uint32_t, nChunks> correctColStarts{0, 3, 3, 6};
@@ -176,10 +194,44 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			correctRowColPairs.emplace_back(tmpPair);
 			++iChunk;
 		}
-		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > rowColPairs{BayesicSpace::makeChunkRanges(nVecElements, nChunks)};
+		BayesicSpace::LocationWithLength startAndNelements{};
+		startAndNelements.start  = 0;
+		startAndNelements.length = nVecElements;
+		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > rowColPairs{BayesicSpace::makeChunkRanges(startAndNelements, nChunks)};
 		REQUIRE(std::equal(
 				rowColPairs.cbegin(),
 				rowColPairs.cend(),
+				correctRowColPairs.cbegin(),
+				[](const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair1,
+							const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair2) {
+					return  (pair1.first.iRow  == pair2.first.iRow) &&
+							(pair1.first.jCol  == pair2.first.jCol) &&
+							(pair1.second.iRow == pair2.second.iRow) &&
+							(pair1.second.jCol == pair2.second.jCol);
+				}
+			)
+		);
+		BayesicSpace::LocationWithLength smallStartAndNelements{};
+		smallStartAndNelements.start  = 0;
+		smallStartAndNelements.length = smallNelements;
+		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > smallRowColPairs{BayesicSpace::makeChunkRanges(smallStartAndNelements, nChunks)};
+		constexpr std::array<uint32_t, nChunks> smallCorrectRowStarts{1, 2, 2, 3};
+		constexpr std::array<uint32_t, nChunks> smallCorrectRowEnds{2, 2, 3, 3};
+		constexpr std::array<uint32_t, nChunks> smallCorrectColStarts{0, 0, 1, 0};
+		constexpr std::array<uint32_t, nChunks> smallCorrectColEnds{0, 1, 0, 0};
+		iChunk = 0;
+		while (iChunk < nChunks) {
+			std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> tmpPair;
+			tmpPair.first.iRow  = smallCorrectRowStarts.at(iChunk);
+			tmpPair.first.jCol  = smallCorrectColStarts.at(iChunk);
+			tmpPair.second.iRow = smallCorrectRowEnds.at(iChunk);
+			tmpPair.second.jCol = smallCorrectColEnds.at(iChunk);
+			correctRowColPairs.at(iChunk) = std::move(tmpPair);
+			++iChunk;
+		}
+		REQUIRE(std::equal(
+				smallRowColPairs.cbegin(),
+				smallRowColPairs.cend(),
 				correctRowColPairs.cbegin(),
 				[](const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair1,
 							const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair2) {
@@ -841,9 +893,11 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 					[](const BayesicSpace::IndexedPairLD &eachObj) {return eachObj.rSq >= 0.0F;}
 				)
 		);
-		BayesicSpace::SimilarityMatrix bedLDmat{bedGTB.allJaccardLDsm()};
 		const std::string ldFile("../tests/tmpLDfile.tsv");
-		bedLDmat.save(ldFile, nThreads);
+		BayesicSpace::InOutFileNames outAndBim{};
+		outAndBim.outputFileName = ldFile;
+		bedGTB.allJaccardLD(outAndBim);
+
 		const std::string alleleCountsFile("../tests/alleleCounts.txt");
 		std::fstream inAlleleCounts;
 		std::string eachLine;

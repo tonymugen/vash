@@ -152,15 +152,25 @@ namespace BayesicSpace {
 	 * \return vector of index ranges
 	 */
 	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
+	/** \brief Build chunk sizes 
+	 *
+	 * Build a vector of chunk sizes. If the number of elements is not evenly divisible by the
+	 * number of chunks, the remainder is spread among the first number of elements modulo number of chunks.
+	 *
+	 * \param[in] nElements number of elements
+	 * \param[in] nChunks number of chunks
+	 * \return vector of chunk sizes
+	 */
+	std::vector<size_t> makeChunkSizes(const size_t &nElements, const size_t &nChunks);
 	/** \brief Build chunk ranges 
 	 *
 	 * Build ranges of row/column index pairs for each chunk for a given length of a vectorized similarity matrix.
 	 *
-	 * \param[in] nElements length of the vectorized matrix
+	 * \param[in] startAndChunkSize full matrix index and chunk size
 	 * \param[in] nChunks number of chunks
 	 * \return vector of row/column pair ranges, an element per chunk
 	 */
-	std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const size_t &nElements, const size_t nChunks);
+	std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.
