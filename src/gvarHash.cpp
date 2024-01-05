@@ -394,7 +394,25 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 	SimilarityMatrix result;
 	std::vector<uint8_t> locus(binLocusSize_);
 	uint32_t iRow{blockRange.first.iRow};
-	while ( iRow < (blockRange.second.iRow - 1) ) { // complete triangle
+	for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
+		RowColIdx localRC{};
+		localRC.iRow = iRow;
+		localRC.jCol = jCol;
+		JaccardPair localJP{};
+		const size_t rowBin = iRow * binLocusSize_;
+		const size_t colBin = jCol * binLocusSize_;
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
+		}
+		localJP.nIntersect = countSetBits(locus);
+		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
+		}
+		localJP.nUnion = countSetBits(locus);
+		result.insert(localRC, localJP);
+	}
+	++iRow;
+	while ( iRow < (blockRange.second.iRow) ) { // complete triangle
 		for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
 			RowColIdx localRC{};
 			localRC.iRow = iRow;
@@ -414,7 +432,7 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 		}
 		++iRow;
 	}
-	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {
+	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) { // last, possibly incomplete, row
 		RowColIdx localRC{};
 		localRC.iRow = iRow;
 		localRC.jCol = jColRem;
@@ -470,8 +488,7 @@ constexpr uint8_t  GenoTableHash::oneBit_         = 0b00000001;                 
 constexpr uint8_t  GenoTableHash::byteSize_       = 8;                                    // Size of one byte in bits 
 constexpr uint8_t  GenoTableHash::bedGenoPerByte_ = 4;                                    // Number of genotypes in a .bed byte
 constexpr uint8_t  GenoTableHash::llWordSize_     = 8;                                    // 64 bit word size in bytes 
-constexpr size_t   GenoTableHash::maxPairs_       = 6074000999;                           // approximate maximum number that does not overflow with n*(n-1)/2
-constexpr uint64_t GenoTableHash::roundMask_      = 0xfffffffffffffff8;                   // mask for rounding down to nearest whole-byte value
+constexpr uint32_t GenoTableHash::roundMask_      = 0xfffffff8;                           // mask for rounding down to nearest whole-byte value
 constexpr uint64_t GenoTableHash::allBitsSet_     = std::numeric_limits<uint64_t>::max(); // 64-bit word with all bits set
 constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                                   // 64-bit word size
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
@@ -498,7 +515,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		throw std::string("ERROR: sketch number must be smaller than the number of individuals in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	// Round up the number of individuals to nearest divisible by kSketches_
-	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
+	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<uint32_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
 	if (indivSketchCounts.kSketches >= emptyBinToken_) {
 		logMessages_ += "ERROR: sketch size (" + std::to_string(indivSketchCounts.kSketches) + ") is too big; aborting\n";
@@ -524,11 +541,12 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	}
 	inStream.close();
 	const size_t fileSize{endPosition - nMagicBytes_};
-	nLoci_ = fileSize / nBedBytes;
-	if ( nLoci_ > std::numeric_limits<uint32_t>::max() ) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
+	const size_t tmpNloci{fileSize / nBedBytes};
+	if ( tmpNloci > std::numeric_limits<uint32_t>::max() ) {
+		logMessages_ += "ERROR: too many loci (" + std::to_string(tmpNloci) + "\n";
 		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	nLoci_        = static_cast<uint32_t>(tmpNloci);
 	logMessages_ += "Number of individuals: "         + std::to_string(indivSketchCounts.nIndividuals) + "\n";
 	logMessages_ += "Number of individuals to hash: " + std::to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: "                + std::to_string(nLoci_) + "\n";
@@ -538,7 +556,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	emptyBinIdxSeed_ = prng.ranInt();
 	locusSize_       = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
 	nFullWordBytes_  = (nIndividuals_ - 1) / byteSize_;
-	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
+	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
 	inStream.open(inputFileName, std::ios::in | std::ios::binary);
 	std::array<char, nMagicBytes_> magicBuf{0};
 	inStream.read( magicBuf.data(), magicBuf.size() );
@@ -547,7 +565,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	BedDataStats locusGroupAttributes{};
 	locusGroupAttributes.nBytesPerLocus = indivSketchCounts.nIndividuals / bedGenoPerByte_ + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
 	const size_t ramSize                = getAvailableRAM() / 2UL;                                    // measuring here, after all the major allocations; use half to leave resources for other operations
-	locusGroupAttributes.nLociToRead    = std::min(ramSize / locusGroupAttributes.nBytesPerLocus, nLoci_);       // number of .bed loci to read at a time
+	locusGroupAttributes.nLociToRead    = std::min( ramSize / locusGroupAttributes.nBytesPerLocus, static_cast<size_t>(nLoci_) );       // number of .bed loci to read at a time
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
 	const size_t remainingBytes         = remainingLoci * locusGroupAttributes.nBytesPerLocus;
 	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
@@ -587,17 +605,13 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 
 GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) 
 		: nIndividuals_{indivSketchCounts.nIndividuals}, kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)},
-				nLoci_{maCounts.size() / indivSketchCounts.nIndividuals}, nThreads_{nThreads}, emptyBinIdxSeed_{0}, logFileName_{std::move(logFileName)} {
+				nLoci_{static_cast<uint32_t>(maCounts.size() / indivSketchCounts.nIndividuals)}, nThreads_{nThreads}, emptyBinIdxSeed_{0}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
 	logStream << std::put_time(localtime_r(&startTime, &buf), "%b %e %Y %H:%M %Z");
 	logMessages_ = "Genotype hashing from a minor allele count vector started on " + logStream.str() + "\n";
 	logStream.clear();
-	if ( nLoci_ > std::numeric_limits<uint32_t>::max() ) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + "\n";
-		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
 	if (indivSketchCounts.nIndividuals <= 1) {
 		logMessages_ += "ERROR: the number of individuals (" + std::to_string(indivSketchCounts.nIndividuals) + ") is too small; aborting\n";
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -626,7 +640,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 
 	nThreads_     = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
 	nThreads_     = std::max(nThreads_, 1UL);
-	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<size_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
+	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<uint16_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
 	if (indivSketchCounts.kSketches >= emptyBinToken_) {
 		logMessages_ += "ERROR: sketch size (" + std::to_string(indivSketchCounts.kSketches) + ") is too small; aborting\n";
@@ -636,10 +650,8 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	}
 	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
 	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
-	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
+	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
 	const size_t ranVecSize = locusSize_ / llWordSize_ + static_cast<size_t>( (locusSize_ % llWordSize_) > 0);
-	// Calculate the actual sketch number based on the realized sketch size
-	sketches_.resize(kSketches_ * nLoci_, emptyBinToken_);
 	// generate the sequence of random integers; each column must be permuted the same
 	std::vector<size_t> ranInts{prng.fyIndexesUp(nIndividuals_)};
 
@@ -677,34 +689,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	}
 }
 
-std::vector<IndexedPairSimilarity> GenoTableHash::allHashLD() const {
-	if (nLoci_ > maxPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
-	logMessages_ += "Calculating all pairwise LD and passing the result to the calling function\n";
-	const size_t nPairs{nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2)};
-	LocationWithLength completeSpan{};
-	completeSpan.start  = 0;
-	completeSpan.length = nPairs;
-	std::vector<IndexedPairSimilarity> LDmat{initializeIPSvector(completeSpan, nLoci_)};
-	const size_t nLocusPairsPerThread = std::max( LDmat.size() / nThreads_, static_cast<size_t>(1) );
-	CountAndSize threadCounts{0, 0};
-	threadCounts.count = std::min( nThreads_, LDmat.size() ); // in case there are fewer pairs than threads
-	threadCounts.size  = nLocusPairsPerThread;
-	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-	threadRanges.back().second = LDmat.size();
-	hashJacThreaded_(threadRanges, LDmat);
-	return LDmat;
-}
-
 void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
-	if (nLoci_ > maxPairs_) {
-		logMessages_ += "ERROR: too many loci (" + std::to_string(nLoci_) + ") to do all pairwise LD; aborting\n";
-		throw std::string("ERROR: Too many loci (") + std::to_string(nLoci_) + std::string(") to do all pairwise LD. Maximum supported is ") +
-			 std::to_string(maxPairs_) + std::string(" in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
-	}
 	std::vector<std::string> locusNames{};
 	if ( !bimAndLDnames.inputFileName.empty() ) {
 		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
@@ -714,65 +699,36 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 			logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
 			locusNames    = getLocusNames(bimAndLDnames.inputFileName);
 		}
+		assert( (locusNames.size() == nLoci_) // NOLINT
+				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 	}
 
-	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(IndexedPairSimilarity) );      // use half to leave resources for other operations
-	const size_t nPairs   = nLoci_ * (nLoci_ - 1) / 2;
-
-	size_t nChunks = std::max( nPairs / maxInRAM, static_cast<size_t>(1) );
-	nChunks        = std::max(nChunks, suggestNchunks);
-
-	const size_t chunkSize{nPairs / nChunks};
-	const size_t remainingPairs{nPairs % nChunks};
-	const size_t realizedNthreads     = std::min(nThreads_, chunkSize);
-	const size_t nLocusPairsPerThread = std::max( chunkSize / realizedNthreads, static_cast<size_t>(1) );
+	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const size_t nPairs   = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
+	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
+	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
 
 	logMessages_ += "Calculating all pairwise LD\n";
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
 	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
-	logMessages_ += "using " + std::to_string(realizedNthreads) + " thread(s)\n";
-
-	size_t overallPairInd{0};
-	CountAndSize threadCounts{0, 0};
-	threadCounts.count = realizedNthreads;
-	threadCounts.size  = nLocusPairsPerThread;
-	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-	threadRanges.back().second = chunkSize;
 
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-	output << "locus1\tlocus2\tjaccLD\n";
-	for (size_t iChunk = 0; iChunk < nChunks; ++iChunk) {
-		const LocationWithLength chunkSpan{overallPairInd, chunkSize};
-		std::vector<IndexedPairSimilarity> LDmatChunk{initializeIPSvector(chunkSpan, nLoci_)};
-		hashJacThreaded_(threadRanges, LDmatChunk);
-		overallPairInd += chunkSize;
-
-		if ( locusNames.empty() ) {
-			saveValues(LDmatChunk, output);
-		} else {
-			saveValues(LDmatChunk, locusNames, output);
-		}
-	}
-	if (remainingPairs > 0) {
-		const LocationWithLength chunkSpan{overallPairInd, remainingPairs};
-		std::vector<IndexedPairSimilarity> LDmatChunk{initializeIPSvector(chunkSpan, nLoci_)};
-		const size_t remainingNthreads     = std::min(nThreads_, remainingPairs);
-		const size_t nRemainPairsPerThread = std::max( remainingPairs / remainingNthreads, static_cast<size_t>(1) );
-		threadCounts.count                 = remainingNthreads;
-		threadCounts.size                  = nRemainPairsPerThread;
-		threadRanges                       = makeThreadRanges(threadCounts);
-		threadRanges.back().second         = remainingPairs;
-
-		hashJacThreaded_(threadRanges, LDmatChunk);
-
-		if ( locusNames.empty() ) {
-			saveValues(LDmatChunk, output);
-		} else {
-			saveValues(LDmatChunk, locusNames, output);
-		}
-	}
+	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
+	size_t cumChunkIdx{0};
+	for (const auto &eachChunkSize : chunkSizes) {
+		const size_t nThreads{std::min(eachChunkSize, nThreads_)};
+		LocationWithLength currStartAndSize{};
+		currStartAndSize.start  = cumChunkIdx;
+		currStartAndSize.length = eachChunkSize;
+
+		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
+		SimilarityMatrix result{hashJacThreaded_(threadRanges)};
+		result.save(bimAndLDnames.outputFileName, nThreads);
+
+		cumChunkIdx += eachChunkSize;
+	}
 }
 
 std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) const {
@@ -792,7 +748,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	const auto sketchSeed = static_cast<uint32_t>( prng.ranInt() );
 	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                           // the hash table
 
-	for (uint32_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
+	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
 		size_t iSketch = 0;
 		for (uint16_t iBand = 0; iBand < static_cast<uint16_t>(nBands); ++iBand) {
 			std::vector<uint16_t> bandVec{iBand};                                                             // add the band index to the hash, so that only corresponding bands are compared
@@ -807,7 +763,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			bandVecWindow.start  = 0;
 			bandVecWindow.length = bandVec.size();
 			const uint32_t hash  = murMurHash(bandVec, bandVecWindow, sketchSeed);
-			ldGroups[hash].push_back(iLocus);
+			ldGroups[hash].push_back( static_cast<uint32_t>(iLocus) );
 			iSketch += nRowsPerBand;
 		}
 	}
@@ -853,36 +809,36 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	return indexedGroups;
 }
 
-void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const {
-	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
-
-	logMessages_ += "Saving group IDs only\n";
-	std::fstream out;
-	out.open(outFileName, std::ios::out | std::ios::trunc);
-	out << "groupID\tlocusIdx\n";
-	uint32_t groupID{1};
-	for (const auto &eachGroup : ldGroups) {
-		for (const auto &locusIdx : eachGroup.locusIndexes) {
-			out << "G" << groupID << "\t" << locusIdx + 1 << "\n";
-		}
-		++groupID;
-	}
-	out.close();
-}
-
 void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const {
 	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
 	logMessages_ += "Saving group IDs only\n";
-
-	logMessages_ += "Getting locus names from the " + bimAndGroupNames.inputFileName + " .bim file\n";
-	std::vector<std::string> locusNames{getLocusNames(bimAndGroupNames.inputFileName)};
-	assert( (locusNames.size() == nLoci_) // NOLINT
-			&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+	std::vector<std::string> locusNames{};
+	if ( !bimAndGroupNames.inputFileName.empty() ) {
+		std::fstream bimExistenceTest(bimAndGroupNames.inputFileName, std::ios::in);
+		const bool bimExists = bimExistenceTest.good();
+		bimExistenceTest.close();
+		if (bimExists) {
+			logMessages_ += "Getting locus names from the " + bimAndGroupNames.inputFileName + " .bim file\n";
+			locusNames    = getLocusNames(bimAndGroupNames.inputFileName);
+		}
+		assert( (locusNames.size() == nLoci_) // NOLINT
+				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+	}
 
 	std::fstream out;
 	out.open(bimAndGroupNames.outputFileName, std::ios::out | std::ios::trunc);
 	out << "groupID\tlocusIdx\n";
 	uint32_t groupID{1};
+	if ( locusNames.empty() ) {
+		for (const auto &eachGroup : ldGroups) {
+			for (const auto &locusIdx : eachGroup.locusIndexes) {
+				out << "G" << groupID << "\t" << locusIdx + 1 << "\n";
+			}
+			++groupID;
+		}
+		out.close();
+		return;
+	}
 	for (const auto &eachGroup : ldGroups) {
 		for (const auto &locusIdx : eachGroup.locusIndexes) {
 			out << "G" << groupID << "\t" << locusNames[locusIdx] << "\n";
@@ -956,7 +912,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 	// will work on chunks and save as we go
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
-	output << "locus1\tlocus2\tjaccLD\n";
+	output << "locus1\tlocus2\tjaccard\n";
 	auto groupIt   = ldGroups.cbegin();
 	uint16_t iChunk{1};
 	while ( groupIt != ldGroups.cend() ) {
@@ -1015,6 +971,41 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const InOutFileNames 
 		++iChunk;
 	}
 	output.close();
+}
+void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
+	
+	const size_t totalPairNumber{ldGroups.back().cumulativeNpairs};                                                                                    // total number of pairs
+	logMessages_ += "Estimating LD in groups\n";
+	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
+
+	std::vector<std::string> locusNames{};
+	if ( !bimAndLDnames.inputFileName.empty() ) {
+		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
+		const bool bimExists = bimExistenceTest.good();
+		bimExistenceTest.close();
+		if (bimExists) {
+			logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
+			locusNames    = getLocusNames(bimAndLDnames.inputFileName);
+			assert( (locusNames.size() == nLoci_) // NOLINT
+					&& "ERROR: number of loci in the .bim file not the same as nLoci_" );
+		}
+	}
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const size_t nChunks  = std::max(totalPairNumber / maxInRAM, suggestNchunks);
+	std::vector<size_t> chunkSizes{makeChunkSizes(totalPairNumber, nChunks)};
+
+	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
+	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
+
+	std::fstream output;
+	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output << "locus1\tlocus2\tjaccard\n";
+
+	size_t cumChunkIdx{0};
+	for (const auto &eachChunkSize : chunkSizes) {
+		cumChunkIdx += eachChunkSize;
+	}
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1287,13 +1278,64 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationW
 void GenoTableHash::hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const {
 	const auto kSkDst = static_cast<std::vector<uint16_t>::difference_type>(kSketches_);
 	for (auto ipsIt = blockStart; ipsIt != blockEnd; ++ipsIt) {
-		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(ipsIt->element1ind * kSketches_);
-		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(ipsIt->element2ind * kSketches_);
+		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(ipsIt->element1ind) * kSketches_;
+		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(ipsIt->element2ind) * kSketches_;
 		// count equal elements using the inner_product idiom
 		int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
 		// should be safe: each thread accesses different vector elements
 		ipsIt->similarityValue = static_cast<float>(simVal) / fSketches_;
 	}
+}
+
+SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const {
+	SimilarityMatrix result;
+	const auto kSkDst{static_cast<std::vector<uint16_t>::difference_type>(kSketches_)};
+	uint32_t iRow{blockRange.first.iRow};
+	for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
+		RowColIdx localRC{};
+		localRC.iRow = iRow;
+		localRC.jCol = jCol;
+		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
+		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jCol) * kSketches_;
+		// count equal elements using the inner_product idiom
+		const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
+		JaccardPair localJP{};
+		localJP.nIntersect = static_cast<uint32_t>(simVal);
+		localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+		result.insert(localRC, localJP);
+	}
+	++iRow;
+	while ( iRow < (blockRange.second.iRow) ) { // complete triangle
+		for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+			RowColIdx localRC{};
+			localRC.iRow = iRow;
+			localRC.jCol = jCol;
+			const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
+			const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jCol) * kSketches_;
+			// count equal elements using the inner_product idiom
+			const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
+			JaccardPair localJP{};
+			localJP.nIntersect = static_cast<uint32_t>(simVal);
+			localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+			result.insert(localRC, localJP);
+		}
+		++iRow;
+	}
+	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {  // last, possibly incomplete, row
+		RowColIdx localRC{};
+		localRC.iRow = iRow;
+		localRC.jCol = jColRem;
+		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
+		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jColRem) * kSketches_;
+		// count equal elements using the inner_product idiom
+		const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
+		JaccardPair localJP{};
+		localJP.nIntersect = static_cast<uint32_t>(simVal);
+		localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+		result.insert(localRC, localJP);
+	}
+
+	return result;
 }
 
 void GenoTableHash::hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, std::vector<IndexedPairSimilarity> &hashJacVec) const {
@@ -1311,4 +1353,33 @@ void GenoTableHash::hashJacThreaded_(const std::vector< std::pair<size_t, size_t
 	for (const auto &eachTask : tasks) {
 		eachTask.wait();
 	}
+}
+
+SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const {
+	std::vector<SimilarityMatrix> threadResults( indexPairs.size() );
+	std::vector< std::future<void> > tasks;
+	tasks.reserve( indexPairs.size() );
+	size_t iThread{0};
+	for (const auto &eachRange : indexPairs) {
+		tasks.emplace_back(
+			std::async([this, eachRange, iThread, &threadResults]{
+				threadResults.at(iThread) = hashJacBlock_(eachRange);
+			})
+		);
+		++iThread;
+	}
+
+	for (const auto &eachThread : tasks) {
+		eachThread.wait();
+	}
+
+	std::for_each(
+		threadResults.begin() + 1,
+		threadResults.end(),
+		[&threadResults](SimilarityMatrix &eachMatrix) {
+			threadResults.at(0).merge( std::move(eachMatrix) );
+		}
+	);
+
+	return threadResults.at(0);
 }

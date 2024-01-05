@@ -171,6 +171,8 @@ namespace BayesicSpace {
 	 * \return vector of row/column pair ranges, an element per chunk
 	 */
 	std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);
+
+	std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > makeGroupRanges(const std::vector<HashGroup> &groupVector, const std::vector<size_t> &chunkSizes);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.
@@ -237,23 +239,6 @@ namespace BayesicSpace {
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream);
-	/** \brief Save indexed LD values 
-	 *
-	 * Saves LD estimates (Jaccard and \f$r^2\f$) with locus pair indexes, tab delimited.
-	 *
-	 * \param[in] inVec vector of indexed LD values to save
-	 * \param[in, out] outputStream `fstream` to save to
-	 */
-	void saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream);
-	/** \brief Save named LD values 
-	 *
-	 * Saves LD estimates (Jaccard and \f$r^2\f$) with locus pair names, tab delimited.
-	 *
-	 * \param[in] inVec vector of indexed LD values to save
-	 * \param[in] locusNames vector of locus names
-	 * \param[in, out] outputStream `fstream` to save to
-	 */
-	void saveValues(const std::vector<IndexedPairLD> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream);
 	/** \brief Extract locus names 
 	 *
 	 * Extract locus names from a _.bim_ file.

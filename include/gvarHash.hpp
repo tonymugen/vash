@@ -49,8 +49,8 @@ namespace BayesicSpace {
 	struct BedDataStats;
 	struct InOutFileNames;
 	struct HashGroup;
+	struct HashGroupItPairCount;
 	struct IndexedPairSimilarity; 
-	struct IndexedPairLD; 
 	class GenoTableBin;
 	class GenoTableHash;
 
@@ -77,8 +77,8 @@ namespace BayesicSpace {
 	 * Groups the number of individuals with sketch numbers for hashing.
 	 */
 	struct IndividualAndSketchCounts {
-		size_t nIndividuals;
-		size_t kSketches;
+		uint32_t nIndividuals;
+		uint16_t kSketches;
 	};
 
 	/** \brief Attributes of _.bed_ format loci
@@ -112,23 +112,21 @@ namespace BayesicSpace {
 		std::vector<uint32_t> locusIndexes;
 	};
 
+	/** \brief Hash group vector iterator and element number
+	 *
+	 * Used to delimit ranges of locus pairs for chunked processing.
+	 */
+	struct HashGroupItPairCount {
+		size_t pairCount{0};
+		std::vector<HashGroup>::const_iterator hgIterator;
+	};
+
 	/** \brief Jaccard value with indexes
 	 *
 	 * Groups a Jaccard similarity value of two elements (e.g., loci or individuals) with their indexes.
 	 */
 	struct IndexedPairSimilarity {
 		float similarityValue;
-		uint32_t element1ind;
-		uint32_t element2ind;
-	};
-
-	/** \brief LD value with indexes
-	 *
-	 * Groups a Jaccard similarity value and the \f$r^2\f$ linkage disequilibrium statistic of two loci with their indexes.
-	 */
-	struct IndexedPairLD {
-		float jaccard;
-		float rSq;
 		uint32_t element1ind;
 		uint32_t element2ind;
 	};
@@ -412,16 +410,6 @@ namespace BayesicSpace {
 		/** \brief Destructor */
 		~GenoTableHash() = default;
 
-		/** \brief All by all LD from hashes in memory 
-		 *
-		 * Calculates linkage disequilibrium among all loci using a modified OPH.
-		 * All values belong to the same group. Indexes are 0-based.
-		 * Result is a vectorized lower triangle of the symmetric \f$N \times N\f$ similarity matrix, where \f$N\f$ is the number of loci.
-		 * The lower triangle is vectorized by column (i.e. all correlations of the first locus, then all remaining correlations of the second, etc.).
-		 *
-		 * \return a vector of indexed Jaccard similarity values
-		 */
-		std::vector<IndexedPairSimilarity> allHashLD() const;
 		/** \brief All by all LD from hashes
 		 *
 		 * Calculates linkage disequilibrium among all loci using a modified OPH.
@@ -449,17 +437,10 @@ namespace BayesicSpace {
 		 * \return locus index hash table
 		 */
 		std::vector<HashGroup> makeLDgroups(const size_t &nRowsPerBand) const;
-		/** \brief Assign groups by LD and save to a file
-		 *
-		 * Assign groups as above and save locus indexes with their group IDs to a file.
-		 *
-		 * \param[in] nRowsPerBand number of rows per sketch matrix band
-		 * \param[in] outFileName output file name
-		 */
-		void makeLDgroups(const size_t &nRowsPerBand, const std::string &outFileName) const;
 		/** \brief Assign groups by LD and save to a file with locus names
 		 *
 		 * Assign groups as above and save locus names with their group IDs to a file.
+		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \param[in] bimAndGroupNames _.bim_ and output group file name
@@ -488,6 +469,7 @@ namespace BayesicSpace {
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
+		void ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.
@@ -500,17 +482,17 @@ namespace BayesicSpace {
 		 */
 		std::vector<uint16_t> sketches_;
 		/** \brief Number of individuals, possibly padded */
-		size_t nIndividuals_;
+		uint32_t nIndividuals_;
 		/** \brief Number of sketches */
-		size_t kSketches_;
+		uint16_t kSketches_;
 		/** \brief Number of sketches, float representation */
 		float fSketches_;
 		/** \brief Sketch size */
-		size_t sketchSize_;
+		uint32_t sketchSize_;
 		/** \brief Number of loci */
-		size_t nLoci_;
+		uint32_t nLoci_;
 		/** \brief Locus size in bytes */
-		size_t locusSize_;
+		uint32_t locusSize_;
 		/** \brief Number of bytes in divisible by `llWordSize_` */
 		size_t nFullWordBytes_;
 		/** \brief Maximal number of threads to use */
@@ -525,8 +507,6 @@ namespace BayesicSpace {
 		mutable std::string logMessages_;
 		/** \brief Log file name */
 		std::string logFileName_;
-		/** \brief Maximum number that does not overflow a triangle of an all by all comparison matrix */
-		static const size_t maxPairs_;
 		/** \brief Leading bytes for .bed files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
@@ -538,7 +518,7 @@ namespace BayesicSpace {
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
 		/** \brief Mask to round to the nearest whole-byte count */
-		static const uint64_t roundMask_;
+		static const uint32_t roundMask_;
 		/** 64-bit word with all bits set */
 		static const uint64_t allBitsSet_;
 		/** \brief 64-bit word size in bits */
@@ -622,6 +602,7 @@ namespace BayesicSpace {
 		 *
 		 */
 		void hashJacBlock_(const std::vector<IndexedPairSimilarity>::iterator blockStart, const std::vector<IndexedPairSimilarity>::iterator blockEnd) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
 		/** \brief Hash-based indexed similarity using multiple threads
 		 *
 		 * Pairwise hash-estimated Jaccard similarity among loci in a block continuous in a vectorized lower triangle of similarity values using multiple threads.
@@ -632,5 +613,6 @@ namespace BayesicSpace {
 		 * \param[in,out] hashJacVec vector of similarity values with associated locus indexes and group IDs
 		 */
 		void hashJacThreaded_(const std::vector< std::pair<size_t, size_t> > &threadRanges, std::vector<IndexedPairSimilarity> &hashJacVec) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
 	};
 }

@@ -268,6 +268,29 @@ std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(con
 	return chunkPairs;
 }
 
+std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > BayesicSpace::makeGroupRanges(const std::vector<HashGroup> &groupVector, const std::vector<size_t> &chunkSizes) {
+	std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > result;
+	auto gvIterator = groupVector.cbegin();
+	size_t cumChunkIdx{0};
+	size_t lastGroupPairNumber{0};
+	for (const auto &eachChunkSize : chunkSizes) {
+		cumChunkIdx += eachChunkSize;
+		std::pair<HashGroupItPairCount, HashGroupItPairCount> tmpPair{};
+		tmpPair.first.hgIterator = gvIterator;
+		tmpPair.first.pairCount  = lastGroupPairNumber;
+		gvIterator = std::lower_bound(
+			gvIterator,
+			groupVector.cend(),
+			cumChunkIdx,
+			[](const HashGroup &currGrp, uint64_t &cumCutoff) {return currGrp.cumulativeNpairs <= cumCutoff;}
+		);
+
+		// TODO: figure out the within-group pair number
+	}
+
+	return result;
+}
+
 void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 														const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
 	RanDraw prng;
@@ -400,18 +423,6 @@ void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, s
 void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec) {
 		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
-	}
-}
-
-void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec) {
-		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
-	}
-}
-
-void BayesicSpace::saveValues(const std::vector<IndexedPairLD> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec) {
-		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.jaccard << "\t" << eachValue.rSq << "\n";
 	}
 }
 

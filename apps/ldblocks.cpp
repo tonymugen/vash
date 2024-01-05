@@ -93,8 +93,8 @@ namespace BayesicSpace {
 	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
 		IndividualAndSketchCounts indivSketches{};
 
-		indivSketches.nIndividuals = static_cast<size_t>( intVariables.at("n-individuals") );
-		indivSketches.kSketches    = static_cast<size_t>( intVariables.at("hash-size") );
+		indivSketches.nIndividuals = static_cast<uint32_t>( intVariables.at("n-individuals") );
+		indivSketches.kSketches    = static_cast<uint16_t>( intVariables.at("hash-size") );
 		BayesicSpace::GenoTableHash groupLD;
 		try {
 			if (intVariables.at("threads") < 1) {
@@ -131,7 +131,10 @@ namespace BayesicSpace {
 					}
 				} else {
 					if (stringVariables.at("only-groups") == "set") {
-						groupLD.makeLDgroups( rowsPB, stringVariables.at("out-file") );
+						InOutFileNames bimAndLD{};
+						bimAndLD.inputFileName  = "";
+						bimAndLD.outputFileName = stringVariables.at("out-file");
+						groupLD.makeLDgroups(rowsPB, bimAndLD);
 					} else {
 						BayesicSpace::InOutFileNames outFile{};
 						outFile.outputFileName = stringVariables.at("out-file");
