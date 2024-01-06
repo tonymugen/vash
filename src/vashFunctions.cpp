@@ -268,25 +268,30 @@ std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(con
 	return chunkPairs;
 }
 
-std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > BayesicSpace::makeGroupRanges(const std::vector<HashGroup> &groupVector, const std::vector<size_t> &chunkSizes) {
-	std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > result;
-	auto gvIterator = groupVector.cbegin();
-	size_t cumChunkIdx{0};
-	size_t lastGroupPairNumber{0};
-	for (const auto &eachChunkSize : chunkSizes) {
-		cumChunkIdx += eachChunkSize;
-		std::pair<HashGroupItPairCount, HashGroupItPairCount> tmpPair{};
-		tmpPair.first.hgIterator = gvIterator;
-		tmpPair.first.pairCount  = lastGroupPairNumber;
-		gvIterator = std::lower_bound(
-			gvIterator,
-			groupVector.cend(),
-			cumChunkIdx,
-			[](const HashGroup &currGrp, uint64_t &cumCutoff) {return currGrp.cumulativeNpairs <= cumCutoff;}
-		);
-
-		// TODO: figure out the within-group pair number
+std::pair<HashGroupItPairCount, HashGroupItPairCount>
+	BayesicSpace::makeGroupRanges(const std::vector<HashGroup> &groupVector, const HashGroupItPairCount &startHGPC, const size_t &chunkSize) {
+	std::pair<HashGroupItPairCount, HashGroupItPairCount> result;
+	result.first = startHGPC;
+	const size_t startPairCount{
+		startHGPC.hgIterator->cumulativeNpairs - startHGPC.hgIterator->locusIndexes.size() * (startHGPC.hgIterator->locusIndexes.size() - 1) / 2
+			+ startHGPC.pairCount
+	};
+	const size_t chunkCutOff{startPairCount + chunkSize};
+	const auto gvIterator = std::lower_bound(
+		startHGPC.hgIterator,
+		groupVector.cend(),
+		chunkCutOff,
+		[](const HashGroup &currGrp, const uint64_t &cutoff) {return currGrp.cumulativeNpairs < cutoff;}
+	);
+	result.second.hgIterator = gvIterator;
+	if ( gvIterator == groupVector.end() ) {
+		result.second.pairCount  = 0;
+		return result;
 	}
+	const size_t lastGroupPairNumber{
+		gvIterator->locusIndexes.size() * (gvIterator->locusIndexes.size() - 1) / 2 - (gvIterator->cumulativeNpairs - chunkCutOff)
+	};
+	result.second.pairCount = lastGroupPairNumber;
 
 	return result;
 }

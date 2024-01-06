@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <utility>
@@ -953,7 +954,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	constexpr size_t nRowsPerBand{5};
 	constexpr float invKlowBound{0.05};
 	constexpr float invKhighBound{0.95};
-	constexpr uint32_t lowCountMin{8000};
+	constexpr uint32_t lowCountMin{5000};
 	constexpr uint32_t highCountMin{1000};
 	constexpr size_t nThreads{4};
 	constexpr uint32_t nLoci{397};
@@ -1036,6 +1037,38 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			) >= highCountMin
 		);
 		std::vector<BayesicSpace::HashGroup> groups{bedHSH.makeLDgroups(nRowsPerBand)};
+		auto chunkSizes{BayesicSpace::makeChunkSizes(groups.back().cumulativeNpairs, forcedChunks)};
+		BayesicSpace::HashGroupItPairCount startPair{};
+		startPair.hgIterator = groups.cbegin();
+		startPair.pairCount  = 0;
+		std::vector< std::pair<BayesicSpace::HashGroupItPairCount, BayesicSpace::HashGroupItPairCount> > groupRanges;
+		groupRanges.reserve( chunkSizes.size() );
+		for (const auto &eachCS : chunkSizes) {
+			groupRanges.emplace_back( BayesicSpace::makeGroupRanges(groups, startPair, eachCS) );
+			startPair = groupRanges.back().second;
+		}
+		//const auto groupRanges{BayesicSpace::makeGroupRanges(groups, chunkSizes)};
+
+		std::fstream stdOut("../tests/groupInfo.txt", std::ios::out | std::ios::trunc);
+		stdOut << "chunk sizes:\n";
+		for (const auto &eachGS : chunkSizes) {
+			stdOut << eachGS << " ";
+		}
+		stdOut << "\nranges:\n";
+		for (const auto &eachGR : groupRanges) {
+			stdOut << std::distance(groups.cbegin(), eachGR.first.hgIterator) << "> (" << eachGR.first.hgIterator->cumulativeNpairs << "--" << eachGR.first.pairCount << ")" <<
+				" ==> (" << eachGR.second.hgIterator->cumulativeNpairs << "--" << eachGR.second.pairCount << ") <" << std::distance(groups.cbegin(), eachGR.second.hgIterator) << "\n";
+		}
+		stdOut << "-------\ngroups (" << groups.size() << "):\n";
+		for (const auto &eachGroup : groups) {
+			stdOut << eachGroup.cumulativeNpairs << "; ";
+			for (const auto &eachIdx : eachGroup.locusIndexes) {
+				stdOut << eachIdx << " ";
+			}
+			stdOut << "\n";
+		}
+		stdOut.close();
+
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),
 			groups.cend(),

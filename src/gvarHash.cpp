@@ -993,7 +993,6 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	}
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(uint32_t) );      // use half to leave resources for other operations
 	const size_t nChunks  = std::max(totalPairNumber / maxInRAM, suggestNchunks);
-	std::vector<size_t> chunkSizes{makeChunkSizes(totalPairNumber, nChunks)};
 
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
 	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
@@ -1001,11 +1000,9 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
+	output.close();
 
-	size_t cumChunkIdx{0};
-	for (const auto &eachChunkSize : chunkSizes) {
-		cumChunkIdx += eachChunkSize;
-	}
+	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
 }
 
 void GenoTableHash::saveLogFile() const {

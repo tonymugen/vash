@@ -52,7 +52,7 @@ namespace BayesicSpace {
 	 * \param[in] inVal input value
 	 * \return number of bits set
 	 */
-	uint16_t countSetBits(uint16_t inVal);
+	[[gnu::warn_unused_result]] uint16_t countSetBits(uint16_t inVal);
 	/** \brief Count set bits in a vector
 	 *
 	 * Counting the set bits in a vector of bytes using Karnigan's method.
@@ -60,7 +60,7 @@ namespace BayesicSpace {
 	 * \param[in] inVec input vector
 	 * \return number of bits set
 	 */
-	uint64_t countSetBits(const std::vector<uint8_t> &inVec);
+	[[gnu::warn_unused_result]] uint64_t countSetBits(const std::vector<uint8_t> &inVec);
 	/** \brief Count set bits in a range within a vector
 	 *
 	 * Counting the set bits in a range within a vector of bytes using Karnigan's method.
@@ -69,14 +69,14 @@ namespace BayesicSpace {
 	 * \param[in] window vector window in bytes
 	 * \return number of bits set
 	 */
-	uint64_t countSetBits(const std::vector<uint8_t> &inVec, const LocationWithLength &window);
+	[[gnu::warn_unused_result]] uint64_t countSetBits(const std::vector<uint8_t> &inVec, const LocationWithLength &window);
 	/** \brief Get available RAM
 	 *
 	 * Estimates available RAM. If `procfs` is mounted, uses information from there. Otherwise, sets available RAM to 2 GiB.
 	 *
 	 * \return estimated available RAM in bytes
 	 */
-	size_t getAvailableRAM();
+	[[gnu::warn_unused_result]] size_t getAvailableRAM();
 	/** \brief MurMurHash mixer module of an index value
 	 *
 	 * Generates a 32-bit an unfinalized hash of an index value using the MurMurHash3 algorithm.
@@ -86,7 +86,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
+	[[gnu::warn_unused_result]] uint32_t murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash finalizer
 	 *
 	 * MurMurHash3 finalizer for a hash value.
@@ -95,7 +95,7 @@ namespace BayesicSpace {
 	 * 
 	 * \return finalized hash value
 	 */
-	uint32_t murMurHashFinalizer(const uint32_t &inputHash);
+	[[gnu::warn_unused_result]] uint32_t murMurHashFinalizer(const uint32_t &inputHash);
 	/** \brief MurMurHash of an index value
 	 *
 	 * Generates a 32-bit hash of an index value using the MurMurHash3 algorithm.
@@ -105,7 +105,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
+	[[gnu::warn_unused_result]] uint32_t murMurHash(const std::array<uint32_t, SIZE_OF_SIZET> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
 	 * Generates a 32-bit hash of an index value vector using the MurMurHash3 algorithm.
@@ -115,7 +115,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHash(const std::vector<size_t> &key, const uint32_t &seed);
+	[[gnu::warn_unused_result]] uint32_t murMurHash(const std::vector<size_t> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of 32-bit unsigned integers
 	 *
 	 * Generates a 32-bit hash of a vector of unsigned 32-bit integers using the MurMurHash3 algorithm.
@@ -125,7 +125,7 @@ namespace BayesicSpace {
 	 *
 	 * \return the hash value
 	 */
-	uint32_t murMurHash(const std::vector<uint32_t> &key, const uint32_t &seed);
+	[[gnu::warn_unused_result]] uint32_t murMurHash(const std::vector<uint32_t> &key, const uint32_t &seed);
 	/** \brief MurMurHash of a vector of indexes
 	 *
 	 * Generates a 32-bit hash of a vector of `uint16_t` values using the MurMurHash3 algorithm.
@@ -136,7 +136,7 @@ namespace BayesicSpace {
 	 *
 	 * \return hash value
 	 */
-	uint32_t murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed);
+	[[gnu::warn_unused_result]] uint32_t murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed);
 	/** \brief Test .bed magic bytes
 	 *
 	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
@@ -151,7 +151,7 @@ namespace BayesicSpace {
 	 * \param[in] threadPoolSizes number of threads and number of loci per thread
 	 * \return vector of index ranges
 	 */
-	std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
+	[[gnu::warn_unused_result]] std::vector< std::pair<size_t, size_t> > makeThreadRanges(const CountAndSize &threadPoolSizes);
 	/** \brief Build chunk sizes 
 	 *
 	 * Build a vector of chunk sizes. If the number of elements is not evenly divisible by the
@@ -161,7 +161,7 @@ namespace BayesicSpace {
 	 * \param[in] nChunks number of chunks
 	 * \return vector of chunk sizes
 	 */
-	std::vector<size_t> makeChunkSizes(const size_t &nElements, const size_t &nChunks);
+	[[gnu::warn_unused_result]] std::vector<size_t> makeChunkSizes(const size_t &nElements, const size_t &nChunks);
 	/** \brief Build chunk ranges 
 	 *
 	 * Build ranges of row/column index pairs for each chunk for a given length of a vectorized similarity matrix.
@@ -170,9 +170,10 @@ namespace BayesicSpace {
 	 * \param[in] nChunks number of chunks
 	 * \return vector of row/column pair ranges, an element per chunk
 	 */
-	std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);
+	[[gnu::warn_unused_result]] std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);
 
-	std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > makeGroupRanges(const std::vector<HashGroup> &groupVector, const std::vector<size_t> &chunkSizes);
+	[[gnu::warn_unused_result]] std::pair<HashGroupItPairCount, HashGroupItPairCount>
+		makeGroupRanges(const std::vector<HashGroup> &groupVector, const HashGroupItPairCount &startHGPC, const size_t &chunkSize);
 	/** \brief Convert a locus from _.bed_ to binary format
 	 *
 	 * Convert the _.bed_ two-bit format to one-bit binary.
@@ -202,7 +203,7 @@ namespace BayesicSpace {
 	 * \param[in] totalNelements total number of elements
 	 * \return vector of `IndexedPairSimilarity` objects
 	 */
-	std::vector<IndexedPairSimilarity> initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements);
+	[[gnu::warn_unused_result]] std::vector<IndexedPairSimilarity> initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements);
 	/** \brief Create pair vector from groups 
 	 *
 	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.
@@ -211,7 +212,7 @@ namespace BayesicSpace {
 	 * \param[in] grpBlockEnd iterator of (one past the) end group in the block
 	 * \return vector of pair indexes with group IDs
 	 */
-	std::vector<IndexedPairSimilarity> vectorizeGroups(
+	[[gnu::warn_unused_result]] std::vector<IndexedPairSimilarity> vectorizeGroups(
 		const std::vector<HashGroup>::const_iterator grpBlockStart,
 		const std::vector<HashGroup>::const_iterator grpBlockEnd);
 	/** \brief Save values 
@@ -246,7 +247,7 @@ namespace BayesicSpace {
 	 * \param[in] bimFileName _.bim_ file name
 	 * \return vector of locus names
 	 */
-	std::vector<std::string> getLocusNames(const std::string &bimFileName);
+	[[gnu::warn_unused_result]] std::vector<std::string> getLocusNames(const std::string &bimFileName);
 	/** \brief Command line parser
 	 *
 	 * Maps flags to values. Flags assumed to be of the form `--flag-name value`.
