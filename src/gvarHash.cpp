@@ -392,64 +392,34 @@ void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<
 
 SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const {
 	SimilarityMatrix result;
-	std::vector<uint8_t> locus(binLocusSize_);
 	uint32_t iRow{blockRange.first.iRow};
-	for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
-		RowColIdx localRC{};
-		localRC.iRow = iRow;
-		localRC.jCol = jCol;
-		JaccardPair localJP{};
-		const size_t rowBin = iRow * binLocusSize_;
-		const size_t colBin = jCol * binLocusSize_;
-		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
-		}
-		localJP.nIntersect = countSetBits(locus);
-		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
-		}
-		localJP.nUnion = countSetBits(locus);
-		result.insert(localRC, localJP);
-	}
-	++iRow;
-	while ( iRow < (blockRange.second.iRow) ) { // complete triangle
-		for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+	if (blockRange.first.iRow != blockRange.second.iRow) {
+		for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
 			RowColIdx localRC{};
 			localRC.iRow = iRow;
 			localRC.jCol = jCol;
-			JaccardPair localJP{};
-			const size_t rowBin = iRow * binLocusSize_;
-			const size_t colBin = jCol * binLocusSize_;
-			for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-				locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
-			}
-			localJP.nIntersect = countSetBits(locus);
-			for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-				locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
-			}
-			localJP.nUnion = countSetBits(locus);
+			JaccardPair localJP{makeJaccardPair_(localRC)};
 			result.insert(localRC, localJP);
 		}
 		++iRow;
+		while ( iRow < (blockRange.second.iRow) ) { // complete triangle
+			for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+				RowColIdx localRC{};
+				localRC.iRow = iRow;
+				localRC.jCol = jCol;
+				JaccardPair localJP{makeJaccardPair_(localRC)};
+				result.insert(localRC, localJP);
+			}
+			++iRow;
+		}
 	}
 	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) { // last, possibly incomplete, row
 		RowColIdx localRC{};
 		localRC.iRow = iRow;
 		localRC.jCol = jColRem;
-		JaccardPair localJP{};
-		const size_t rowBin = iRow * binLocusSize_;
-		const size_t colBin = jColRem * binLocusSize_;
-		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
-		}
-		localJP.nIntersect = countSetBits(locus);
-		for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
-			locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
-		}
-		localJP.nUnion = countSetBits(locus);
+		JaccardPair localJP{makeJaccardPair_(localRC)};
 		result.insert(localRC, localJP);
 	}
-
 	return result;
 }
 
@@ -480,6 +450,22 @@ SimilarityMatrix GenoTableBin::jaccardThreaded_(const std::vector< std::pair<Row
 	);
 
 	return threadResults.at(0);
+}
+
+JaccardPair GenoTableBin::makeJaccardPair_(const RowColIdx &rowColumn) const {
+	std::vector<uint8_t> locus(binLocusSize_);
+	JaccardPair localJP{};
+	const size_t rowBin = rowColumn.iRow * binLocusSize_;
+	const size_t colBin = rowColumn.jCol * binLocusSize_;
+	for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+		locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] & binGenotypes_[colBin + iBinLoc];
+	}
+	localJP.nIntersect = countSetBits(locus);
+	for (size_t iBinLoc = 0; iBinLoc < binLocusSize_; ++iBinLoc) {
+		locus[iBinLoc] = binGenotypes_[rowBin + iBinLoc] | binGenotypes_[colBin + iBinLoc];
+	}
+	localJP.nUnion = countSetBits(locus);
+	return localJP;
 }
 
 // GenoTableHash methods
@@ -703,6 +689,9 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 	}
 
+	std::vector<uint32_t> allLocusIndexes(nLoci_);
+	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
+
 	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(uint32_t) );      // use half to leave resources for other operations
 	const size_t nPairs   = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
 	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
@@ -724,7 +713,7 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 		currStartAndSize.length = eachChunkSize;
 
 		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
-		SimilarityMatrix result{hashJacThreaded_(threadRanges)};
+		SimilarityMatrix result{hashJacThreaded_(threadRanges, allLocusIndexes)};
 		result.save(bimAndLDnames.outputFileName, nThreads);
 
 		cumChunkIdx += eachChunkSize;
@@ -1003,6 +992,28 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	output.close();
 
 	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
+}
+
+void GenoTableHash::saveLD(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &chunks, const std::string &outFileName) const {
+	//SimilarityMatrix result;
+
+	std::fstream output;
+	output.open(outFileName, std::ios::trunc | std::ios::out);
+	output << "locus1\tlocus2\tjaccard\n";
+	output.close();
+	std::for_each(
+		chunks.cbegin(),
+		chunks.cend(),
+		[this, &outFileName](const std::pair<HashGroupItPairCount, HashGroupItPairCount> &eachPair) {
+			SimilarityMatrix locResult{hashJacBlock_(eachPair)};
+			locResult.save(outFileName, 2);
+		}
+		//[this, &result](const std::pair<HashGroupItPairCount, HashGroupItPairCount> &eachPair) {
+		//	result.merge( hashJacBlock_(eachPair) );
+		//}
+	);
+
+	//result.save(outFileName, 2);
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1284,53 +1295,71 @@ void GenoTableHash::hashJacBlock_(const std::vector<IndexedPairSimilarity>::iter
 	}
 }
 
-SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const {
+SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange, const std::vector<uint32_t> &locusIndexes) const {
 	SimilarityMatrix result;
-	const auto kSkDst{static_cast<std::vector<uint16_t>::difference_type>(kSketches_)};
 	uint32_t iRow{blockRange.first.iRow};
-	for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
-		RowColIdx localRC{};
-		localRC.iRow = iRow;
-		localRC.jCol = jCol;
-		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
-		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jCol) * kSketches_;
-		// count equal elements using the inner_product idiom
-		const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
-		JaccardPair localJP{};
-		localJP.nIntersect = static_cast<uint32_t>(simVal);
-		localJP.nUnion     = static_cast<uint32_t>(kSketches_);
-		result.insert(localRC, localJP);
-	}
-	++iRow;
-	while ( iRow < (blockRange.second.iRow) ) { // complete triangle
-		for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+	if (blockRange.first.iRow != blockRange.second.iRow) {
+		for (uint32_t jCol = blockRange.first.jCol; jCol < iRow; ++jCol) { // first, possibly incomplete, row
 			RowColIdx localRC{};
-			localRC.iRow = iRow;
-			localRC.jCol = jCol;
-			const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
-			const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jCol) * kSketches_;
-			// count equal elements using the inner_product idiom
-			const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
-			JaccardPair localJP{};
-			localJP.nIntersect = static_cast<uint32_t>(simVal);
-			localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+			localRC.iRow = locusIndexes[iRow];
+			localRC.jCol = locusIndexes[jCol];
+			JaccardPair localJP{makeJaccardPair_(localRC)};
 			result.insert(localRC, localJP);
 		}
 		++iRow;
+		while ( iRow < (blockRange.second.iRow) ) { // complete triangle
+			for (uint32_t jCol = 0; jCol < iRow; ++jCol) {
+				RowColIdx localRC{};
+				localRC.iRow = locusIndexes[iRow];
+				localRC.jCol = locusIndexes[jCol];
+				JaccardPair localJP{makeJaccardPair_(localRC)};
+				result.insert(localRC, localJP);
+			}
+			++iRow;
+		}
 	}
 	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {  // last, possibly incomplete, row
 		RowColIdx localRC{};
-		localRC.iRow = iRow;
-		localRC.jCol = jColRem;
-		const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(iRow) * kSketches_;
-		const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(jColRem) * kSketches_;
-		// count equal elements using the inner_product idiom
-		const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
-		JaccardPair localJP{};
-		localJP.nIntersect = static_cast<uint32_t>(simVal);
-		localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+		localRC.iRow = locusIndexes[iRow];
+		localRC.jCol = locusIndexes[jColRem];
+		JaccardPair localJP{makeJaccardPair_(localRC)};
 		result.insert(localRC, localJP);
 	}
+
+	return result;
+}
+
+SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCount, HashGroupItPairCount> &blockRange) const {
+	if (blockRange.first.hgIterator == blockRange.second.hgIterator) { // block falls entirely within a group
+		std::pair<RowColIdx, RowColIdx> rowColumnPair{};
+		rowColumnPair.first  = recoverRCindexes(blockRange.first.pairCount);
+		rowColumnPair.second = recoverRCindexes(blockRange.second.pairCount);
+
+		return hashJacBlock_(rowColumnPair, blockRange.first.hgIterator->locusIndexes);
+	}
+	std::pair<RowColIdx, RowColIdx> rowColumnPair{};
+	rowColumnPair.first = recoverRCindexes(blockRange.first.pairCount);
+	const size_t nPairs{blockRange.first.hgIterator->locusIndexes.size() * (blockRange.first.hgIterator->locusIndexes.size() - 1) / 2};
+	rowColumnPair.second = recoverRCindexes(nPairs);
+	SimilarityMatrix result{hashJacBlock_(rowColumnPair, blockRange.first.hgIterator->locusIndexes)};
+	// process complete groups
+	std::for_each(
+		blockRange.first.hgIterator + 1,
+		blockRange.second.hgIterator,
+		[this, &result](const HashGroup &eachGroup) {
+			std::pair<RowColIdx, RowColIdx> localRCPair{};
+			localRCPair.first.iRow = 1;
+			localRCPair.first.jCol = 0;
+			const size_t locNpairs{eachGroup.locusIndexes.size() * (eachGroup.locusIndexes.size() - 1) / 2};
+			localRCPair.second = recoverRCindexes(locNpairs);
+			result.merge( hashJacBlock_(localRCPair, eachGroup.locusIndexes) );
+		}
+	);
+	// last, possibly incomplete, group
+	rowColumnPair.first.iRow = 1;
+	rowColumnPair.first.jCol = 0;
+	rowColumnPair.second     = recoverRCindexes(blockRange.second.pairCount);
+	result.merge( hashJacBlock_(rowColumnPair, blockRange.second.hgIterator->locusIndexes) );
 
 	return result;
 }
@@ -1352,15 +1381,15 @@ void GenoTableHash::hashJacThreaded_(const std::vector< std::pair<size_t, size_t
 	}
 }
 
-SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const {
+SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs, const std::vector<uint32_t> &locusIndexes) const {
 	std::vector<SimilarityMatrix> threadResults( indexPairs.size() );
 	std::vector< std::future<void> > tasks;
 	tasks.reserve( indexPairs.size() );
 	size_t iThread{0};
 	for (const auto &eachRange : indexPairs) {
 		tasks.emplace_back(
-			std::async([this, eachRange, iThread, &threadResults]{
-				threadResults.at(iThread) = hashJacBlock_(eachRange);
+			std::async([this, eachRange, &locusIndexes, iThread, &threadResults]{
+				threadResults.at(iThread) = hashJacBlock_(eachRange, locusIndexes);
 			})
 		);
 		++iThread;
@@ -1379,4 +1408,16 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ro
 	);
 
 	return threadResults.at(0);
+}
+
+JaccardPair GenoTableHash::makeJaccardPair_(const RowColIdx &rowColumn) const noexcept {
+	const auto kSkDst{static_cast<std::vector<uint16_t>::difference_type>(kSketches_)};
+	const auto start1 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(rowColumn.iRow) * kSketches_;
+	const auto start2 = sketches_.begin() + static_cast<std::vector<uint16_t>::difference_type>(rowColumn.jCol) * kSketches_;
+	// count equal elements using the inner_product idiom
+	const int simVal = std::inner_product( start1, start1 + kSkDst, start2, 0, std::plus<>(), std::equal_to<>() );
+	JaccardPair localJP{};
+	localJP.nIntersect = static_cast<uint32_t>(simVal);
+	localJP.nUnion     = static_cast<uint32_t>(kSketches_);
+	return localJP;
 }

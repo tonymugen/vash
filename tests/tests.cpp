@@ -1069,6 +1069,9 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		}
 		stdOut.close();
 
+		std::string smFileName("../tests/smTest.tsv");
+		bedHSH.saveLD(groupRanges, smFileName);
+
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),
 			groups.cend(),
