@@ -181,7 +181,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		++firstMoveIt;
 		runningFullIdx = recoverFullVIdx(firstMoveIt, runningFullIdx);
 	}
-	if ( firstMoveIt != toMerge.matrix_.end() ) {
+	if (std::distance( firstMoveIt, toMerge.matrix_.end() ) > 1) {
 		assert( (lastCumulativeIndex_ <= runningFullIdx) //NOLINT
 			&& "ERROR: lastCumulativeIndex_ must be smaller than runningFullIdx in SimilarityMatrix::merge()");
 

@@ -641,6 +641,7 @@ namespace BayesicSpace {
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
 		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs, const std::vector<uint32_t> &locusIndexes) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges) const;
 		/** \brief Calculate the union and intersection Jaccard similarity pair
 		 *
 		 * \param[in] rowColumn indexes of the locus pair to compare

@@ -676,19 +676,6 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 }
 
 void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
-	std::vector<std::string> locusNames{};
-	if ( !bimAndLDnames.inputFileName.empty() ) {
-		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
-		const bool bimExists = bimExistenceTest.good();
-		bimExistenceTest.close();
-		if (bimExists) {
-			logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
-			locusNames    = getLocusNames(bimAndLDnames.inputFileName);
-		}
-		assert( (locusNames.size() == nLoci_) // NOLINT
-				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
-	}
-
 	std::vector<uint32_t> allLocusIndexes(nLoci_);
 	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
 
@@ -714,7 +701,7 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 
 		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
 		SimilarityMatrix result{hashJacThreaded_(threadRanges, allLocusIndexes)};
-		result.save(bimAndLDnames.outputFileName, nThreads);
+		result.save(bimAndLDnames.outputFileName, nThreads, bimAndLDnames.inputFileName);
 
 		cumChunkIdx += eachChunkSize;
 	}
@@ -968,18 +955,6 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 
-	std::vector<std::string> locusNames{};
-	if ( !bimAndLDnames.inputFileName.empty() ) {
-		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
-		const bool bimExists = bimExistenceTest.good();
-		bimExistenceTest.close();
-		if (bimExists) {
-			logMessages_ += "Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file\n";
-			locusNames    = getLocusNames(bimAndLDnames.inputFileName);
-			assert( (locusNames.size() == nLoci_) // NOLINT
-					&& "ERROR: number of loci in the .bim file not the same as nLoci_" );
-		}
-	}
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(uint32_t) );      // use half to leave resources for other operations
 	const size_t nChunks  = std::max(totalPairNumber / maxInRAM, suggestNchunks);
 
@@ -992,28 +967,31 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	output.close();
 
 	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
+	BayesicSpace::HashGroupItPairCount startPair{};
+	startPair.hgIterator = ldGroups.cbegin();
+	startPair.pairCount  = 0;
+	for (const auto &eachCS : chunkSizes) {
+		std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
+		const std::vector<size_t> threadSizes{makeChunkSizes( eachCS, std::min(nThreads_, eachCS) )};
+		groupRanges.reserve( threadSizes.size() );
+		for (const auto &eachThrSize : threadSizes) {
+			groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
+			startPair = groupRanges.back().second;
+		}
+		SimilarityMatrix result{hashJacThreaded_(groupRanges)};
+		result.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+	}
 }
 
 void GenoTableHash::saveLD(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &chunks, const std::string &outFileName) const {
-	//SimilarityMatrix result;
 
 	std::fstream output;
 	output.open(outFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
-	std::for_each(
-		chunks.cbegin(),
-		chunks.cend(),
-		[this, &outFileName](const std::pair<HashGroupItPairCount, HashGroupItPairCount> &eachPair) {
-			SimilarityMatrix locResult{hashJacBlock_(eachPair)};
-			locResult.save(outFileName, 2);
-		}
-		//[this, &result](const std::pair<HashGroupItPairCount, HashGroupItPairCount> &eachPair) {
-		//	result.merge( hashJacBlock_(eachPair) );
-		//}
-	);
+	SimilarityMatrix result{hashJacThreaded_(chunks)};
 
-	//result.save(outFileName, 2);
+	result.save(outFileName, 2);
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1390,6 +1368,35 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ro
 		tasks.emplace_back(
 			std::async([this, eachRange, &locusIndexes, iThread, &threadResults]{
 				threadResults.at(iThread) = hashJacBlock_(eachRange, locusIndexes);
+			})
+		);
+		++iThread;
+	}
+
+	for (const auto &eachThread : tasks) {
+		eachThread.wait();
+	}
+
+	std::for_each(
+		threadResults.begin() + 1,
+		threadResults.end(),
+		[&threadResults](SimilarityMatrix &eachMatrix) {
+			threadResults.at(0).merge( std::move(eachMatrix) );
+		}
+	);
+
+	return threadResults.at(0);
+}
+
+SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges) const {
+	std::vector<SimilarityMatrix> threadResults( blockRanges.size() );
+	std::vector< std::future<void> > tasks;
+	tasks.reserve( blockRanges.size() );
+	size_t iThread{0};
+	for (const auto &eachRange : blockRanges) {
+		tasks.emplace_back(
+			std::async([this, eachRange, iThread, &threadResults]{
+				threadResults.at(iThread) = hashJacBlock_(eachRange);
 			})
 		);
 		++iThread;

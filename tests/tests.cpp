@@ -395,6 +395,8 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			testMatrix.insert( idxPairs.at(vecIdx), jaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
+		// test the last value insertion bypass
+		testMatrix.insert( idxPairs.back(), jaccPairs.back() );
 		REQUIRE( testMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 		vecIdx = 0;
 		while ( vecIdx < addRowIndexes.size() ) {
@@ -592,6 +594,54 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::array<uint32_t, correct12mergeValues.size()> rowsFromFile{};
 		std::array<uint32_t, correct12mergeValues.size()> colsFromFile{};
 		std::array<float,    correct12mergeValues.size()> floatsFromFile{};
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// merge of a matrix with identical tail
+		tmp2 = matrix2;
+		tmp1.merge( std::move(tmp2) );
+		tmp1.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
+		arrIdx = 0;
+		while ( std::getline(testSMoutfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			rowsFromFile.at(arrIdx) = stoi(field) - 1; // the saved indexes are base-1
+			lineStream >> field;
+			colsFromFile.at(arrIdx) = stoi(field) - 1;
+			lineStream >> field;
+			floatsFromFile.at(arrIdx) = stof(field);
+			++arrIdx;
+		}
+		testSMoutfile.close();
+		std::remove( outputFileName.c_str() ); // NOLINT
+		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
+		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+
+		// merge of an identical matrix
+		tmp2 = tmp1;
+		tmp1.merge( std::move(tmp2) );
+		tmp1.save(outputFileName, nThreads);
+		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
 		while ( std::getline(testSMoutfile, line) ) {
 			std::stringstream lineStream;
@@ -1037,6 +1087,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			) >= highCountMin
 		);
 		std::vector<BayesicSpace::HashGroup> groups{bedHSH.makeLDgroups(nRowsPerBand)};
+		/*
 		auto chunkSizes{BayesicSpace::makeChunkSizes(groups.back().cumulativeNpairs, forcedChunks)};
 		BayesicSpace::HashGroupItPairCount startPair{};
 		startPair.hgIterator = groups.cbegin();
@@ -1047,30 +1098,24 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			groupRanges.emplace_back( BayesicSpace::makeGroupRanges(groups, startPair, eachCS) );
 			startPair = groupRanges.back().second;
 		}
+		*/
 		//const auto groupRanges{BayesicSpace::makeGroupRanges(groups, chunkSizes)};
 
-		std::fstream stdOut("../tests/groupInfo.txt", std::ios::out | std::ios::trunc);
-		stdOut << "chunk sizes:\n";
-		for (const auto &eachGS : chunkSizes) {
-			stdOut << eachGS << " ";
-		}
-		stdOut << "\nranges:\n";
-		for (const auto &eachGR : groupRanges) {
-			stdOut << std::distance(groups.cbegin(), eachGR.first.hgIterator) << "> (" << eachGR.first.hgIterator->cumulativeNpairs << "--" << eachGR.first.pairCount << ")" <<
-				" ==> (" << eachGR.second.hgIterator->cumulativeNpairs << "--" << eachGR.second.pairCount << ") <" << std::distance(groups.cbegin(), eachGR.second.hgIterator) << "\n";
-		}
-		stdOut << "-------\ngroups (" << groups.size() << "):\n";
+		std::fstream stdOut("../tests/groupIdxPairs.tsv", std::ios::out | std::ios::trunc);
+		stdOut << "locus1\tlocus2\n";
 		for (const auto &eachGroup : groups) {
-			stdOut << eachGroup.cumulativeNpairs << "; ";
-			for (const auto &eachIdx : eachGroup.locusIndexes) {
-				stdOut << eachIdx << " ";
+			for (size_t iRow = 1; iRow < eachGroup.locusIndexes.size(); ++iRow) {
+				for (size_t jCol = 0; jCol < iRow; ++jCol) {
+					stdOut << eachGroup.locusIndexes.at(iRow) + 1 << "\t" << eachGroup.locusIndexes.at(jCol) + 1 << "\n";
+				}
 			}
-			stdOut << "\n";
 		}
 		stdOut.close();
 
 		std::string smFileName("../tests/smTest.tsv");
-		bedHSH.saveLD(groupRanges, smFileName);
+		tmpFileGrp.outputFileName = smFileName;
+		tmpFileGrp.inputFileName  = "";
+		bedHSH.ldInGroupsSM(nRowsPerBand, tmpFileGrp, forcedChunks);
 
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),
