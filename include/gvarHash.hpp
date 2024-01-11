@@ -477,7 +477,6 @@ namespace BayesicSpace {
 		 */
 		void ldInGroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
 		void ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
-		void saveLD(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &chunks, const std::string &outFileName) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.

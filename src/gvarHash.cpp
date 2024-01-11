@@ -49,6 +49,8 @@
 #include <thread>
 #include <immintrin.h>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -223,7 +225,8 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 	}
 
-	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const SimilarityMatrix emptyMatrix;
+	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * emptyMatrix.elementSize() );      // use half to leave resources for other operations
 	const size_t nPairs   = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
 	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
 	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
@@ -679,7 +682,8 @@ void GenoTableHash::allHashLD(const InOutFileNames &bimAndLDnames, const size_t 
 	std::vector<uint32_t> allLocusIndexes(nLoci_);
 	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
 
-	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const SimilarityMatrix emptyMatrix;
+	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * emptyMatrix.elementSize() );      // use half to leave resources for other operations
 	const size_t nPairs   = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
 	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
 	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
@@ -955,7 +959,8 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * sizeof(uint32_t) );      // use half to leave resources for other operations
+	const SimilarityMatrix emptyMatrix;
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations
 	const size_t nChunks  = std::max(totalPairNumber / maxInRAM, suggestNchunks);
 
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
@@ -971,27 +976,33 @@ void GenoTableHash::ldInGroupsSM(const size_t &nRowsPerBand, const InOutFileName
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
 	for (const auto &eachCS : chunkSizes) {
-		std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
-		const std::vector<size_t> threadSizes{makeChunkSizes( eachCS, std::min(nThreads_, eachCS) )};
-		groupRanges.reserve( threadSizes.size() );
-		for (const auto &eachThrSize : threadSizes) {
-			groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
-			startPair = groupRanges.back().second;
+		SimilarityMatrix groupSimilarities;
+		// actual matrix sizes may be smaller than expected because of common pairs among groups
+		// so we keep adding until we run out of space to limit the number of saves and pair duplication
+		// that can result from not being able to de-duplicate pairs that are already saved
+		std::cout << "Chunk size: " << eachCS << "\n";
+		while (groupSimilarities.nElements() < eachCS) {
+			const size_t currentChunkSize = eachCS - groupSimilarities.nElements();
+			std::cout << "\tmatrix size: " << groupSimilarities.nElements() << "; currentChunkSize = " << currentChunkSize << 
+				"; startPair distance: " << std::distance(startPair.hgIterator, ldGroups.cend()) << "\n\t\tstartPair pair count: " << startPair.pairCount <<
+				"; group size: " << startPair.hgIterator->locusIndexes.size() * (startPair.hgIterator->locusIndexes.size() - 1) / 2 << "\n";
+			std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
+			const std::vector<size_t> threadSizes{makeChunkSizes( currentChunkSize, std::min(nThreads_, currentChunkSize) )};
+			groupRanges.reserve( threadSizes.size() );
+			for (const auto &eachThrSize : threadSizes) {
+				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
+				startPair = groupRanges.back().second;
+			}
+			groupSimilarities.merge( hashJacThreaded_(groupRanges) );
+			if (std::distance( startPair.hgIterator, ldGroups.cend() ) <= 1) {
+				std::cout << "***\n";
+				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+				return;
+			}
 		}
-		SimilarityMatrix result{hashJacThreaded_(groupRanges)};
-		result.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+		std::cout << "---------\n";
+		groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 	}
-}
-
-void GenoTableHash::saveLD(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &chunks, const std::string &outFileName) const {
-
-	std::fstream output;
-	output.open(outFileName, std::ios::trunc | std::ios::out);
-	output << "locus1\tlocus2\tjaccard\n";
-	output.close();
-	SimilarityMatrix result{hashJacThreaded_(chunks)};
-
-	result.save(outFileName, 2);
 }
 
 void GenoTableHash::saveLogFile() const {

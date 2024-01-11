@@ -276,7 +276,7 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 		startHGPC.hgIterator->cumulativeNpairs - startHGPC.hgIterator->locusIndexes.size() * (startHGPC.hgIterator->locusIndexes.size() - 1) / 2
 			+ startHGPC.pairCount
 	};
-	const size_t chunkCutOff{startPairCount + chunkSize};
+	const size_t chunkCutOff = std::min(startPairCount + chunkSize, groupVector.back().cumulativeNpairs);
 	const auto gvIterator = std::lower_bound(
 		startHGPC.hgIterator,
 		groupVector.cend(),
@@ -285,7 +285,7 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 	);
 	result.second.hgIterator = gvIterator;
 	if ( gvIterator == groupVector.end() ) {
-		result.second.pairCount  = 0;
+		result.second.pairCount = 0;
 		return result;
 	}
 	const size_t lastGroupPairNumber{

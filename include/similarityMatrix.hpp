@@ -121,11 +121,24 @@ namespace BayesicSpace {
 		/** \brief Destructor */
 		~SimilarityMatrix() = default;
 
-		/** \brief Object size in bytes */
-		[[gnu::warn_unused_result]] size_t size() const noexcept { 
+		/** \brief Matrix element size
+		 *
+		 * \return matrix element size in bytes
+		 */
+		[[gnu::warn_unused_result]] static size_t elementSize() noexcept {return sizeof(uint32_t);};
+		/** \brief Object size in bytes 
+		 *
+		 * \return object size in bytes
+		 */
+		[[gnu::warn_unused_result]] size_t objectSize() const noexcept { 
 			return	sizeof(uint32_t) * matrix_.size() +          // matrix size
 					2 * sizeof(uint64_t);                        // full index sizes
 		};
+		/** \brief Number of elements in the matrix
+		 *
+		 * \return number of elements
+		 */
+		[[gnu::warn_unused_result]] size_t nElements() const noexcept {return matrix_.size();};
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix. Addresses the lower triangle of the similarity matrix,

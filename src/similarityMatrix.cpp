@@ -157,11 +157,19 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &ja
 }
 
 void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
+	// trivial cases
 	if ( matrix_.empty() ) {
 		*this = std::move(toMerge);
 		return;
 	}
 	if ( toMerge.matrix_.empty() ) {
+		return;
+	}
+	if (toMerge.matrix_.size() == 1) {
+		FullIdxValue tmp{};
+		tmp.fullIdx         = toMerge.firstCumulativeIndex_;
+		tmp.quantSimilarity = static_cast<uint8_t>( toMerge.matrix_.at(0) );
+		this->insert_(tmp);
 		return;
 	}
 	// figure out which matrix goes in front

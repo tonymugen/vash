@@ -389,21 +389,24 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		BayesicSpace::SimilarityMatrix testMatrix;
 		constexpr size_t initialSize{2 * sizeof(uint64_t)};
-		REQUIRE(testMatrix.size() == initialSize);
+		// TODO: add nElements() elementSize() tests
+		REQUIRE(testMatrix.objectSize() == initialSize);
 		vecIdx = 0;
 		while ( vecIdx < rowIndexes.size() ) {
 			testMatrix.insert( idxPairs.at(vecIdx), jaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
+		// test the first value insertion bypass
+		testMatrix.insert( idxPairs.at(0), jaccPairs.at(0) );
 		// test the last value insertion bypass
 		testMatrix.insert( idxPairs.back(), jaccPairs.back() );
-		REQUIRE( testMatrix.size() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
 		vecIdx = 0;
 		while ( vecIdx < addRowIndexes.size() ) {
 			testMatrix.insert( addIdxPairs.at(vecIdx), addJaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
-		REQUIRE( testMatrix.size() == ( initialSize + sizeof(uint32_t) * correctFloatValues.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint32_t) * correctFloatValues.size() ) );
 
 		// test file save
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
@@ -477,7 +480,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			largeMatrix.insert( largeIdxPairs.at(vecIdx), largeJaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
-		REQUIRE(largeMatrix.size() == initialSize + sizeof(uint32_t) * correctLargeSize);
+		REQUIRE(largeMatrix.objectSize() == initialSize + sizeof(uint32_t) * correctLargeSize);
 
 		largeMatrix.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
