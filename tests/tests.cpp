@@ -245,27 +245,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		);
 	}
 
-	SECTION("Pair index initialization") {
-		constexpr BayesicSpace::LocationWithLength pairSpan{71, 201};
-		constexpr size_t allN{397};
-		std::vector<BayesicSpace::IndexedPairSimilarity> pairSegment{BayesicSpace::initializeIPSvector(pairSpan, allN)};
-		REQUIRE(pairSegment.size() == pairSpan.length);
-		REQUIRE(pairSegment[0].element1ind == 0);
-		REQUIRE(pairSegment[0].element2ind == pairSpan.start + 1);
-		REQUIRE(std::all_of(
-				pairSegment.cbegin(),
-				pairSegment.cend(),
-				[](const BayesicSpace::IndexedPairSimilarity &obj) {return obj.element1ind < obj.element2ind;}
-			)
-		);
-		REQUIRE(std::all_of(
-				pairSegment.cbegin(),
-				pairSegment.cend(),
-				[&allN](const BayesicSpace::IndexedPairSimilarity &obj) {return (obj.element1ind < allN) || (obj.element2ind < allN);}
-			)
-		);
-	}
-
 	SECTION("Magic byte testing") {
 		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> correctBedBytes{0x6c, 0x1b, 0x01};
 		constexpr std::array<char, BayesicSpace::N_BED_TEST_BYTES> wrongBedBytes1{ 0x6d, 0x1b, 0x01};
@@ -312,20 +291,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 				currGrp.cumulativeNpairs = gStart;
 				groups.emplace_back(currGrp);
 			}
-			std::vector<BayesicSpace::IndexedPairSimilarity> vectorizedGroups{BayesicSpace::vectorizeGroups(groups.cbegin(), groups.cend())};
-			REQUIRE(vectorizedGroups.size() == correctVGsize);
-			REQUIRE(std::all_of(
-						vectorizedGroups.cbegin(),
-						vectorizedGroups.cend(),
-						[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.similarityValue == 0.0F;}
-					)
-			);
-			REQUIRE(std::all_of(
-						vectorizedGroups.cbegin(),
-						vectorizedGroups.cend(),
-						[](const BayesicSpace::IndexedPairSimilarity &eachObj) {return eachObj.element1ind < eachObj.element2ind;}
-					)
-			);
 		}
 	}
 }
@@ -1060,7 +1025,8 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		tmpFileGrp.outputFileName = tmpJacFile;
 		tmpFileGrp.inputFileName  = "";
 		constexpr size_t forcedChunks{3};
-		bedHSH.allHashLD(tmpFileGrp, forcedChunks);
+		constexpr float cutOff{0.0};
+		bedHSH.allHashLD(cutOff, tmpFileGrp, forcedChunks);
 		std::fstream hashLDfile(tmpJacFile, std::ios::in);
 		std::vector<float> jaccValues; 
 		std::string line;
@@ -1115,10 +1081,11 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		}
 		stdOut.close();
 
+		constexpr float grpCutOff{0.75};
 		std::string smFileName("../tests/smTest.tsv");
 		tmpFileGrp.outputFileName = smFileName;
 		tmpFileGrp.inputFileName  = "";
-		bedHSH.ldInGroupsSM(nRowsPerBand, tmpFileGrp, forcedChunks);
+		bedHSH.ldInGroups(nRowsPerBand, grpCutOff, tmpFileGrp, forcedChunks);
 
 		auto smallestSizeIt = std::min_element(
 			groups.cbegin(),

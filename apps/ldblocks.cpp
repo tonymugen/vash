@@ -87,14 +87,17 @@ namespace BayesicSpace {
 	 *
 	 * \param[in] stringVariables string-valued input flag variables
 	 * \param[in] intVariables integer-valued input flag variables
+	 * \param[in] floatVariables float-valued input flag variables
 	 * \param[in] bimFileName .bim file name
 	 *
 	 */
-	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
+	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables,
+			const std::unordered_map<std::string, float> &floatVariables, const std::string &bimFileName) {
 		IndividualAndSketchCounts indivSketches{};
 
-		indivSketches.nIndividuals = static_cast<uint32_t>( intVariables.at("n-individuals") );
-		indivSketches.kSketches    = static_cast<uint16_t>( intVariables.at("hash-size") );
+		indivSketches.nIndividuals   = static_cast<uint32_t>( intVariables.at("n-individuals") );
+		indivSketches.kSketches      = static_cast<uint16_t>( intVariables.at("hash-size") );
+		const float similarityCutOff = floatVariables.at("min-similarity");
 		BayesicSpace::GenoTableHash groupLD;
 		try {
 			if (intVariables.at("threads") < 1) {
@@ -108,12 +111,12 @@ namespace BayesicSpace {
 					InOutFileNames bimAndLD{};
 					bimAndLD.inputFileName  = bimFileName;
 					bimAndLD.outputFileName = stringVariables.at("out-file");
-					groupLD.allHashLD(bimAndLD);
+					groupLD.allHashLD(similarityCutOff, bimAndLD);
 				} else {
 					BayesicSpace::InOutFileNames outFile{};
 					outFile.outputFileName = stringVariables.at("out-file");
 					outFile.inputFileName  = "";
-					groupLD.allHashLD(outFile);
+					groupLD.allHashLD(similarityCutOff, outFile);
 				}
 			} else {
 				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
@@ -127,7 +130,7 @@ namespace BayesicSpace {
 						InOutFileNames bimAndLD{};
 						bimAndLD.inputFileName  = bimFileName;
 						bimAndLD.outputFileName = stringVariables.at("out-file");
-						groupLD.ldInGroups(rowsPB, bimAndLD);
+						groupLD.ldInGroups(rowsPB, similarityCutOff, bimAndLD);
 					}
 				} else {
 					if (stringVariables.at("only-groups") == "set") {
@@ -139,7 +142,7 @@ namespace BayesicSpace {
 						BayesicSpace::InOutFileNames outFile{};
 						outFile.outputFileName = stringVariables.at("out-file");
 						outFile.inputFileName  = "";
-						groupLD.ldInGroups(rowsPB, outFile);
+						groupLD.ldInGroups(rowsPB, similarityCutOff, outFile);
 					}
 				}
 			}
@@ -168,6 +171,7 @@ int main(int argc, char *argv[]) {
 		"  --hash-size        hash_size; must be smaller than the number of individuals.\n"
 		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 or omit to obtain precise Jaccard similarity estimates.\n"
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
+		"  --min-similarity   minimal similarity value for pairs to be saved.\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"
 		"  --only-groups      if set (with no value), only group IDs are saved for each locus pair. Ignored if --n-rows-per-band or --hash-size is 0.\n"
@@ -178,8 +182,9 @@ int main(int argc, char *argv[]) {
 		std::unordered_map <std::string, std::string> clInfo;
 		std::unordered_map <std::string, std::string> stringVariables;
 		std::unordered_map <std::string, int> intVariables;
+		std::unordered_map <std::string, float> floatVariables;
 		BayesicSpace::parseCL(argc, argv, clInfo);
-		BayesicSpace::extractCLinfo(clInfo, intVariables, stringVariables);
+		BayesicSpace::extractCLinfo(clInfo, intVariables, floatVariables, stringVariables);
 
 		const size_t dotPos = stringVariables.at("input-bed").rfind('.');
 		std::string bimFileName(stringVariables.at("input-bed"), 0, dotPos);
@@ -187,7 +192,7 @@ int main(int argc, char *argv[]) {
 		if (intVariables.at("hash-size") == 0) {
 			BayesicSpace::fullJaccard(stringVariables, intVariables, bimFileName);
 		} else {
-			BayesicSpace::hashJaccard(stringVariables, intVariables, bimFileName);
+			BayesicSpace::hashJaccard(stringVariables, intVariables, floatVariables, bimFileName);
 		}
 	} catch(std::string &problem) {
 		std::cerr << problem << "\n";

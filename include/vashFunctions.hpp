@@ -193,28 +193,6 @@ namespace BayesicSpace {
 	 */
 	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
-	/** \brief Initialize an `IndexedPairSimilarity` vector 
-	 *
-	 * Creates a vector of `IndexedPairSimilarity` objects.
-	 * Index pairs are set to reflect the possibility that this vector is a part of a larger vectorized lower triangle of a similarity matrix.
-	 * All group IDs and similarity values are set to 0.
-	 *
-	 * \param[in] pairSpan the overall start and length (in elements) of the segment
-	 * \param[in] totalNelements total number of elements
-	 * \return vector of `IndexedPairSimilarity` objects
-	 */
-	[[gnu::warn_unused_result]] std::vector<IndexedPairSimilarity> initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements);
-	/** \brief Create pair vector from groups 
-	 *
-	 * Create a vector of paired indexes within provided groups, in preparation for estimating Jaccard similarities.
-	 *
-	 * \param[in] grpBlockStart iterator of the first group in the block
-	 * \param[in] grpBlockEnd iterator of (one past the) end group in the block
-	 * \return vector of pair indexes with group IDs
-	 */
-	[[gnu::warn_unused_result]] std::vector<IndexedPairSimilarity> vectorizeGroups(
-		const std::vector<HashGroup>::const_iterator grpBlockStart,
-		const std::vector<HashGroup>::const_iterator grpBlockEnd);
 	/** \brief Save values 
 	 *
 	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
@@ -223,23 +201,6 @@ namespace BayesicSpace {
 	 * \param[in, out] outputStream `fstream` to save to
 	 */
 	void saveValues(const std::vector<float> &inVec, std::fstream &outputStream);
-	/** \brief Save indexed values 
-	 *
-	 * Saves each value with group IDs and the pair of indexes, tab delimited.
-	 *
-	 * \param[in] inVec vector of indexed floats to save
-	 * \param[in, out] outputStream `fstream` to save to
-	 */
-	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream);
-	/** \brief Save named values 
-	 *
-	 * Saves each value with group IDs and names of locus pairs, tab delimited.
-	 *
-	 * \param[in] inVec vector of indexed floats to save
-	 * \param[in] locusNames vector of locus names
-	 * \param[in, out] outputStream `fstream` to save to
-	 */
-	void saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream);
 	/** \brief Extract locus names 
 	 *
 	 * Extract locus names from a _.bim_ file.
@@ -263,7 +224,9 @@ namespace BayesicSpace {
 	 *
 	 * \param[in] parsedCLI flag values parsed from the command line
 	 * \param[out] intVariables indexed `int` variables for use by `main()`
+	 * \param[out] floatVariables indexed `float` variables for use by `main()`
 	 * \param[out] stringVariables indexed `std::string` variables for use by `main()`
 	 */
-	void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables);
+	void extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables,
+			std::unordered_map<std::string, float> &floatVariables, std::unordered_map<std::string, std::string> &stringVariables);
 }

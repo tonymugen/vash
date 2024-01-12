@@ -373,61 +373,9 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	}
 }
 
-std::vector<IndexedPairSimilarity> BayesicSpace::initializeIPSvector(const LocationWithLength &pairSpan, const size_t &totalNelements) {
-	std::vector<IndexedPairSimilarity> pairVector;
-	const size_t nnElements{totalNelements * (totalNelements - 1) / 2 - 1};
-	pairVector.reserve(pairSpan.length);
-	size_t iPair{0};
-	while (iPair < pairSpan.length) {
-		const size_t curPairInd{iPair + pairSpan.start};
-		const size_t kpIdx{nnElements - curPairInd};
-		const size_t pIdx = (static_cast<size_t>( sqrt( 1.0 + 8.0 * static_cast<double>(kpIdx) ) ) - 1) / 2;
-		const auto row    = static_cast<uint32_t>(totalNelements - 2 - pIdx);
-		const auto col    = static_cast<uint32_t>(totalNelements - (kpIdx - pIdx * (pIdx + 1) / 2) - 1);
-
-		IndexedPairSimilarity curPair{};
-		curPair.similarityValue = 0.0F;
-		curPair.element1ind     = row;
-		curPair.element2ind     = col;
-		pairVector.emplace_back(curPair);
-
-		++iPair;
-	}
-	return pairVector;
-}
-
-std::vector<IndexedPairSimilarity> BayesicSpace::vectorizeGroups(
-		const std::vector<HashGroup>::const_iterator grpBlockStart,
-		const std::vector<HashGroup>::const_iterator grpBlockEnd) {
-	std::vector<IndexedPairSimilarity> indexedSimilarityVec;
-	for (auto eachGrpIt = grpBlockStart; eachGrpIt != grpBlockEnd; ++eachGrpIt) {
-		assert( (eachGrpIt->locusIndexes.size() > 1) && "ERROR: groups must have at least two elements in vectorizeGroups()" ); // NOLINT
-		for (size_t iRow = 0; iRow < eachGrpIt->locusIndexes.size() - 1; ++iRow) {
-			for (size_t jCol = iRow + 1; jCol < eachGrpIt->locusIndexes.size(); ++jCol) {
-				indexedSimilarityVec.emplace_back(
-					IndexedPairSimilarity{0.0, eachGrpIt->locusIndexes[iRow], eachGrpIt->locusIndexes[jCol]}
-				);
-			}
-		}
-	}
-	return indexedSimilarityVec;
-}
-
 void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {
 	for (const auto &eachValue : inVec) {
 		outputStream << eachValue << " ";
-	}
-}
-
-void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec) {
-		outputStream << eachValue.element1ind + 1 << "\t" << eachValue.element2ind + 1 << "\t" << eachValue.similarityValue << "\n";
-	}
-}
-
-void BayesicSpace::saveValues(const std::vector<IndexedPairSimilarity> &inVec, const std::vector<std::string> &locusNames, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec) {
-		outputStream << locusNames[eachValue.element1ind] << "\t" << locusNames[eachValue.element2ind] << "\t" << eachValue.similarityValue << "\n";
 	}
 }
 
@@ -471,16 +419,18 @@ void BayesicSpace::parseCL(int &argc, char **argv, std::unordered_map<std::strin
 	}
 }
 
-void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI,
-			std::unordered_map<std::string, int> &intVariables, std::unordered_map<std::string, std::string> &stringVariables) {
+void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables,
+		std::unordered_map<std::string, float> &floatVariables, std::unordered_map<std::string, std::string> &stringVariables) {
 	intVariables.clear();
 	stringVariables.clear();
 	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
 	const std::array<std::string, 4> optionalStringVariables{"log-file", "out-file", "only-groups", "add-locus-names"};
 	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
 	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
+	const std::array<std::string, 1> optionalFloatVariables{"min-similarity"};
 
 	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
+	const std::unordered_map<std::string, float>       defaultFloatValues{ {"min-similarity", 0.0F} };
 	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
 																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };
 
@@ -499,6 +449,13 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 			intVariables[eachFlag] = stoi( parsedCLI.at(eachFlag));
 		} catch(const std::exception &problem) {
 			intVariables[eachFlag] = defaultIntValues.at(eachFlag);
+		}
+	}
+	for (const auto &eachFlag : optionalFloatVariables) {
+		try {
+			floatVariables[eachFlag] = stof( parsedCLI.at(eachFlag));
+		} catch(const std::exception &problem) {
+			floatVariables[eachFlag] = defaultFloatValues.at(eachFlag);
 		}
 	}
 	for (const auto &eachFlag : requiredStringVariables) {
