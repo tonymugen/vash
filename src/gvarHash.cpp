@@ -843,9 +843,10 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similari
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
-	output.close();
+	//output.close();
 
 	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
+	output << chunkSizes.size() << "; " << chunkSizes.at(0) << std::endl;
 	BayesicSpace::HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
@@ -865,13 +866,16 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similari
 				startPair = groupRanges.back().second;
 			}
 			groupSimilarities.merge( hashJacThreaded_(groupRanges, similarityCutOff) );
-			if ( (std::distance( startPair.hgIterator, ldGroups.cend() ) <= 1) && (startPair.pairCount == lastPairNumber) ) {
-				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+			//output << groupSimilarities.nElements() << " " << std::flush;
+			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
+				//groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 				return;
 			}
 		}
-		groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+		//groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 	}
+	output << "\n";
+	output.close();
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1167,11 +1171,21 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColI
 			}
 			++iRow;
 		}
+		for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {  // last, possibly incomplete, row
+			RowColIdx localRC{};
+			localRC.iRow = locusIndexes[iRow];
+			localRC.jCol = locusIndexes[jColRem];
+			JaccardPair localJP{makeJaccardPair_(localRC)};
+			if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
+				result.insert(localRC, localJP);
+			}
+		}
+		return result;
 	}
-	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) {  // last, possibly incomplete, row
+	for (uint32_t jCol = blockRange.first.jCol; jCol < blockRange.second.jCol; ++jCol) {  // last, possibly incomplete, row
 		RowColIdx localRC{};
 		localRC.iRow = locusIndexes[iRow];
-		localRC.jCol = locusIndexes[jColRem];
+		localRC.jCol = locusIndexes[jCol];
 		JaccardPair localJP{makeJaccardPair_(localRC)};
 		if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
 			result.insert(localRC, localJP);
@@ -1204,7 +1218,9 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 			localRCPair.first.jCol = 0;
 			const size_t locNpairs{eachGroup.locusIndexes.size() * (eachGroup.locusIndexes.size() - 1) / 2};
 			localRCPair.second = recoverRCindexes(locNpairs);
-			result.merge( hashJacBlock_(localRCPair, eachGroup.locusIndexes, similarityCutOff) );
+			// TODO: eliminate after debugging
+			SimilarityMatrix tmp{hashJacBlock_(localRCPair, eachGroup.locusIndexes, similarityCutOff)};
+			result.merge( std::move(tmp) );
 		}
 	);
 	// last, possibly incomplete, group
@@ -1247,6 +1263,8 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ro
 
 SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const {
 	std::vector<SimilarityMatrix> threadResults( blockRanges.size() );
+	threadResults.at(0) = hashJacBlock_(blockRanges.at(1), similarityCutOff);
+	/*
 	std::vector< std::future<void> > tasks;
 	tasks.reserve( blockRanges.size() );
 	size_t iThread{0};
@@ -1270,6 +1288,7 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ha
 			threadResults.at(0).merge( std::move(eachMatrix) );
 		}
 	);
+	*/
 
 	return threadResults.at(0);
 }

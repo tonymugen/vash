@@ -421,7 +421,7 @@ namespace BayesicSpace {
 		 * \param[in] bimAndLDnames name of the _.bim_ file with locus names and the output LD results file
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void allHashLD( const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
+		void allHashLD( const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
 		/** \brief Assign groups by linkage disequilibrium (LD)
 		 *
 		 * The sketch matrix is divided into bands, `nRowsPerBand` rows per band (must be 1 or greater).
@@ -457,7 +457,7 @@ namespace BayesicSpace {
 		 * \param[in] bimAndLDnames _.bim_ and output LD file names
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(0) ) const;
+		void ldInGroups(const size_t &nRowsPerBand, const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.

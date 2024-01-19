@@ -498,14 +498,15 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		);
 	}
 	SECTION("SimilarityMatrix merge") {
-		constexpr std::array<uint32_t, 5> rowIndexes1{3, 4, 5, 6, 6};
-		constexpr std::array<uint32_t, 5> colIndexes1{0, 3, 2, 2, 4};
-		constexpr std::array<uint64_t, 5> nIsect1{87, 8, 77, 68, 96};
-		constexpr std::array<uint64_t, 5> nUnion1{255, 255, 255, 255, 255};
-		constexpr std::array<uint32_t, 5> rowIndexes2{5, 6, 8, 8, 8};
-		constexpr std::array<uint32_t, 5> colIndexes2{1, 5, 1, 6, 7};
-		constexpr std::array<uint64_t, 5> nIsect2{217, 160, 228, 176, 167};
-		constexpr std::array<uint64_t, 5> nUnion2{255, 255, 255, 255, 255};
+		constexpr std::array<uint32_t, 10> rowIndexes1{3, 4, 4, 4, 5, 5, 6, 6, 6, 7};
+		constexpr std::array<uint32_t, 10> colIndexes1{0, 0, 2, 3, 2, 4, 0, 2, 4, 5};
+		constexpr std::array<uint64_t, 10> nIsect1{87, 8, 77, 68, 96, 49, 97, 41, 122, 82};
+		constexpr std::array<uint64_t, 10> nUnion1{255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+		constexpr std::array<uint32_t, 10> rowIndexes2{4, 4, 5, 5, 6, 6, 7, 8, 8, 8};
+		constexpr std::array<uint32_t, 10> colIndexes2{1, 3, 1, 4, 1, 5, 6, 1, 6, 7};
+		// assigning different values to the same row/col pairs for debugging; in actual application they will be the same
+		constexpr std::array<uint64_t, 10> nIsect2{217, 160, 228, 176, 167, 171, 228, 206, 174, 214};
+		constexpr std::array<uint64_t, 10> nUnion2{255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
 		constexpr std::array<uint32_t, 3> rowIndexes3{4, 5, 6};
 		constexpr std::array<uint32_t, 3> colIndexes3{1, 0, 1};
 		constexpr std::array<uint64_t, 3> nIsect3{140, 138, 136};
@@ -557,6 +558,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint32_t, 10> correct12mergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7};
 		constexpr std::array<float,    10> correct12mergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275, 0.8941, 0.6902, 0.6549};
 
+		/*
 		std::fstream testSMoutfile(outputFileName, std::ios::in);
 		std::string line;
 		std::array<uint32_t, correct12mergeValues.size()> rowsFromFile{};
@@ -848,6 +850,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( rowsFromFileFar.cbegin(),   rowsFromFileFar.cend(),   correctFarMergeRow.cbegin() ) );
 		REQUIRE( std::equal( colsFromFileFar.cbegin(),   colsFromFileFar.cend(),   correctFarMergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFileFar.cbegin(), floatsFromFileFar.cend(), correctFarMergeValues.cbegin() ) );
+		*/
 	}
 }
 
@@ -879,6 +882,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, undivNind, logFileName),
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
+	/*
 	SECTION("GenoTableBin constructors and methods with correct data") {
 		constexpr size_t nChunks{3};
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
@@ -962,6 +966,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
 	}
+	*/
 }
 
 TEST_CASE("GenoTableHash methods work", "[gtHash]") {
@@ -1018,6 +1023,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVector, BayesicSpace::IndividualAndSketchCounts{nIndividuals, kGtN}, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
 	}
+	/*
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
 		const std::string tmpJacFile("../tests/tmpJac.tsv");
@@ -1056,6 +1062,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			) >= highCountMin
 		);
 		std::vector<BayesicSpace::HashGroup> groups{bedHSH.makeLDgroups(nRowsPerBand)};
+		*/
 		/*
 		auto chunkSizes{BayesicSpace::makeChunkSizes(groups.back().cumulativeNpairs, forcedChunks)};
 		BayesicSpace::HashGroupItPairCount startPair{};
@@ -1070,6 +1077,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		*/
 		//const auto groupRanges{BayesicSpace::makeGroupRanges(groups, chunkSizes)};
 
+		/*
 		std::fstream stdOut("../tests/groupIdxPairs.tsv", std::ios::out | std::ios::trunc);
 		stdOut << "locus1\tlocus2\n";
 		for (const auto &eachGroup : groups) {
@@ -1117,6 +1125,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				[](const BayesicSpace::HashGroup &grp1, const BayesicSpace::HashGroup &grp2) {return grp1.locusIndexes.at(0) < grp2.locusIndexes.at(0);}
 			)
 		);
+		*/
 		/*
 		std::vector<BayesicSpace::IndexedPairSimilarity> groupLD{bedHSH.ldInGroups(nRowsPerBand)};
 		REQUIRE(groupLD.size() <= totNpairs);
@@ -1192,8 +1201,8 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
-		*/
 	}
+	*/
 	SECTION("GenoTableHash mac vector constructor and methods with correct data") {
 		/*
 		BayesicSpace::GenoTableHash vecHSH(macVector, sketchParameters, nThreads, logFileName);

@@ -131,7 +131,7 @@ namespace BayesicSpace {
 		 * \return object size in bytes
 		 */
 		[[gnu::warn_unused_result]] size_t objectSize() const noexcept { 
-			return	sizeof(uint32_t) * matrix_.size() +          // matrix size
+			return	elementSize() * matrix_.size() +             // matrix size
 					2 * sizeof(uint64_t);                        // full index sizes
 		};
 		/** \brief Number of elements in the matrix
