@@ -27,6 +27,7 @@
  *
  */
 
+#include <numeric>
 #include <vector>
 #include <array>
 #include <string>
@@ -177,7 +178,8 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	}
 	*/
 	// figure out which matrix goes in front
-	if (firstCumulativeIndex_ > toMerge.firstCumulativeIndex_) {
+	if ( (firstCumulativeIndex_ > toMerge.firstCumulativeIndex_) ||                                                    // toMerge is in front
+			( firstCumulativeIndex_ == toMerge.firstCumulativeIndex_ && matrix_.size() < toMerge.matrix_.size() ) ) {  // the same start, but toMerge is bigger
 		std::swap(matrix_, toMerge.matrix_);
 		std::swap(firstCumulativeIndex_, toMerge.firstCumulativeIndex_);
 		std::swap(lastCumulativeIndex_, toMerge.lastCumulativeIndex_);
@@ -197,7 +199,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		firstMoveDiff = firstMoveDiff % maxIdxBitfield_;
 
 		uint32_t firstElement = static_cast<uint32_t>(firstMoveDiff) << valueSize_;
-		const auto firstValue{toMerge.matrix_.front() & valueMask_};
+		const uint32_t firstValue{toMerge.matrix_.front() & valueMask_};
 		firstElement           |= firstValue;
 		toMerge.matrix_.front() = firstElement;
 
@@ -211,24 +213,68 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		return;
 	}
 
-	const auto distanceToThisEnd = std::distance( matrix_.cbegin(), matrix_.cend() );
+	// check if fronts of the matrices match
+	auto mismatchPair = std::mismatch(
+		matrix_.begin(),
+		matrix_.end(),
+		toMerge.matrix_.begin(),
+		[](const uint32_t &value1, const uint32_t &value2){
+			return (value1 >> valueSize_) == (value2 >> valueSize_);
+		}
+	);
+	// toMerge is completely within *this; toMerge must be no larger than *this, so test only mismatchPair.second
+	if ( mismatchPair.second == toMerge.matrix_.end() ) {
+		toMerge.matrix_.clear();
+		toMerge.firstCumulativeIndex_ = 0;
+		toMerge.lastCumulativeIndex_  = 0;
+		return;
+	}
+	std::for_each(matrix_.begin(), matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
+	std::cout << "| ";
+	std::for_each(toMerge.matrix_.begin(), toMerge.matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
+	std::cout << "\n";
+	uint64_t testCI{firstCumulativeIndex_};
+	std::for_each(matrix_.begin(), matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
+	std::cout << "| ";
+	testCI = toMerge.firstCumulativeIndex_;
+	std::for_each(toMerge.matrix_.begin(), toMerge.matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
+	std::cout << "\n";
+	std::cout << "from begin -- first: " << std::distance(matrix_.begin(), mismatchPair.first) << "; second: " << std::distance(toMerge.matrix_.begin(), mismatchPair.second) << "\n";
+	std::cout << "to end     -- first: " << std::distance( mismatchPair.first, matrix_.end() ) << "; second: " << std::distance( mismatchPair.second, toMerge.matrix_.end() ) << "\n";
+
+	// record iterator distances before std::move (necessary because iterators may be invalidated)
+	const auto distanceToThisEnd  = std::distance( matrix_.begin(), matrix_.end() );
+	const auto disatnceToFirstUnq = std::distance(matrix_.begin(), mismatchPair.first);
+
 	// TODO: add testing for memory availability and moving by chunks
-	std::move( toMerge.matrix_.begin(), toMerge.matrix_.end(), std::back_inserter(matrix_) );
+	std::move( mismatchPair.second, toMerge.matrix_.end(), std::back_inserter(matrix_) );
 	toMerge.matrix_.clear();
+
 	auto leadingToMerge = matrix_.begin() + distanceToThisEnd;
+	auto firstUnqIt     = matrix_.begin() + disatnceToFirstUnq;
 	std::for_each(matrix_.begin(), leadingToMerge, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "| ";
 	std::for_each(leadingToMerge, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "\n";
-	uint64_t testCI{firstCumulativeIndex_};
+	testCI = firstCumulativeIndex_;
 	std::for_each(matrix_.begin(), leadingToMerge, [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "| ";
 	testCI = toMerge.firstCumulativeIndex_;
 	std::for_each(leadingToMerge, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "\n";
+	std::cout << std::flush;
 	// this will be the full index of the first overlapping element of *this
-	uint64_t thisFirstOverlapCI{firstCumulativeIndex_};
-	auto firstOverlapIt = matrix_.begin();
+	//uint64_t thisFirstOverlapCI{firstCumulativeIndex_};
+	uint64_t thisFirstOverlapCI = std::accumulate(
+		matrix_.begin(),
+		firstUnqIt,
+		firstCumulativeIndex_,
+		[](uint64_t &sum, const uint32_t &currValue){
+			return sum + static_cast<uint64_t>(currValue >> valueSize_);
+		}
+	);
+	std::cout << "thisFirstOverlapCI to start: " << thisFirstOverlapCI << "\n";
+	auto firstOverlapIt = firstUnqIt;
 	// this will be the full index of the last element in *this that does not overlap with the merging matrix
 	uint64_t thisLastUnqCI{0};
 	auto lastUniqueIt = firstOverlapIt;
@@ -238,23 +284,13 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		thisFirstOverlapCI += static_cast<uint64_t>( (*firstOverlapIt) >> valueSize_ );
 		++firstOverlapIt;
 	}
-	/*
-	auto endUnqThisIt = std::find_if(
-		matrix_.begin() + 1,
-		matrix_.end(),
-		[&thisLastUnqCI, &thisFirstOverlapCI, &toMerge](uint32_t diffValue){
-			thisLastUnqCI       = thisFirstOverlapCI;
-			thisFirstOverlapCI += static_cast<uint64_t>(diffValue >> valueSize_);
-			return thisFirstOverlapCI >= toMerge.firstCumulativeIndex_;
-		}
-	);
-	*/
 	std::cout << "thisLastUnqCI = " << thisLastUnqCI << "; thisFirstOverlapCI: " << thisFirstOverlapCI << "; "
 		<< std::distance(matrix_.begin(), lastUniqueIt) << "; " << std::distance(matrix_.begin(), firstOverlapIt) << "\n";
 
+	/*
 	// correct the first diff element of toMerge.matrix_
 	auto tmpDiff = static_cast<uint32_t>(toMerge.firstCumulativeIndex_ - thisLastUnqCI) << valueSize_;
-	const auto firstValue{(*leadingToMerge) & valueMask_};
+	uint32_t firstValue{(*leadingToMerge) & valueMask_};
 	tmpDiff        |= firstValue;
 	*leadingToMerge = tmpDiff;
 
@@ -270,20 +306,58 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	std::for_each(leadingToMerge, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "\n";
 
-	std::rotate(lastUniqueIt, lastUniqueIt + 1, leadingToMerge);
+	// now find the end of the rotation block
+	auto endRotateIt = leadingToMerge;
+	uint64_t mergeFirstUnqCI{toMerge.firstCumulativeIndex_};
+	while ( (mergeFirstUnqCI < thisFirstOverlapCI) && ( endRotateIt != matrix_.end() ) ) {
+		mergeFirstUnqCI += static_cast<uint64_t>( (*endRotateIt) >> valueSize_ );
+		++endRotateIt;
+	}
+	std::cout << "mergeFirstUnqCI = " << mergeFirstUnqCI << "; " << 
+		( (*endRotateIt) >> valueSize_ ) << "; " <<
+		std::distance(leadingToMerge, endRotateIt) << "\n";
+
+	// correct the first diff element in this->matrix_ after the last merged element
+	tmpDiff       = ( (*lastUniqueIt) >> valueSize_ ) - ( ( *std::prev(endRotateIt) ) >> valueSize_ );
+	tmpDiff       = tmpDiff << valueSize_;
+	firstValue    = (*lastUniqueIt) & valueMask_;
+	tmpDiff      |= firstValue;
+	*lastUniqueIt = tmpDiff;
+
+	// correct the first past the merged element of toMerge.matrix_
+	// TODO: test for endRotateIt != matrix_.end()
+	tmpDiff      = ( (*endRotateIt) >> valueSize_ ) - ( (*firstOverlapIt) >> valueSize_ );
+	tmpDiff      = tmpDiff << valueSize_;
+	firstValue   = (*endRotateIt) & valueMask_;
+	tmpDiff     |= firstValue;
+	*endRotateIt = tmpDiff;
+
+	lastUniqueIt = std::rotate(lastUniqueIt, leadingToMerge, endRotateIt);
 
 	std::cout << "===============\n";
-	std::for_each(matrix_.begin(), leadingToMerge, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
+	std::for_each(matrix_.begin(), leadingToMerge + 1, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "| ";
-	std::for_each(leadingToMerge, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
+	std::for_each(leadingToMerge + 1, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "\n";
 	testCI = firstCumulativeIndex_;
-	std::for_each(matrix_.begin(), leadingToMerge, [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
+	std::for_each(matrix_.begin(), leadingToMerge + 1, [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "| ";
-	testCI = thisLastUnqCI;
-	std::for_each(leadingToMerge, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
+	testCI = thisFirstOverlapCI;
+	std::for_each(leadingToMerge + 1, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "\n";
 
+	*/
+	/*
+	auto endUnqThisIt = std::find_if(
+		matrix_.begin() + 1,
+		matrix_.end(),
+		[&thisLastUnqCI, &thisFirstOverlapCI, &toMerge](uint32_t diffValue){
+			thisLastUnqCI       = thisFirstOverlapCI;
+			thisFirstOverlapCI += static_cast<uint64_t>(diffValue >> valueSize_);
+			return thisFirstOverlapCI >= toMerge.firstCumulativeIndex_;
+		}
+	);
+	*/
 	/*
 	auto firstMoveIt = toMerge.matrix_.begin();
 	uint64_t runningFullIdx{toMerge.firstCumulativeIndex_};

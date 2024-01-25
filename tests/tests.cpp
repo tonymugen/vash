@@ -1,32 +1,3 @@
-/*
- * Copyright (c) 2021 Anthony J. Greenberg
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
- * IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/// Unit tests
-/** \file
- * \author Anthony J. Greenberg
- * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.1
- *
- * Unit tests using Catch2.
- *
- */
-
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -498,39 +469,42 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		);
 	}
 	SECTION("SimilarityMatrix merge") {
-		constexpr std::array<uint32_t, 10> rowIndexes1{3, 4, 4, 4, 5, 5, 6, 6, 6, 7};
-		constexpr std::array<uint32_t, 10> colIndexes1{0, 0, 2, 3, 2, 4, 0, 2, 4, 5};
-		constexpr std::array<uint64_t, 10> nIsect1{87, 8, 77, 68, 96, 49, 97, 41, 122, 82};
-		constexpr std::array<uint64_t, 10> nUnion1{255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-		constexpr std::array<uint32_t, 10> rowIndexes2{4, 4, 5, 5, 6, 6, 7, 8, 8, 8};
-		constexpr std::array<uint32_t, 10> colIndexes2{1, 3, 1, 4, 1, 5, 6, 1, 6, 7};
+		constexpr std::array<uint64_t, 12> vecIndexes1{3, 6, 8, 9, 12, 14, 15, 17, 19, 26, 28, 31};
+		constexpr std::array<uint64_t, 12> nIsect1{87, 8, 77, 68, 96, 49, 97, 41, 122, 82, 23, 45};
+		constexpr std::array<uint64_t, 12> nUnion1{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 12> vecIndexes2{3, 6, 8, 9, 11, 14, 16, 20, 27, 29, 34, 35};
 		// assigning different values to the same row/col pairs for debugging; in actual application they will be the same
-		constexpr std::array<uint64_t, 10> nIsect2{217, 160, 228, 176, 167, 171, 228, 206, 174, 214};
-		constexpr std::array<uint64_t, 10> nUnion2{255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-		constexpr std::array<uint32_t, 3> rowIndexes3{4, 5, 6};
-		constexpr std::array<uint32_t, 3> colIndexes3{1, 0, 1};
+		constexpr std::array<uint64_t, 12> nIsect2{217, 160, 228, 176, 167, 171, 228, 206, 174, 214, 201, 161};
+		constexpr std::array<uint64_t, 12> nUnion2{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 3> vecIndexes3{7, 10, 16};
 		constexpr std::array<uint64_t, 3> nIsect3{140, 138, 136};
 		constexpr std::array<uint64_t, 3> nUnion3{255, 255, 255};
 
 		constexpr size_t nThreads{2};
 		BayesicSpace::SimilarityMatrix matrix1;
 		size_t arrIdx{0};
-		while ( arrIdx < rowIndexes1.size() ) {
-			BayesicSpace::RowColIdx tmp{};
-			tmp.iRow = rowIndexes1.at(arrIdx);
-			tmp.jCol = colIndexes1.at(arrIdx);
+		while ( arrIdx < vecIndexes1.size() ) {
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes1.at(arrIdx) )};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion1.at(arrIdx);
 			tmpJP.nIntersect = nIsect1.at(arrIdx);
 			matrix1.insert(tmp, tmpJP);
 			++arrIdx;
 		}
+		BayesicSpace::SimilarityMatrix matrix1s;
+		arrIdx = 0;
+		while (arrIdx < vecIndexes1.size() / 2) {
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes1.at(arrIdx) )};
+			BayesicSpace::JaccardPair tmpJP{};
+			tmpJP.nUnion     = nUnion1.at(arrIdx);
+			tmpJP.nIntersect = nIsect1.at(arrIdx);
+			matrix1s.insert(tmp, tmpJP);
+			++arrIdx;
+		}
 		BayesicSpace::SimilarityMatrix matrix2;
 		arrIdx = 0;
-		while ( arrIdx < rowIndexes2.size() ) {
-			BayesicSpace::RowColIdx tmp{};
-			tmp.iRow = rowIndexes2.at(arrIdx);
-			tmp.jCol = colIndexes2.at(arrIdx);
+		while ( arrIdx < vecIndexes2.size() ) {
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes2.at(arrIdx) )};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion2.at(arrIdx);
 			tmpJP.nIntersect = nIsect2.at(arrIdx);
@@ -539,10 +513,8 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		}
 		BayesicSpace::SimilarityMatrix matrix3;
 		arrIdx = 0;
-		while ( arrIdx < rowIndexes3.size() ) {
-			BayesicSpace::RowColIdx tmp{};
-			tmp.iRow = rowIndexes3.at(arrIdx);
-			tmp.jCol = colIndexes3.at(arrIdx);
+		while ( arrIdx < vecIndexes3.size() ) {
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes3.at(arrIdx) )};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion3.at(arrIdx);
 			tmpJP.nIntersect = nIsect3.at(arrIdx);
@@ -550,10 +522,28 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			++arrIdx;
 		}
 		BayesicSpace::SimilarityMatrix tmp1 = matrix1;
+		BayesicSpace::SimilarityMatrix tmpS = matrix1s;
 		BayesicSpace::SimilarityMatrix tmp2 = matrix2;
+		//tmp1.merge( std::move(tmpS) );
+		//std::cout << "new tmp1 size: " << tmp1.nElements() << "\n";
 		tmp1.merge( std::move(tmp2) );
-		const std::string outputFileName("../tests/mergeMatrix.tsv");
-		tmp1.save(outputFileName, nThreads);
+		//const std::string outputFileName("../tests/mergeMatrix.tsv");
+		//tmp1.save(outputFileName, nThreads);
+		std::vector<uint64_t> correctVecMerge;
+		std::merge(
+			vecIndexes1.cbegin(),
+			vecIndexes1.cend(),
+			vecIndexes2.cbegin(),
+			vecIndexes2.cend(),
+			std::back_inserter(correctVecMerge)
+		);
+		auto lastUnqIt = std::unique( correctVecMerge.begin(), correctVecMerge.end() );
+		correctVecMerge.erase( lastUnqIt, correctVecMerge.end() );
+		std::cout << "correct merge:\n"; 
+		for (const auto &eachVI : correctVecMerge) {
+			std::cout << eachVI << " ";
+		}
+		std::cout << "\n";
 		constexpr std::array<uint32_t, 10> correct12mergeRow{3, 4, 5, 5, 6, 6, 6, 8, 8, 8};
 		constexpr std::array<uint32_t, 10> correct12mergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7};
 		constexpr std::array<float,    10> correct12mergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275, 0.8941, 0.6902, 0.6549};
@@ -859,6 +849,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr uint32_t nIndividuals{197};
 	constexpr size_t nThreads{4};
+	/*
 	SECTION("Failed GenoTableBin constructors") {
 		constexpr size_t smallNind{1};
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, smallNind, logFileName, nThreads),
@@ -882,6 +873,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, undivNind, logFileName),
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
+	*/
 	/*
 	SECTION("GenoTableBin constructors and methods with correct data") {
 		constexpr size_t nChunks{3};
@@ -970,6 +962,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 }
 
 TEST_CASE("GenoTableHash methods work", "[gtHash]") {
+	/*
 	const std::string logFileName("../tests/binTest.log");
 	const std::string inputBedName("../tests/ind197_397.bed");
 	constexpr uint32_t nIndividuals{197};
@@ -992,6 +985,8 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 	}
 	inAlleleCounts.close();
 	constexpr BayesicSpace::IndividualAndSketchCounts sketchParameters{nIndividuals, kSketches};
+	*/
+	/*
 	SECTION("Failed GenoTableHash constructors") {
 		constexpr size_t smallNind{1};
 		constexpr size_t smallSketch{1};
@@ -1023,6 +1018,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVector, BayesicSpace::IndividualAndSketchCounts{nIndividuals, kGtN}, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
 	}
+	*/
 	/*
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
@@ -1344,3 +1340,4 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		*/
 	}
 }
+

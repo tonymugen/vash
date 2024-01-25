@@ -763,11 +763,13 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			);
 	// de-duplicate the groups
 	logMessages_ += "Number of groups before de-duplication: " + std::to_string( groups.size() ) + "\n";
-	auto lastUniqueIt = std::unique(groups.begin(), groups.end(),
-				[sketchSeed](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
-					return murMurHash(first, sketchSeed) == murMurHash(second, sketchSeed);
-				}
-			);
+	auto lastUniqueIt = std::unique(
+		groups.begin(),
+		groups.end(),
+		[sketchSeed](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
+			return murMurHash(first, sketchSeed) == murMurHash(second, sketchSeed);
+		}
+	);
 	groups.erase( lastUniqueIt, groups.end() );
 	groups.shrink_to_fit();
 
