@@ -247,6 +247,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 			return sum + static_cast<uint64_t>(currValue >> valueSize_);
 		}
 	);
+	// this may not be necessary
 	uint64_t toMergeFirstUnqCI = std::accumulate(
 		toMerge.matrix_.begin(),
 		mismatchPair.second,
@@ -279,7 +280,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 
 	std::cout << "distanceToThisEnd: " << distanceToThisEnd << "; distanceToFirstUnq: " << distanceToFirstUnq << "\n";
 	auto leadingToMerge = matrix_.begin() + distanceToThisEnd;
-	//auto firstUnqIt     = matrix_.begin() + distanceToFirstUnq;
+	auto firstUnqIt     = matrix_.begin() + distanceToFirstUnq;
 	std::for_each(matrix_.begin(), leadingToMerge, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "| ";
 	std::for_each(leadingToMerge, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
@@ -291,109 +292,67 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	std::for_each(leadingToMerge, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
 	std::cout << "\n";
 	// find the iterator trio for rotation
-	auto firstRotateIt      = matrix_.begin() + distanceToFirstUnq;
-	auto firstAfterRotateIt = firstRotateIt;                           // this will be pointing to the first element of this->matrix_ after rotation
-	auto midRotateIt        = matrix_.begin() + distanceToThisEnd;
-	//auto lastRotateIt  = midRotateIt;
-	uint32_t lastSmallerDiff{0};                                       // this will be the last diff value before rotation
-	uint32_t firstLargerDiff{(*firstRotateIt) >> valueSize_};          // this will be the first diff value from this->matrix_ after rotation
+	auto firstRotateIt = matrix_.begin() + distanceToFirstUnq;
+	//auto firstAfterRotateIt = firstRotateIt;                           // pointing to the first element of this->matrix_ after rotation
+	auto midRotateIt   = matrix_.begin() + distanceToThisEnd;
+	uint32_t lastSmallerDiff{(*firstUnqIt) >> valueSize_};               // the last diff value before rotation
+	uint32_t thisCumDiff{(*firstRotateIt) >> valueSize_};                // the first diff value from this->matrix_ after rotation
 	const uint32_t firstRotationGuard{(*midRotateIt) >> valueSize_};
-	while (firstLargerDiff < firstRotationGuard) {
-		lastSmallerDiff  = firstLargerDiff;
-		firstRotateIt    = firstAfterRotateIt;
-		firstLargerDiff += (*firstAfterRotateIt) >> valueSize_;
-		++firstAfterRotateIt;
-	}
-	std::cout << "after scanning: lastSmallerDiff = " << lastSmallerDiff << "; firstLargerDiff = " << firstLargerDiff <<
+	firstRotateIt = std::find_if_not(
+		firstRotateIt,
+		leadingToMerge,
+		[&thisCumDiff, &lastSmallerDiff, &firstRotationGuard](const uint32_t &currElement) {
+			lastSmallerDiff = thisCumDiff;
+			thisCumDiff    += currElement >> valueSize_;
+			return thisCumDiff < firstRotationGuard;
+		}
+	);
+	std::cout << 
+		"after scanning for firstRotateIt: firstRotationGuard = " << firstRotationGuard << 
+		"\nlastSmallerDiff = " << lastSmallerDiff << "; firstLargerDiff = " << thisCumDiff <<
 		"\nfirstRotateIt distance: " << std::distance(matrix_.begin(), firstRotateIt) << 
-		"; firstAfterRotateIt distance: " << std::distance(matrix_.begin(), firstAfterRotateIt) <<
-		"\nfirstRotateIt value: " << ( (*firstRotateIt) >> valueSize_ ) << "; firstAfterRotateIt value: " << ( (*firstAfterRotateIt) >> valueSize_ ) << "\n";
-	/*
-	// this will be the full index of the first overlapping element of *this
-	//uint64_t thisFirstOverlapCI{firstCumulativeIndex_};
-	auto firstOverlapIt = firstUnqIt;
-	// this will be the full index of the last element in *this that does not overlap with the merging matrix
-	uint64_t thisLastUnqCI{0};
-	auto lastUniqueIt = firstOverlapIt;
-	while (thisFirstUnqCI <= toMerge.firstCumulativeIndex_) {
-		thisLastUnqCI       = thisFirstUnqCI;
-		lastUniqueIt        = firstOverlapIt;
-		thisFirstUnqCI += static_cast<uint64_t>( (*firstOverlapIt) >> valueSize_ );
-		++firstOverlapIt;
-	}
-	std::cout << "thisLastUnqCI = " << thisLastUnqCI << "; thisFirstOverlapCI: " << thisFirstUnqCI << "; "
-		<< std::distance(matrix_.begin(), lastUniqueIt) << "; " << std::distance(matrix_.begin(), firstOverlapIt) << "\n";
-
-	// correct the first diff element of toMerge.matrix_
-	auto tmpDiff = static_cast<uint32_t>(toMerge.firstCumulativeIndex_ - thisLastUnqCI) << valueSize_;
-	uint32_t firstValue{(*leadingToMerge) & valueMask_};
-	tmpDiff        |= firstValue;
-	*leadingToMerge = tmpDiff;
+		//"; firstAfterRotateIt distance: " << std::distance(matrix_.begin(), firstAfterRotateIt) <<
+		"\nfirstRotateIt value: " << ( (*firstRotateIt) >> valueSize_ ) <<
+		//"; firstAfterRotateIt value: " << ( (*firstAfterRotateIt) >> valueSize_ ) <<
+		"\n";
+	// now find the end of the rotation span
+	uint32_t toMergeCumDiff{lastSmallerDiff};
+	auto lastRotateIt = std::find_if_not(
+		midRotateIt,
+		matrix_.end(),
+		[&toMergeCumDiff, &thisCumDiff](const uint32_t &currElement) {
+			toMergeCumDiff += currElement >> valueSize_;
+			return toMergeCumDiff < thisCumDiff;
+		}
+	);
+	std::cout << "after scanning for lastRotateIt: toMergeCumDiff = " << toMergeCumDiff <<
+		"\nlastRotateIt distance from midRotateIt: " << std::distance(midRotateIt, lastRotateIt) <<
+		"\nmidRotateIt value: " << ( (*midRotateIt) >> valueSize_ ) <<
+		"; lastRotateIt value: " << ( (*lastRotateIt) >> valueSize_ ) <<
+		"\n";
+	// fix the firstRotateIt index diff to reflect that it is now after the rotated element
+	DiffElementPair newFRIdiff{};
+	newFRIdiff.idxDiff   = ( (*firstRotateIt) >> valueSize_ ) - ( ( *std::prev(lastRotateIt) ) >> valueSize_ );
+	newFRIdiff.smElement = *firstRotateIt;
+	*firstRotateIt       = replaceDiffField_(newFRIdiff);
+	leadingToMerge      += std::distance(midRotateIt, lastRotateIt);
+	firstRotateIt        = std::rotate(firstRotateIt, midRotateIt, lastRotateIt);
 
 	std::cout << "===============\n";
 	std::for_each(matrix_.begin(), leadingToMerge, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "| ";
 	std::for_each(leadingToMerge, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
 	std::cout << "\n";
-	testCI = firstCumulativeIndex_;
-	std::for_each(matrix_.begin(), leadingToMerge, [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
-	std::cout << "| ";
-	testCI = thisLastUnqCI;
-	std::for_each(leadingToMerge, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
-	std::cout << "\n";
-
-	// now find the end of the rotation block
-	auto endRotateIt = leadingToMerge;
-	uint64_t mergeFirstUnqCI{toMerge.firstCumulativeIndex_};
-	while ( (mergeFirstUnqCI < thisFirstOverlapCI) && ( endRotateIt != matrix_.end() ) ) {
-		mergeFirstUnqCI += static_cast<uint64_t>( (*endRotateIt) >> valueSize_ );
-		++endRotateIt;
-	}
-	std::cout << "mergeFirstUnqCI = " << mergeFirstUnqCI << "; " << 
-		( (*endRotateIt) >> valueSize_ ) << "; " <<
-		std::distance(leadingToMerge, endRotateIt) << "\n";
-
-	// correct the first diff element in this->matrix_ after the last merged element
-	tmpDiff       = ( (*lastUniqueIt) >> valueSize_ ) - ( ( *std::prev(endRotateIt) ) >> valueSize_ );
-	tmpDiff       = tmpDiff << valueSize_;
-	firstValue    = (*lastUniqueIt) & valueMask_;
-	tmpDiff      |= firstValue;
-	*lastUniqueIt = tmpDiff;
-
-	// correct the first past the merged element of toMerge.matrix_
-	// TODO: test for endRotateIt != matrix_.end()
-	tmpDiff      = ( (*endRotateIt) >> valueSize_ ) - ( (*firstOverlapIt) >> valueSize_ );
-	tmpDiff      = tmpDiff << valueSize_;
-	firstValue   = (*endRotateIt) & valueMask_;
-	tmpDiff     |= firstValue;
-	*endRotateIt = tmpDiff;
-
-	lastUniqueIt = std::rotate(lastUniqueIt, leadingToMerge, endRotateIt);
-
-	std::cout << "===============\n";
-	std::for_each(matrix_.begin(), leadingToMerge + 1, [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
-	std::cout << "| ";
-	std::for_each(leadingToMerge + 1, matrix_.end(), [](uint32_t diff){std::cout << (diff >> valueSize_) << " ";});
-	std::cout << "\n";
-	testCI = firstCumulativeIndex_;
-	std::for_each(matrix_.begin(), leadingToMerge + 1, [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
-	std::cout << "| ";
-	testCI = thisFirstOverlapCI;
-	std::for_each(leadingToMerge + 1, matrix_.end(), [&testCI](uint32_t diff){testCI += (diff >> valueSize_); std::cout << testCI << " ";});
-	std::cout << "\n";
-
-	*/
-	/*
-	auto endUnqThisIt = std::find_if(
-		matrix_.begin() + 1,
-		matrix_.end(),
-		[&thisLastUnqCI, &thisFirstOverlapCI, &toMerge](uint32_t diffValue){
-			thisLastUnqCI       = thisFirstOverlapCI;
-			thisFirstOverlapCI += static_cast<uint64_t>(diffValue >> valueSize_);
-			return thisFirstOverlapCI >= toMerge.firstCumulativeIndex_;
+	auto newMismatchPair = std::mismatch(
+		firstRotateIt,
+		leadingToMerge,
+		leadingToMerge,
+		[](const uint32_t &value1, const uint32_t &value2) {
+			return (value1 >> valueSize_) == (value2 >> valueSize_);
 		}
 	);
-	*/
+	std::cout << "newMismatchPair.first value: " << ( (*newMismatchPair.first) >> valueSize_ ) <<
+		"\nnewMismatchPair.second value: " << ( (*newMismatchPair.second) >> valueSize_ ) << "\n";
 	/*
 	auto firstMoveIt = toMerge.matrix_.begin();
 	uint64_t runningFullIdx{toMerge.firstCumulativeIndex_};
