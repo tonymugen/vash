@@ -472,7 +472,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint64_t, 12> vecIndexes1{3, 6, 8, 9, 12, 14, 15, 17, 19, 26, 28, 31};
 		constexpr std::array<uint64_t, 12> nIsect1{87, 8, 77, 68, 96, 49, 97, 41, 122, 82, 23, 45};
 		constexpr std::array<uint64_t, 12> nUnion1{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
-		constexpr std::array<uint64_t, 12> vecIndexes2{3, 6, 8, 9, 11, 14, 16, 20, 27, 29, 34, 35};
+		constexpr std::array<uint64_t, 12> vecIndexes2{4, 6, 8, 9, 11, 14, 16, 20, 27, 29, 34, 35};
 		// assigning different values to the same row/col pairs for debugging; in actual application they will be the same
 		constexpr std::array<uint64_t, 12> nIsect2{217, 160, 228, 176, 167, 171, 228, 206, 174, 214, 201, 161};
 		constexpr std::array<uint64_t, 12> nUnion2{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
