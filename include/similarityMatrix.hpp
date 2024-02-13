@@ -40,6 +40,7 @@ namespace BayesicSpace {
 	struct FullIdxValue;
 	struct JaccardPair;
 	struct DiffElementPair;
+	struct FullIdxTrio;
 	class SimilarityMatrix;
 
 	/** \brief Row and column index pair */
@@ -62,7 +63,14 @@ namespace BayesicSpace {
 		uint32_t idxDiff;
 		uint32_t smElement;
 	};
+	/** \brief Full indexes that for first, middle, and last rotation iterators */
+	struct FullIdxTrio {
+		uint64_t first;
+		uint64_t middle;
+		uint64_t last;
+	};
 
+	void chunkedAppend(std::vector<uint32_t> &source, std::vector<uint32_t> &target);
 	/** \brief Reconstruct vectorized index 
 	 *
 	 * Recovers the full index of the vectorized matrix from a differential index.

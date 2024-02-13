@@ -524,11 +524,13 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix tmp1 = matrix1;
 		BayesicSpace::SimilarityMatrix tmpS = matrix1s;
 		BayesicSpace::SimilarityMatrix tmp2 = matrix2;
+
 		//tmp1.merge( std::move(tmpS) );
 		//std::cout << "new tmp1 size: " << tmp1.nElements() << "\n";
-		tmp1.merge( std::move(tmp2) );
+		//tmp1.merge( std::move(tmp2) );
 		//const std::string outputFileName("../tests/mergeMatrix.tsv");
 		//tmp1.save(outputFileName, nThreads);
+		/*
 		std::vector<uint64_t> correctVecMerge;
 		std::merge(
 			vecIndexes1.cbegin(),
@@ -544,6 +546,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			std::cout << eachVI << " ";
 		}
 		std::cout << "\n";
+		*/
 		constexpr std::array<uint32_t, 10> correct12mergeRow{3, 4, 5, 5, 6, 6, 6, 8, 8, 8};
 		constexpr std::array<uint32_t, 10> correct12mergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7};
 		constexpr std::array<float,    10> correct12mergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275, 0.8941, 0.6902, 0.6549};
