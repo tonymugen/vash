@@ -70,6 +70,15 @@ namespace BayesicSpace {
 		uint64_t last;
 	};
 
+	/** \brief Append one vector to another by chunks
+	 * 
+	 * Moves the contents of the source vector to the end of the target vector.
+	 * Uses \f$ \sqrt{N} \f$, where \f$ N \f$ is the size of the source vector,
+	 * extra memory. The source vector is cleared.
+	 *
+	 * \param[in] source the source vector, is cleared as a result
+	 * \param[in,out] target the vector accepting the data from `source`
+	 */
 	void chunkedAppend(std::vector<uint32_t> &source, std::vector<uint32_t> &target);
 	/** \brief Reconstruct vectorized index 
 	 *

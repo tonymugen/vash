@@ -527,7 +527,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		//tmp1.merge( std::move(tmpS) );
 		//std::cout << "new tmp1 size: " << tmp1.nElements() << "\n";
-		//tmp1.merge( std::move(tmp2) );
+		tmp1.merge( std::move(tmp2) );
 		//const std::string outputFileName("../tests/mergeMatrix.tsv");
 		//tmp1.save(outputFileName, nThreads);
 		/*
