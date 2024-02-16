@@ -226,19 +226,18 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 
 	const float chunkSizeFloat = std::sqrt( static_cast<float>( matrix_.size() + toMerge.matrix_.size() ) );
 	const auto  chunkSizeDiff  = static_cast<std::vector<uint32_t>::difference_type>(chunkSizeFloat);
-	const auto  chunkSizeFull  = static_cast<std::vector<uint64_t>::difference_type>(chunkSizeFloat);
+	const auto  chunkSizeSt    = static_cast<size_t>(chunkSizeDiff);
 
 	// pack the first similarity value into the first full index
 	const uint64_t packedThisFirstFullIdx    = (firstCumulativeIndex_ << valueSize_) | static_cast<uint64_t>(matrix_.front() & valueMask_);
 	const uint64_t packedToMergeFirstFullIdx = (toMerge.firstCumulativeIndex_ << valueSize_) | static_cast<uint64_t>(toMerge.matrix_.front() & valueMask_);
 
+	uint64_t cumIdx{0};
 	std::vector<uint32_t> mergedMatrix;
 	std::vector<uint64_t> fullIndexBuffer;
 	uint64_t thisCumIdx{packedThisFirstFullIdx};
 	uint64_t toMergeCumIdx{packedToMergeFirstFullIdx};
 	uint64_t lastCumIdx{firstCumulativeIndex_};        // for re-creating the diff index
-
-	uint64_t cumIdx       = thisCumIdx;
 	auto convertToFullIdx = [&cumIdx, &fullIndexBuffer](const uint32_t &currDiff) {
 		const auto similarityValue{static_cast<uint64_t>(currDiff & valueMask_)};
 		const auto idxDiff{static_cast<uint64_t>(currDiff >> valueSize_)};
@@ -246,20 +245,107 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		cumIdx = (cumIdx << valueSize_) | similarityValue;
 		fullIndexBuffer.push_back(cumIdx);
 	};
-	auto thisChunkEndIt = std::next(matrix_.cbegin(), chunkSizeDiff);
-	std::for_each(matrix_.cbegin(), thisChunkEndIt, convertToFullIdx);
-	matrix_.erase(matrix_.begin(), thisChunkEndIt);
+	auto convertToDiffs = [&lastCumIdx, &mergedMatrix](uint64_t &currPackedFullIdx) {
+		const auto currValue = static_cast<uint32_t>( currPackedFullIdx & static_cast<uint64_t>(valueMask_) );
+		currPackedFullIdx    = currPackedFullIdx >> valueSize_;
+		auto currDiff        = static_cast<uint32_t>(currPackedFullIdx - lastCumIdx);
+		currDiff             = (currDiff << valueSize_) | currValue;
+		lastCumIdx           = currPackedFullIdx;
+		mergedMatrix.push_back(currDiff);
+	};
+
+	while ( (matrix_.size() >= chunkSizeSt) && (toMerge.matrix_.size() >= chunkSizeSt) ) {
+		auto fiMidPosition{std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() )};
+		auto thisChunkEndIt{std::next(matrix_.cbegin(), chunkSizeDiff)};
+		cumIdx = thisCumIdx;
+
+		std::for_each(matrix_.cbegin(), thisChunkEndIt, convertToFullIdx);
+		matrix_.erase(matrix_.begin(), thisChunkEndIt);
+		thisCumIdx = cumIdx;
+		std::inplace_merge(
+			fullIndexBuffer.begin(), 
+			std::next(fullIndexBuffer.begin(), fiMidPosition), 
+			fullIndexBuffer.end(), 
+			[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
+				return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
+			}
+		);
+		fiMidPosition = std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() );
+		cumIdx        = toMergeCumIdx;
+		auto toMergeChunkEndIt{std::next(toMerge.matrix_.cbegin(), chunkSizeDiff)};
+		std::for_each(toMerge.matrix_.cbegin(), toMergeChunkEndIt, convertToFullIdx);
+		toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunkEndIt);
+		toMergeCumIdx = cumIdx;
+
+		std::inplace_merge(
+			fullIndexBuffer.begin(), 
+			std::next(fullIndexBuffer.begin(), fiMidPosition), 
+			fullIndexBuffer.end(), 
+			[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
+				return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
+			}
+		);
+		auto lastUnqIt = std::unique(
+			fullIndexBuffer.begin(),
+			fullIndexBuffer.end(),
+			[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
+				return (firstPacked >> valueSize_) == (secondPacked >> valueSize_);
+			}
+		);
+		fullIndexBuffer.erase( lastUnqIt, fullIndexBuffer.end() );
+
+		// no subsequent matrix blocks can have full indexes smaller than min(thisCumIdx, toMergeCumIdx)
+		const uint64_t lowerBoundCumIdx{std::min(thisCumIdx >> valueSize_, toMergeCumIdx >> valueSize_)};
+		auto fiMoveIdxIt = std::lower_bound(
+			fullIndexBuffer.begin(),
+			fullIndexBuffer.end(),
+			lowerBoundCumIdx,
+			[](const uint64_t &currPckIdx, const uint64_t &lbValue) {
+				return (currPckIdx >> valueSize_) <= lbValue;
+			}
+		);
+		std::cout << "full indexes: ";
+		for (const auto &pfIdx : fullIndexBuffer) {
+			std::cout << (pfIdx >> valueSize_) << " ";
+		}
+		std::cout << "\n";
+		std::for_each(
+			fullIndexBuffer.begin(),
+			fiMoveIdxIt,
+			convertToDiffs
+		);
+		fullIndexBuffer.erase(fullIndexBuffer.begin(), fiMoveIdxIt);
+
+		std::cout << "lastCumIdx = " << lastCumIdx << "\ndiffs: ";
+		for (const auto &diffIdx : mergedMatrix) {
+			std::cout << (diffIdx >> valueSize_) << " ";
+		}
+		std::cout << "\n";
+	}
+	// finish up the tails, if any
+	auto fiMidPosition{std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() )};
+	cumIdx = thisCumIdx;
+
+	std::for_each(matrix_.cbegin(), matrix_.cend(), convertToFullIdx);
+	matrix_.clear();
 	thisCumIdx = cumIdx;
-	cumIdx     = toMergeCumIdx;
-	auto toMergeChunkEndIt{std::next(toMerge.matrix_.cbegin(), chunkSizeDiff)};
-	std::for_each(toMerge.matrix_.cbegin(), toMergeChunkEndIt, convertToFullIdx);
-	toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunkEndIt);
-	toMergeCumIdx = cumIdx;
+	std::inplace_merge(
+		fullIndexBuffer.begin(), 
+		std::next(fullIndexBuffer.begin(), fiMidPosition), 
+		fullIndexBuffer.end(), 
+		[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
+			return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
+		}
+	);
+	fiMidPosition = std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() );
+	cumIdx        = toMergeCumIdx;
+	std::for_each(toMerge.matrix_.cbegin(), toMerge.matrix_.cend(), convertToFullIdx);
+	toMerge.matrix_.clear();
 
 	std::inplace_merge(
 		fullIndexBuffer.begin(), 
-		std::next(fullIndexBuffer.begin(), chunkSizeFull), 
-		std::next(fullIndexBuffer.end()), 
+		std::next(fullIndexBuffer.begin(), fiMidPosition), 
+		fullIndexBuffer.end(), 
 		[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
 			return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
 		}
@@ -273,37 +359,19 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	);
 	fullIndexBuffer.erase( lastUnqIt, fullIndexBuffer.end() );
 
-	// no subsequent matrix blocks can have full indexes smaller than min(thisCumIdx, toMergeCumIdx)
-	const uint64_t lowerBoundCumIdx = std::min(thisCumIdx >> valueSize_, toMergeCumIdx >> valueSize_);
-	auto fiMoveIdxIt = std::lower_bound(
-		fullIndexBuffer.begin(),
-		fullIndexBuffer.end(),
-		lowerBoundCumIdx,
-		[](const uint64_t &currPckIdx, const uint64_t &lbValue) {
-			return (currPckIdx >> valueSize_) <= lbValue;
-		}
-	);
-
 	std::cout << "full indexes: ";
 	for (const auto &pfIdx : fullIndexBuffer) {
 		std::cout << (pfIdx >> valueSize_) << " ";
 	}
+	std::cout << "\n";
 	std::for_each(
 		fullIndexBuffer.begin(),
-		fiMoveIdxIt,
-		[&lastCumIdx, &mergedMatrix](uint64_t &currPackedFullIdx) {
-			const auto currValue = static_cast<uint32_t>( currPackedFullIdx & static_cast<uint64_t>(valueMask_) );
-			currPackedFullIdx    = currPackedFullIdx >> valueSize_;
-			auto currDiff        = static_cast<uint32_t>(currPackedFullIdx - lastCumIdx);
-			currDiff             = (currDiff << valueSize_) | currValue;
-			lastCumIdx           = currPackedFullIdx;
-			mergedMatrix.push_back(currDiff);
-		}
+		fullIndexBuffer.end(),
+		convertToDiffs
 	);
-	fullIndexBuffer.erase(fullIndexBuffer.begin(), fiMoveIdxIt);
+	fullIndexBuffer.clear();
 
-	std::cout << "\n";
-	std::cout << "diffs: ";
+	std::cout << "lastCumIdx = " << lastCumIdx << "\ndiffs: ";
 	for (const auto &diffIdx : mergedMatrix) {
 		std::cout << (diffIdx >> valueSize_) << " ";
 	}
@@ -312,7 +380,6 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);
 
 	// complete the move by resetting all members of toMerge
-	toMerge.matrix_.clear();
 	toMerge.firstCumulativeIndex_ = 0;
 	toMerge.lastCumulativeIndex_  = 0;
 }
