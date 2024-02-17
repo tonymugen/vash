@@ -42,8 +42,6 @@
 #include <future>
 #include <thread>
 
-#include <iostream>
-
 #include "similarityMatrix.hpp"
 #include "vashFunctions.hpp"
 
@@ -304,23 +302,12 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 				return (currPckIdx >> valueSize_) <= lbValue;
 			}
 		);
-		std::cout << "full indexes: ";
-		for (const auto &pfIdx : fullIndexBuffer) {
-			std::cout << (pfIdx >> valueSize_) << " ";
-		}
-		std::cout << "\n";
 		std::for_each(
 			fullIndexBuffer.begin(),
 			fiMoveIdxIt,
 			convertToDiffs
 		);
 		fullIndexBuffer.erase(fullIndexBuffer.begin(), fiMoveIdxIt);
-
-		std::cout << "lastCumIdx = " << lastCumIdx << "\ndiffs: ";
-		for (const auto &diffIdx : mergedMatrix) {
-			std::cout << (diffIdx >> valueSize_) << " ";
-		}
-		std::cout << "\n";
 	}
 	// finish up the tails, if any
 	auto fiMidPosition{std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() )};
@@ -359,23 +346,12 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 	);
 	fullIndexBuffer.erase( lastUnqIt, fullIndexBuffer.end() );
 
-	std::cout << "full indexes: ";
-	for (const auto &pfIdx : fullIndexBuffer) {
-		std::cout << (pfIdx >> valueSize_) << " ";
-	}
-	std::cout << "\n";
 	std::for_each(
 		fullIndexBuffer.begin(),
 		fullIndexBuffer.end(),
 		convertToDiffs
 	);
 	fullIndexBuffer.clear();
-
-	std::cout << "lastCumIdx = " << lastCumIdx << "\ndiffs: ";
-	for (const auto &diffIdx : mergedMatrix) {
-		std::cout << (diffIdx >> valueSize_) << " ";
-	}
-	std::cout << "\n";
 
 	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);
 
@@ -482,13 +458,6 @@ std::string SimilarityMatrix::stringify_(std::vector<uint32_t>::const_iterator s
 		}
 	}
 	return outString;
-}
-
-uint32_t SimilarityMatrix::replaceDiffField_(const DiffElementPair &pairToSwap) {
-	uint32_t tmpDiff         = pairToSwap.idxDiff << valueSize_;
-	uint32_t similarityValue = pairToSwap.smElement & valueMask_;
-	tmpDiff                 |= similarityValue;
-	return tmpDiff;
 }
 
 void SimilarityMatrix::insert_(const FullIdxValue &fullIndexWithSimilarity) {

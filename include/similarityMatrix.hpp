@@ -58,17 +58,6 @@ namespace BayesicSpace {
 		uint64_t nIntersect;
 		uint64_t nUnion;
 	};
-	/** \brief `SimilarityMatrix` differential index and element pair */
-	struct DiffElementPair {
-		uint32_t idxDiff;
-		uint32_t smElement;
-	};
-	/** \brief Full indexes that for first, middle, and last rotation iterators */
-	struct FullIdxTrio {
-		uint64_t first;
-		uint64_t middle;
-		uint64_t last;
-	};
 
 	/** \brief Append one vector to another by chunks
 	 * 
@@ -242,14 +231,6 @@ namespace BayesicSpace {
 		 */
 		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
 								const uint64_t &startCumulativeIndex, const std::vector<std::string> &locusNames);
-		/** \brief Replace the difference portion of an element
-		 *
-		 * Replaces the index difference portion of a `SimilarityMatrix` element with the provided value.
-		 *
-		 * \param[in] pairToSwap the differential index and old element pair to swap
-		 * \return element with new difference and unchanged similarity value
-		 */
-		[[gnu::warn_unused_result]] static uint32_t replaceDiffField_(const DiffElementPair &pairToSwap);
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix according to the full vectorized matrix index.
