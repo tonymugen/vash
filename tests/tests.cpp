@@ -271,7 +271,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	constexpr std::array<uint32_t, 7> colIndexes{3, 1, 2, 2, 4, 1, 7};
 	// for Jaccard calculation
 	constexpr std::array<uint64_t, 7> nIsect{21, 81, 164, 551, 16, 8, 2};
-	constexpr std::array<uint64_t, 7> nUnion{101, 255, 502, 1001, 35, 11, 5};
+	constexpr std::array<uint64_t, 7> nUnion{101, 254, 502, 1001, 35, 11, 5};
 	// to test insertion
 	constexpr std::array<uint32_t, 3> addRowIndexes{8, 3, 5};
 	constexpr std::array<uint32_t, 3> addColIndexes{6, 0, 1};
@@ -280,7 +280,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 	constexpr std::array<uint32_t, 9> correctRowIndexes{3, 4, 5, 5, 6, 6, 8, 8, 8};
 	constexpr std::array<uint32_t, 9> correctColIndexes{0, 3, 1, 2, 2, 4, 1, 6, 7};
-	constexpr std::array<float,    9> correctFloatValues{0.8627, 0.2078, 0.3176, 0.3255, 0.5490, 0.4549, 0.7255, 0.3765, 0.4000};
+	constexpr std::array<float,    9> correctFloatValues{0.8651, 0.2054, 0.3200, 0.3239, 0.5490, 0.4582, 0.7268, 0.3792, 0.3990};
 	constexpr uint64_t previousIdx{7};
 	constexpr size_t nThreads{2};
 
@@ -297,6 +297,27 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		rowColValues = BayesicSpace::recoverRCindexes(correctFullIdx);
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
 		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
+
+		// chunked append tests
+		constexpr size_t appendTargetSize{23};
+		constexpr size_t appendSourceSize{43};
+		std::vector<uint32_t> target(appendTargetSize);
+		std::vector<uint32_t> source(appendSourceSize);
+		std::vector<uint32_t> appendedVec(appendSourceSize + appendTargetSize);
+		std::iota(target.begin(), target.end(), 0);
+		std::iota(source.begin(), source.end(), 2);
+		std::iota(appendedVec.begin(), std::next( appendedVec.begin(), std::distance( target.cbegin(), target.cend() ) ), 0);
+		std::iota(std::next( appendedVec.begin(), std::distance( target.cbegin(), target.cend() ) ), appendedVec.end(), 2);
+		BayesicSpace::chunkedAppend(source, target);
+		REQUIRE( source.empty() );
+		REQUIRE( target.size() == appendedVec.size() );
+		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
+		// empty vector tests
+		BayesicSpace::chunkedAppend(source, target);
+		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
+		std::swap(target, source);
+		BayesicSpace::chunkedAppend(source, target);
+		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
 	}
 	SECTION("SimilarityMatrix methods") {
 		std::array<BayesicSpace::RowColIdx, rowIndexes.size()> idxPairs{};
@@ -325,13 +346,14 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		BayesicSpace::SimilarityMatrix testMatrix;
 		constexpr size_t initialSize{2 * sizeof(uint64_t)};
-		// TODO: add nElements() elementSize() tests
 		REQUIRE(testMatrix.objectSize() == initialSize);
+		REQUIRE( testMatrix.elementSize() == sizeof(uint32_t) );
 		vecIdx = 0;
 		while ( vecIdx < rowIndexes.size() ) {
 			testMatrix.insert( idxPairs.at(vecIdx), jaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
+		REQUIRE( testMatrix.nElements() == rowIndexes.size() );
 		// test the first value insertion bypass
 		testMatrix.insert( idxPairs.at(0), jaccPairs.at(0) );
 		// test the last value insertion bypass
@@ -396,8 +418,8 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint32_t, 3> largeIdxRows{20001, 9999, 40005};
 		constexpr std::array<uint32_t, 3> largeIdxCols{10001, 9899, 30005};
 		constexpr std::array<uint64_t, 3> largeIsect{3, 246, 39};
-		constexpr std::array<uint64_t, 3> largeUnion{255, 255, 255};
-		constexpr std::array<float,    3> largeFloats{0.9647F, 0.0118F, 0.1529F};
+		constexpr std::array<uint64_t, 3> largeUnion{254, 254, 254};
+		constexpr std::array<float,    3> largeFloats{0.9717F, 0.0119F, 0.1541F};
 		constexpr size_t correctLargeSize{46};
 		std::array<BayesicSpace::RowColIdx, largeIdxRows.size()> largeIdxPairs{};
 		std::array<BayesicSpace::JaccardPair, largeIdxRows.size()> largeJaccPairs{};
@@ -471,14 +493,14 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 	SECTION("SimilarityMatrix merge") {
 		constexpr std::array<uint64_t, 12> vecIndexes1{3, 6, 8, 9, 12, 14, 15, 17, 19, 26, 28, 31};
 		constexpr std::array<uint64_t, 12> nIsect1{87, 8, 77, 68, 96, 49, 97, 41, 122, 82, 23, 45};
-		constexpr std::array<uint64_t, 12> nUnion1{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 12> nUnion1{254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254};
 		constexpr std::array<uint64_t, 12> vecIndexes2{4, 6, 8, 9, 11, 14, 16, 20, 27, 29, 34, 35};
 		// assigning different values to the same row/col pairs for debugging; in actual application they will be the same
 		constexpr std::array<uint64_t, 12> nIsect2{217, 160, 228, 176, 167, 171, 228, 206, 174, 214, 201, 161};
-		constexpr std::array<uint64_t, 12> nUnion2{255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 12> nUnion2{254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254};
 		constexpr std::array<uint64_t, 3> vecIndexes3{7, 10, 16};
 		constexpr std::array<uint64_t, 3> nIsect3{140, 138, 136};
-		constexpr std::array<uint64_t, 3> nUnion3{255, 255, 255};
+		constexpr std::array<uint64_t, 3> nUnion3{254, 254, 254};
 
 		constexpr size_t nThreads{2};
 		BayesicSpace::SimilarityMatrix matrix1;
@@ -489,16 +511,6 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			tmpJP.nUnion     = nUnion1.at(arrIdx);
 			tmpJP.nIntersect = nIsect1.at(arrIdx);
 			matrix1.insert(tmp, tmpJP);
-			++arrIdx;
-		}
-		BayesicSpace::SimilarityMatrix matrix1s;
-		arrIdx = 0;
-		while (arrIdx < vecIndexes1.size() / 2) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes1.at(arrIdx) )};
-			BayesicSpace::JaccardPair tmpJP{};
-			tmpJP.nUnion     = nUnion1.at(arrIdx);
-			tmpJP.nIntersect = nIsect1.at(arrIdx);
-			matrix1s.insert(tmp, tmpJP);
 			++arrIdx;
 		}
 		BayesicSpace::SimilarityMatrix matrix2;
@@ -522,31 +534,11 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			++arrIdx;
 		}
 		BayesicSpace::SimilarityMatrix tmp1 = matrix1;
-		BayesicSpace::SimilarityMatrix tmpS = matrix1s;
 		BayesicSpace::SimilarityMatrix tmp2 = matrix2;
 
-		//tmp1.merge( std::move(tmpS) );
-		//std::cout << "new tmp1 size: " << tmp1.nElements() << "\n";
 		tmp1.merge( std::move(tmp2) );
 		//const std::string outputFileName("../tests/mergeMatrix.tsv");
 		//tmp1.save(outputFileName, nThreads);
-		/*
-		std::vector<uint64_t> correctVecMerge;
-		std::merge(
-			vecIndexes1.cbegin(),
-			vecIndexes1.cend(),
-			vecIndexes2.cbegin(),
-			vecIndexes2.cend(),
-			std::back_inserter(correctVecMerge)
-		);
-		auto lastUnqIt = std::unique( correctVecMerge.begin(), correctVecMerge.end() );
-		correctVecMerge.erase( lastUnqIt, correctVecMerge.end() );
-		std::cout << "correct merge:\n"; 
-		for (const auto &eachVI : correctVecMerge) {
-			std::cout << eachVI << " ";
-		}
-		std::cout << "\n";
-		*/
 		constexpr std::array<uint32_t, 10> correct12mergeRow{3, 4, 5, 5, 6, 6, 6, 8, 8, 8};
 		constexpr std::array<uint32_t, 10> correct12mergeCol{0, 3, 1, 2, 2, 4, 5, 1, 6, 7};
 		constexpr std::array<float,    10> correct12mergeValues{0.3412, 0.0314, 0.8510, 0.3020, 0.2667, 0.3765, 0.6275, 0.8941, 0.6902, 0.6549};
@@ -746,11 +738,11 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint32_t, 5> rowIndexes4{3, 4, 5, 5, 6};
 		constexpr std::array<uint32_t, 5> colIndexes4{0, 3, 1, 2, 2};
 		constexpr std::array<uint64_t, 5> nIsect4{87, 8, 217, 77, 68};
-		constexpr std::array<uint64_t, 5> nUnion4{255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 5> nUnion4{254, 254, 254, 254, 254};
 		constexpr std::array<uint32_t, 5> rowIndexes5{6, 6, 8, 8, 8};
 		constexpr std::array<uint32_t, 5> colIndexes5{4, 5, 1, 6, 7};
 		constexpr std::array<uint64_t, 5> nIsect5{96, 160, 228, 176, 167};
-		constexpr std::array<uint64_t, 5> nUnion5{255, 255, 255, 255, 255};
+		constexpr std::array<uint64_t, 5> nUnion5{254, 254, 254, 254, 254};
 
 		BayesicSpace::SimilarityMatrix matrix4;
 		arrIdx = 0;
@@ -802,7 +794,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint32_t, 3> largeIdxRows{9999, 20001, 40005};
 		constexpr std::array<uint32_t, 3> largeIdxCols{9899, 10001, 30005};
 		constexpr std::array<uint64_t, 3> largeNisect{246, 3, 39};
-		constexpr std::array<uint64_t, 3> largeNunion{255, 255, 255};
+		constexpr std::array<uint64_t, 3> largeNunion{254, 254, 254};
 		BayesicSpace::SimilarityMatrix matrixFar;
 		arrIdx = 0;
 		while ( arrIdx < largeIdxRows.size() ) {

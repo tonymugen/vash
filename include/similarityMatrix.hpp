@@ -198,17 +198,19 @@ namespace BayesicSpace {
 		 * Used to substitute floating-point values that correspond to the
 		 * quantized representation in the `matrix_`.
 		 */
-		static const std::array<float, 256> floatLookUp_;
+		static const std::array<float, 255> floatLookUp_;
 		/** \brief String look-up table
 		 *
 		 * Used to substitute string representations (for display) of the floating-point values
 		 * that correspond to the quantized representation in the `matrix_`.
 		 */
-		static const std::array<const char*, 256> stringLookUp_;
+		static const std::array<const char*, 255> stringLookUp_;
 		/** \brief Maximal index bit-field value */
 		static const uint32_t maxIdxBitfield_;
 		/** \brief Mask that isolates the value bit-field */
 		static const uint32_t valueMask_;
+		/** \brief Maximal 8-bit index into the `float` value table */
+		static const uint32_t maxValueIdx_;
 		/** \brief Padding value 
 		 *
 		 * The maximal index and 0 value.
