@@ -115,30 +115,30 @@ constexpr std::array<float, 255> SimilarityMatrix::floatLookUp_{
 };
 
 constexpr std::array<const char*, 255> SimilarityMatrix::stringLookUp_{
-	"0.0000F", "0.0040F", "0.0079F", "0.0119F", "0.0158F", "0.0198F", "0.0237F", "0.0277F", "0.0316F", "0.0356F", "0.0395F",
-	"0.0435F", "0.0474F", "0.0514F", "0.0553F", "0.0593F", "0.0632F", "0.0672F", "0.0711F", "0.0751F", "0.0790F", "0.0830F",
-	"0.0869F", "0.0909F", "0.0948F", "0.0988F", "0.1027F", "0.1067F", "0.1106F", "0.1146F", "0.1185F", "0.1225F", "0.1264F",
-	"0.1304F", "0.1343F", "0.1383F", "0.1422F", "0.1462F", "0.1501F", "0.1541F", "0.1580F", "0.1620F", "0.1659F", "0.1699F",
-	"0.1738F", "0.1778F", "0.1817F", "0.1857F", "0.1896F", "0.1936F", "0.1975F", "0.2015F", "0.2054F", "0.2094F", "0.2133F",
-	"0.2173F", "0.2212F", "0.2252F", "0.2291F", "0.2331F", "0.2370F", "0.2410F", "0.2449F", "0.2489F", "0.2528F", "0.2568F",
-	"0.2607F", "0.2647F", "0.2686F", "0.2726F", "0.2765F", "0.2805F", "0.2844F", "0.2884F", "0.2923F", "0.2962F", "0.3002F",
-	"0.3042F", "0.3081F", "0.3121F", "0.3160F", "0.3200F", "0.3239F", "0.3279F", "0.3318F", "0.3358F", "0.3397F", "0.3436F",
-	"0.3476F", "0.3516F", "0.3555F", "0.3595F", "0.3634F", "0.3674F", "0.3713F", "0.3753F", "0.3792F", "0.3832F", "0.3871F",
-	"0.3911F", "0.3950F", "0.3990F", "0.4029F", "0.4069F", "0.4108F", "0.4148F", "0.4187F", "0.4227F", "0.4266F", "0.4306F",
-	"0.4345F", "0.4385F", "0.4424F", "0.4464F", "0.4503F", "0.4543F", "0.4582F", "0.4622F", "0.4661F", "0.4701F", "0.4740F",
-	"0.4780F", "0.4819F", "0.4859F", "0.4898F", "0.4938F", "0.4977F", "0.5016F", "0.5056F", "0.5096F", "0.5135F", "0.5175F",
-	"0.5214F", "0.5254F", "0.5293F", "0.5332F", "0.5372F", "0.5412F", "0.5451F", "0.5490F", "0.5530F", "0.5570F", "0.5609F",
-	"0.5649F", "0.5688F", "0.5728F", "0.5767F", "0.5807F", "0.5846F", "0.5886F", "0.5925F", "0.5964F", "0.6004F", "0.6044F",
-	"0.6083F", "0.6123F", "0.6162F", "0.6202F", "0.6241F", "0.6281F", "0.6320F", "0.6360F", "0.6399F", "0.6438F", "0.6478F",
-	"0.6518F", "0.6557F", "0.6597F", "0.6636F", "0.6676F", "0.6715F", "0.6755F", "0.6794F", "0.6834F", "0.6873F", "0.6912F",
-	"0.6952F", "0.6992F", "0.7031F", "0.7071F", "0.7110F", "0.7150F", "0.7189F", "0.7229F", "0.7268F", "0.7308F", "0.7347F",
-	"0.7386F", "0.7426F", "0.7466F", "0.7505F", "0.7545F", "0.7584F", "0.7624F", "0.7663F", "0.7703F", "0.7742F", "0.7782F",
-	"0.7821F", "0.7860F", "0.7900F", "0.7940F", "0.7979F", "0.8019F", "0.8058F", "0.8098F", "0.8137F", "0.8177F", "0.8216F",
-	"0.8256F", "0.8295F", "0.8335F", "0.8374F", "0.8414F", "0.8453F", "0.8493F", "0.8532F", "0.8572F", "0.8611F", "0.8651F",
-	"0.8690F", "0.8730F", "0.8769F", "0.8809F", "0.8848F", "0.8888F", "0.8927F", "0.8967F", "0.9006F", "0.9046F", "0.9085F",
-	"0.9125F", "0.9164F", "0.9204F", "0.9243F", "0.9283F", "0.9322F", "0.9362F", "0.9401F", "0.9441F", "0.9480F", "0.9520F",
-	"0.9559F", "0.9599F", "0.9638F", "0.9678F", "0.9717F", "0.9757F", "0.9796F", "0.9836F", "0.9875F", "0.9915F", "0.9954F",
-	"0.9994F", "1.0000F"
+	"0.0000", "0.0040", "0.0079", "0.0119", "0.0158", "0.0198", "0.0237", "0.0277", "0.0316", "0.0356", "0.0395",
+	"0.0435", "0.0474", "0.0514", "0.0553", "0.0593", "0.0632", "0.0672", "0.0711", "0.0751", "0.0790", "0.0830",
+	"0.0869", "0.0909", "0.0948", "0.0988", "0.1027", "0.1067", "0.1106", "0.1146", "0.1185", "0.1225", "0.1264",
+	"0.1304", "0.1343", "0.1383", "0.1422", "0.1462", "0.1501", "0.1541", "0.1580", "0.1620", "0.1659", "0.1699",
+	"0.1738", "0.1778", "0.1817", "0.1857", "0.1896", "0.1936", "0.1975", "0.2015", "0.2054", "0.2094", "0.2133",
+	"0.2173", "0.2212", "0.2252", "0.2291", "0.2331", "0.2370", "0.2410", "0.2449", "0.2489", "0.2528", "0.2568",
+	"0.2607", "0.2647", "0.2686", "0.2726", "0.2765", "0.2805", "0.2844", "0.2884", "0.2923", "0.2962", "0.3002",
+	"0.3042", "0.3081", "0.3121", "0.3160", "0.3200", "0.3239", "0.3279", "0.3318", "0.3358", "0.3397", "0.3436",
+	"0.3476", "0.3516", "0.3555", "0.3595", "0.3634", "0.3674", "0.3713", "0.3753", "0.3792", "0.3832", "0.3871",
+	"0.3911", "0.3950", "0.3990", "0.4029", "0.4069", "0.4108", "0.4148", "0.4187", "0.4227", "0.4266", "0.4306",
+	"0.4345", "0.4385", "0.4424", "0.4464", "0.4503", "0.4543", "0.4582", "0.4622", "0.4661", "0.4701", "0.4740",
+	"0.4780", "0.4819", "0.4859", "0.4898", "0.4938", "0.4977", "0.5016", "0.5056", "0.5096", "0.5135", "0.5175",
+	"0.5214", "0.5254", "0.5293", "0.5332", "0.5372", "0.5412", "0.5451", "0.5490", "0.5530", "0.5570", "0.5609",
+	"0.5649", "0.5688", "0.5728", "0.5767", "0.5807", "0.5846", "0.5886", "0.5925", "0.5964", "0.6004", "0.6044",
+	"0.6083", "0.6123", "0.6162", "0.6202", "0.6241", "0.6281", "0.6320", "0.6360", "0.6399", "0.6438", "0.6478",
+	"0.6518", "0.6557", "0.6597", "0.6636", "0.6676", "0.6715", "0.6755", "0.6794", "0.6834", "0.6873", "0.6912",
+	"0.6952", "0.6992", "0.7031", "0.7071", "0.7110", "0.7150", "0.7189", "0.7229", "0.7268", "0.7308", "0.7347",
+	"0.7386", "0.7426", "0.7466", "0.7505", "0.7545", "0.7584", "0.7624", "0.7663", "0.7703", "0.7742", "0.7782",
+	"0.7821", "0.7860", "0.7900", "0.7940", "0.7979", "0.8019", "0.8058", "0.8098", "0.8137", "0.8177", "0.8216",
+	"0.8256", "0.8295", "0.8335", "0.8374", "0.8414", "0.8453", "0.8493", "0.8532", "0.8572", "0.8611", "0.8651",
+	"0.8690", "0.8730", "0.8769", "0.8809", "0.8848", "0.8888", "0.8927", "0.8967", "0.9006", "0.9046", "0.9085",
+	"0.9125", "0.9164", "0.9204", "0.9243", "0.9283", "0.9322", "0.9362", "0.9401", "0.9441", "0.9480", "0.9520",
+	"0.9559", "0.9599", "0.9638", "0.9678", "0.9717", "0.9757", "0.9796", "0.9836", "0.9875", "0.9915", "0.9954",
+	"0.9994", "1.0000"
 };
 
 constexpr uint32_t SimilarityMatrix::maxIdxBitfield_{0x00FFFFFF};
@@ -224,7 +224,6 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 
 	const float chunkSizeFloat = std::sqrt( static_cast<float>( matrix_.size() + toMerge.matrix_.size() ) );
 	const auto  chunkSizeDiff  = static_cast<std::vector<uint32_t>::difference_type>(chunkSizeFloat);
-	const auto  chunkSizeSt    = static_cast<size_t>(chunkSizeDiff);
 
 	// pack the first similarity value into the first full index
 	const uint64_t packedThisFirstFullIdx    = (firstCumulativeIndex_ << valueSize_) | static_cast<uint64_t>(matrix_.front() & valueMask_);
@@ -244,17 +243,18 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		fullIndexBuffer.push_back(cumIdx);
 	};
 	auto convertToDiffs = [&lastCumIdx, &mergedMatrix](uint64_t &currPackedFullIdx) {
-		const auto currValue = static_cast<uint32_t>( currPackedFullIdx & static_cast<uint64_t>(valueMask_) );
-		currPackedFullIdx    = currPackedFullIdx >> valueSize_;
-		auto currDiff        = static_cast<uint32_t>(currPackedFullIdx - lastCumIdx);
-		currDiff             = (currDiff << valueSize_) | currValue;
-		lastCumIdx           = currPackedFullIdx;
+		const auto currValue{static_cast<uint32_t>( currPackedFullIdx & static_cast<uint64_t>(valueMask_) )};
+		currPackedFullIdx = currPackedFullIdx >> valueSize_;
+		auto currDiff     = static_cast<uint32_t>(currPackedFullIdx - lastCumIdx);
+		currDiff          = (currDiff << valueSize_) | currValue;
+		lastCumIdx        = currPackedFullIdx;
 		mergedMatrix.push_back(currDiff);
 	};
 
-	while ( (matrix_.size() >= chunkSizeSt) && (toMerge.matrix_.size() >= chunkSizeSt) ) {
+	while (std::max( matrix_.size(), toMerge.matrix_.size() ) > 0) {
 		auto fiMidPosition{std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() )};
-		auto thisChunkEndIt{std::next(matrix_.cbegin(), chunkSizeDiff)};
+		const auto thisRemainingSize{std::distance( matrix_.cbegin(), matrix_.cend() )};
+		const auto thisChunkEndIt{std::next( matrix_.cbegin(), std::min(chunkSizeDiff, thisRemainingSize) )};
 		cumIdx = thisCumIdx;
 
 		std::for_each(matrix_.cbegin(), thisChunkEndIt, convertToFullIdx);
@@ -270,7 +270,8 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		);
 		fiMidPosition = std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() );
 		cumIdx        = toMergeCumIdx;
-		auto toMergeChunkEndIt{std::next(toMerge.matrix_.cbegin(), chunkSizeDiff)};
+		const auto toMergeRemainingSize{std::distance( toMerge.matrix_.cbegin(), toMerge.matrix_.cend() )};
+		const auto toMergeChunkEndIt{std::next( toMerge.matrix_.cbegin(), std::min(chunkSizeDiff, toMergeRemainingSize) )};
 		std::for_each(toMerge.matrix_.cbegin(), toMergeChunkEndIt, convertToFullIdx);
 		toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunkEndIt);
 		toMergeCumIdx = cumIdx;
@@ -309,50 +310,14 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 		);
 		fullIndexBuffer.erase(fullIndexBuffer.begin(), fiMoveIdxIt);
 	}
-	// finish up the tails, if any
-	auto fiMidPosition{std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() )};
-	cumIdx = thisCumIdx;
 
-	std::for_each(matrix_.cbegin(), matrix_.cend(), convertToFullIdx);
-	matrix_.clear();
-	thisCumIdx = cumIdx;
-	std::inplace_merge(
-		fullIndexBuffer.begin(), 
-		std::next(fullIndexBuffer.begin(), fiMidPosition), 
-		fullIndexBuffer.end(), 
-		[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
-			return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
-		}
-	);
-	fiMidPosition = std::distance( fullIndexBuffer.begin(), fullIndexBuffer.end() );
-	cumIdx        = toMergeCumIdx;
-	std::for_each(toMerge.matrix_.cbegin(), toMerge.matrix_.cend(), convertToFullIdx);
-	toMerge.matrix_.clear();
-
-	std::inplace_merge(
-		fullIndexBuffer.begin(), 
-		std::next(fullIndexBuffer.begin(), fiMidPosition), 
-		fullIndexBuffer.end(), 
-		[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
-			return (firstPacked >> valueSize_) < (secondPacked >> valueSize_);
-		}
-	);
-	auto lastUnqIt = std::unique(
-		fullIndexBuffer.begin(),
-		fullIndexBuffer.end(),
-		[](const uint64_t &firstPacked, const uint64_t &secondPacked) {
-			return (firstPacked >> valueSize_) == (secondPacked >> valueSize_);
-		}
-	);
-	fullIndexBuffer.erase( lastUnqIt, fullIndexBuffer.end() );
-
-	std::for_each(
-		fullIndexBuffer.begin(),
+	// move over any straggling full index values
+	std::for_each(fullIndexBuffer.begin(),
 		fullIndexBuffer.end(),
 		convertToDiffs
 	);
 	fullIndexBuffer.clear();
-
+	std::swap(mergedMatrix, matrix_);
 	lastCumulativeIndex_ = std::max(toMerge.lastCumulativeIndex_, lastCumulativeIndex_);
 
 	// complete the move by resetting all members of toMerge
@@ -361,6 +326,9 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile) const {
+	if ( matrix_.empty() ) {
+		return;
+	}
 	// determine how many line strings can fit in RAM
 	const RowColIdx lastIdxPair{recoverRCindexes(lastCumulativeIndex_)};
 	const std::string lastEntry{std::to_string(lastIdxPair.iRow + 1) + "\t" + std::to_string(lastIdxPair.jCol + 1) + "\t" + stringLookUp_[0] + "\n"};

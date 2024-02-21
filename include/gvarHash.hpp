@@ -611,7 +611,8 @@ namespace BayesicSpace {
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs, const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
+		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs,
+				const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
 		/** \brief Threaded hash-based similarity in ranges of locus groups
 		 *
 		 * The ranges point to a hash table of locus indexes.

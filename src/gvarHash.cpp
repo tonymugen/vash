@@ -845,10 +845,9 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similari
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
-	//output.close();
+	output.close();
 
 	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
-	output << chunkSizes.size() << "; " << chunkSizes.at(0) << std::endl;
 	BayesicSpace::HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
@@ -868,15 +867,13 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similari
 				startPair = groupRanges.back().second;
 			}
 			groupSimilarities.merge( hashJacThreaded_(groupRanges, similarityCutOff) );
-			//output << groupSimilarities.nElements() << " " << std::flush;
 			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
-				//groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 				return;
 			}
 		}
-		//groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+		groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 	}
-	output << "\n";
 	output.close();
 }
 
