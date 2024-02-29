@@ -120,6 +120,9 @@ namespace BayesicSpace {
 				}
 			} else {
 				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
+				BayesicSpace::SparsityParameters sparsity{};
+				sparsity.nRowsPerBand     = rowsPB;
+				sparsity.similarityCutOff = similarityCutOff;
 				if (stringVariables.at("add-locus-names") == "set") {
 					if (stringVariables.at("only-groups") == "set") {
 						InOutFileNames bimAndLD{};
@@ -130,7 +133,7 @@ namespace BayesicSpace {
 						InOutFileNames bimAndLD{};
 						bimAndLD.inputFileName  = bimFileName;
 						bimAndLD.outputFileName = stringVariables.at("out-file");
-						groupLD.ldInGroups(rowsPB, similarityCutOff, bimAndLD);
+						groupLD.ldInGroups(sparsity, bimAndLD);
 					}
 				} else {
 					if (stringVariables.at("only-groups") == "set") {
@@ -142,7 +145,7 @@ namespace BayesicSpace {
 						BayesicSpace::InOutFileNames outFile{};
 						outFile.outputFileName = stringVariables.at("out-file");
 						outFile.inputFileName  = "";
-						groupLD.ldInGroups(rowsPB, similarityCutOff, outFile);
+						groupLD.ldInGroups(sparsity, outFile);
 					}
 				}
 			}

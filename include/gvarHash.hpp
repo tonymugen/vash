@@ -48,6 +48,7 @@ namespace BayesicSpace {
 	struct IndividualAndSketchCounts;
 	struct BedDataStats;
 	struct InOutFileNames;
+	struct SparsityParameters;
 	struct HashGroup;
 	struct HashGroupItPairCount;
 	class GenoTableBin;
@@ -100,7 +101,16 @@ namespace BayesicSpace {
 		std::string inputFileName;
 		std::string outputFileName;
 	};
-
+	/** \brief LD matrix sparsity parameters
+	 *
+	 * The number of rows per band and similarity value cut-off control
+	 * sparsity of the similarity matrix. Greater values for either result
+	 * in fewer elements included in the matrix.
+	 */
+	struct SparsityParameters{
+		size_t nRowsPerBand;
+		float similarityCutOff;
+	};
 	/** \brief Hash-derived group
 	 *
 	 * Includes the cumulative number of pairs from all previous
@@ -452,12 +462,12 @@ namespace BayesicSpace {
 		 * Otherwise, set the number of chunks automatically.
 		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
-		 * \param[in] nRowsPerBand number of rows per sketch matrix band
+		 * \param[in] sparsityValues `SparsityParameters` object that controls output matrix sparsity
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \param[in] bimAndLDnames _.bim_ and output LD file names
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
-		void ldInGroups(const size_t &nRowsPerBand, const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
+		void ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
 		/** \brief Save the log to a file
 		 *
 		 * Log file name provided at construction.

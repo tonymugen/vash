@@ -828,8 +828,8 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 	out.close();
 }
 
-void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
-	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
+void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
+	std::vector<HashGroup> ldGroups{this->makeLDgroups(sparsityValues.nRowsPerBand)};
 	
 	const size_t totalPairNumber{ldGroups.back().cumulativeNpairs};                                                                                    // total number of pairs
 	logMessages_ += "Estimating LD in groups\n";
@@ -866,7 +866,7 @@ void GenoTableHash::ldInGroups(const size_t &nRowsPerBand, const float &similari
 				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
 				startPair = groupRanges.back().second;
 			}
-			groupSimilarities.merge( hashJacThreaded_(groupRanges, similarityCutOff) );
+			groupSimilarities.merge( hashJacThreaded_(groupRanges, sparsityValues.similarityCutOff) );
 			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
 				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 				return;
