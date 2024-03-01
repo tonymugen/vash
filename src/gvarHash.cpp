@@ -28,6 +28,7 @@
  */
 
 #include <chrono>
+#include <cmath>
 #include <ctime>
 #include <iomanip>  // for put_time
 #include <cstring>
@@ -681,9 +682,11 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
 
 	const SimilarityMatrix emptyMatrix;
-	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * emptyMatrix.elementSize() );      // use half to leave resources for other operations
+	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations
 	const size_t nPairs   = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
-	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
+	// The matrix merge uses sqrt(nElements) scratch space of uint64_t
+	const size_t matrixSize = nPairs + 3UL * static_cast<size_t>( std::sqrt( static_cast<float>(nPairs) ) );
+	const size_t nChunks    = std::max(matrixSize / maxInRAM, suggestNchunks);
 	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
 
 	logMessages_ += "Calculating all pairwise LD\n";
@@ -835,9 +838,12 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 
+	// The matrix merge uses sqrt(nElements) scratch space of uint64_t
+	const size_t matrixSize = totalPairNumber + 3UL * static_cast<size_t>( std::sqrt( static_cast<float>(totalPairNumber) ) );
+
 	const SimilarityMatrix emptyMatrix;
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations
-	const size_t nChunks  = std::max(totalPairNumber / maxInRAM, suggestNchunks);
+	const size_t nChunks  = std::max(matrixSize / maxInRAM, suggestNchunks);
 
 	logMessages_ += "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "\n";
 	logMessages_ += "calculating in " + std::to_string(nChunks) + " chunk(s)\n";
@@ -874,7 +880,6 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 		}
 		groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 	}
-	output.close();
 }
 
 void GenoTableHash::saveLogFile() const {
@@ -1217,7 +1222,6 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 			localRCPair.first.jCol = 0;
 			const size_t locNpairs{eachGroup.locusIndexes.size() * (eachGroup.locusIndexes.size() - 1) / 2};
 			localRCPair.second = recoverRCindexes(locNpairs);
-			// TODO: eliminate after debugging
 			SimilarityMatrix tmp{hashJacBlock_(localRCPair, eachGroup.locusIndexes, similarityCutOff)};
 			result.merge( std::move(tmp) );
 		}
@@ -1262,8 +1266,6 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ro
 
 SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const {
 	std::vector<SimilarityMatrix> threadResults( blockRanges.size() );
-	threadResults.at(0) = hashJacBlock_(blockRanges.at(1), similarityCutOff);
-	/*
 	std::vector< std::future<void> > tasks;
 	tasks.reserve( blockRanges.size() );
 	size_t iThread{0};
@@ -1287,7 +1289,6 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ha
 			threadResults.at(0).merge( std::move(eachMatrix) );
 		}
 	);
-	*/
 
 	return threadResults.at(0);
 }
