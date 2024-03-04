@@ -37,6 +37,7 @@
 #include <sstream>
 #include <fstream>
 #include <ios>
+#include <type_traits>
 #include <vector>
 #include <unordered_map>
 #include <array>
@@ -759,11 +760,13 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	// this carries a ~30% overhead, but speeds the downstream pair sorting
 	// enough that overall there is a ~10% speed-up and at least no overhead
 	// it also enables processing by chunks if the whole sparse table does not fit in RAM
-	std::sort( groups.begin(), groups.end(),
-				[](const std::vector<uint32_t> &group1, const std::vector<uint32_t> &group2) {
-					return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
-				}
-			);
+	std::sort(
+		groups.begin(), 
+		groups.end(),
+		[](const std::vector<uint32_t> &group1, const std::vector<uint32_t> &group2) {
+			return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
+		}
+	);
 	// de-duplicate the groups
 	logMessages_ += "Number of groups before de-duplication: " + std::to_string( groups.size() ) + "\n";
 	auto lastUniqueIt = std::unique(
@@ -779,15 +782,36 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	logMessages_ += "Number of groups after de-duplication: " + std::to_string( groups.size() ) + "\n";
 
 	std::vector<HashGroup> indexedGroups;
-	indexedGroups.reserve( groups.size() );
-	uint64_t cumNpairs{0};
-	for (auto &eachGroup : groups) {
-		HashGroup currHG;
-		cumNpairs              += eachGroup.size() * (eachGroup.size() - 1) / 2;
-		currHG.cumulativeNpairs = cumNpairs;
-		currHG.locusIndexes     = std::move(eachGroup);
-		indexedGroups.emplace_back(currHG);
+	if ( groups.empty() ) {
+		return indexedGroups;
 	}
+	HashGroup accumulator{0, std::move(groups[0])};                  // will be the union of consecutive groups with equal first elements
+	std::for_each(
+		std::next( groups.begin() ),
+		groups.end(),
+		[&accumulator, &indexedGroups](std::vector<uint32_t> &eachGroup) {
+			// this is a heuristic method to consolidate groups with indexes in common
+			if (accumulator.locusIndexes[0] == eachGroup[0]) {
+				std::vector<uint32_t> output;
+				std::set_union(
+					accumulator.locusIndexes.cbegin(),
+					accumulator.locusIndexes.cend(),
+					eachGroup.cbegin(),
+					eachGroup.cend(),
+					std::back_inserter(output)
+				);
+				std::swap(accumulator.locusIndexes, output);
+				eachGroup.clear();
+				return;
+			}
+			accumulator.cumulativeNpairs += accumulator.locusIndexes.size() * (accumulator.locusIndexes.size() - 1) / 2;
+			indexedGroups.emplace_back(accumulator);
+			std::swap(accumulator.locusIndexes, eachGroup);
+			eachGroup.clear();
+		}
+	);
+
+	logMessages_ += "Number of groups after merger: " + std::to_string( indexedGroups.size() ) + "\n";
 
 	return indexedGroups;
 }
