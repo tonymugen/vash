@@ -68,43 +68,42 @@ namespace BayesicSpace {
 	 * \param[in] source the source vector, is cleared as a result
 	 * \param[in,out] target the vector accepting the data from `source`
 	 */
-	void chunkedAppend(std::vector<uint32_t> &source, std::vector<uint32_t> &target);
+	void chunkedAppend(std::vector<uint64_t> &source, std::vector<uint64_t> &target);
 	/** \brief Reconstruct vectorized index 
 	 *
-	 * Recovers the full index of the vectorized matrix from a differential index.
+	 * Recovers the vectorized matrix index from a packed index + value pair.
 	 *
-	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-	 * \param[in] precedingFullIdx full index of the preceding element, passed by value
+	 * \param[in] packedElementIt iterator pointing to a packed index + similarity element
 	 * \return full index
 	 */
-	[[gnu::warn_unused_result]] uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept;
+	[[gnu::warn_unused_result]] inline uint64_t recoverVIdx(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
 	/** \brief Recover row and column indexes 
 	 *
-	 * Recovers the row and column indexes from the full vectorized matrix index.
+	 * Recovers the row and column indexes from the matrix element.
 	 *
-	 * \param[in] fullIdx full index of the element
+	 * \param[in] packedElement packed element with index and similarity value
 	 * \return row and column index pair
 	 */
-	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &fullIdx) noexcept;
+	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
 	/** \brief Recover row and column indexes 
 	 *
-	 * Recovers the row and column indexes from the differential index of the vectorized matrix.
-	 * Updates the preceding full index to the new full index value.
+	 * Recovers the row and column indexes from the packed index + similarity value of the vectorized matrix.
 	 *
 	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-	 * \param[in,out] precedingFullIdx full index of the preceding element
 	 * \return row and column index pair
 	 */
-	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t &precedingFullIdx) noexcept;
+	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
 
 	/** \brief Similarity matrix
 	 *
-	 * A representation of a symmetric similarity matrix, excluding the diagonal.
-	 * Stores the lower triangle by row.
-	 * The representation is efficient if the matrix is sparse.
+	 * A representation of a square symmetric similarity matrix, excluding the diagonal.
+	 * Stores only the values present in the lower triangle by row.
+	 * The representation is memory efficient if the matrix is sparse and attempts
+	 * to strike a compromise between memory use and matrix manipulation speed.
 	 */
 	class SimilarityMatrix {
-	friend uint64_t recoverFullVIdx(std::vector<uint32_t>::const_iterator packedElementIt, uint64_t precedingFullIdx) noexcept;
+	friend uint64_t recoverFullVIdx(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
+	friend RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
 	public:
 		/** \brief Default constructor */
 		SimilarityMatrix() noexcept  = default;
@@ -137,14 +136,13 @@ namespace BayesicSpace {
 		 *
 		 * \return matrix element size in bytes
 		 */
-		[[gnu::warn_unused_result]] static size_t elementSize() noexcept {return sizeof(uint32_t);};
+		[[gnu::warn_unused_result]] static size_t elementSize() noexcept {return sizeof(uint64_t);};
 		/** \brief Object size in bytes 
 		 *
 		 * \return object size in bytes
 		 */
 		[[gnu::warn_unused_result]] size_t objectSize() const noexcept { 
-			return	elementSize() * matrix_.size() +             // matrix size
-					2 * sizeof(uint64_t);                        // full index sizes
+			return	elementSize() * matrix_.size();
 		};
 		/** \brief Number of elements in the matrix
 		 *
@@ -165,6 +163,7 @@ namespace BayesicSpace {
 		/** \brief Merge two matrices 
 		 *
 		 * Merge a matrix with the current object, destroying the donor object.
+		 * Duplicated indexes are discarded even if they differ in similarity values.
 		 *
 		 * \param[in] toMerge object to merge
 		 */
@@ -182,15 +181,11 @@ namespace BayesicSpace {
 	private:
 		/** \brief Vectorized data representation 
 		 *
-		 * The differential index and value are packed into 32-bit integers.
+		 * The index of the vectorized (by row) lower triangle and value are packed into 64-bit integers.
 		 * The first byte is the quantized similarity value (indexing the look-up table).
-		 * The rest encode the distance in vectorized index space from the previous non-zero element.
+		 * The rest encode the vectorized index of the element.
 		 */
-		std::vector<uint32_t> matrix_;
-		/** \brief Full (cumulative) index of the first element */
-		uint64_t firstCumulativeIndex_{0};
-		/** \brief Full (cumulative) index of the last element */
-		uint64_t lastCumulativeIndex_{0};
+		std::vector<uint64_t> matrix_;
 
 		// static members
 		/** \brief Floating point look-up table
@@ -198,27 +193,26 @@ namespace BayesicSpace {
 		 * Used to substitute floating-point values that correspond to the
 		 * quantized representation in the `matrix_`.
 		 */
-		static const std::array<float, 255> floatLookUp_;
+		static const std::array<float, 256> floatLookUp_;
 		/** \brief String look-up table
 		 *
 		 * Used to substitute string representations (for display) of the floating-point values
 		 * that correspond to the quantized representation in the `matrix_`.
 		 */
-		static const std::array<const char*, 255> stringLookUp_;
+		static const std::array<const char*, 256> stringLookUp_;
 		/** \brief Maximal index bit-field value */
-		static const uint32_t maxIdxBitfield_;
-		/** \brief Mask that isolates the value bit-field */
-		static const uint32_t valueMask_;
-		/** \brief Maximal 8-bit index into the `float` value table */
-		static const uint32_t maxValueIdx_;
-		/** \brief Padding value 
+		static const uint64_t maxIdxBitfield_;
+		/** \brief Maximal row and column value 
 		 *
-		 * The maximal index and 0 value.
-		 * Is added when the distance between indexes exceeds the index bit-field max.
+		 * Depends on `maxIdxBitfield_`
 		 */
-		static const uint32_t padding_;
+		static const uint32_t maxRowColValue_;
+		/** \brief Mask that isolates the value bit-field */
+		static const uint64_t valueMask_;
+		/** \brief Maximal 8-bit index into the `float` value table */
+		static const uint64_t maxValueIdx_;
 		/** \brief Size of the value bit-field in bits */
-		static const uint32_t valueSize_;
+		static const uint64_t valueSize_;
 		/** \brief Convert matrix data to string with locus names
 		 *
 		 * Construct a string from a portion of the matrix for saving.
@@ -227,18 +221,17 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] start start iterator for the matrix
 		 * \param[in] end end iterator for the matrix
-		 * \param[in] startCumulativeIndex cumulative index of the start iterator position
 		 * \param[in] locusNames locus name vector
 		 *  \return output string
 		 */
-		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint32_t>::const_iterator start, std::vector<uint32_t>::const_iterator end,
-								const uint64_t &startCumulativeIndex, const std::vector<std::string> &locusNames);
+		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+								const std::vector<std::string> &locusNames);
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix according to the full vectorized matrix index.
 		 *
-		 * \param[in] fullIndexWithSimilarity full index and the corresponding quantized similarity
+		 * \param[in] indexWithSimilarity full index and the corresponding quantized similarity
 		 */
-		void insert_(const FullIdxValue &fullIndexWithSimilarity);
+		void insert_(const FullIdxValue &indexWithSimilarity);
 	};
 }
