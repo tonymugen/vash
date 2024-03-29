@@ -445,7 +445,7 @@ SimilarityMatrix GenoTableBin::jaccardThreaded_(const std::vector< std::pair<Row
 		threadResults.begin() + 1,
 		threadResults.end(),
 		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge( std::move(eachMatrix) );
+			threadResults.at(0).merge(eachMatrix);
 		}
 	);
 
@@ -893,7 +893,8 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
 				startPair = groupRanges.back().second;
 			}
-			groupSimilarities.merge( hashJacThreaded_(groupRanges, sparsityValues.similarityCutOff) );
+			SimilarityMatrix tmp = hashJacThreaded_(groupRanges, sparsityValues.similarityCutOff);
+			groupSimilarities.merge(tmp);
 			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
 				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 				return;
@@ -1244,14 +1245,15 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 			const size_t locNpairs{eachGroup.locusIndexes.size() * (eachGroup.locusIndexes.size() - 1) / 2};
 			localRCPair.second = recoverRCindexes(locNpairs);
 			SimilarityMatrix tmp{hashJacBlock_(localRCPair, eachGroup.locusIndexes, similarityCutOff)};
-			result.merge( std::move(tmp) );
+			result.merge(tmp);
 		}
 	);
 	// last, possibly incomplete, group
 	rowColumnPair.first.iRow = 1;
 	rowColumnPair.first.jCol = 0;
 	rowColumnPair.second     = recoverRCindexes(blockRange.second.pairCount);
-	result.merge( hashJacBlock_(rowColumnPair, blockRange.second.hgIterator->locusIndexes, similarityCutOff) );
+	SimilarityMatrix tmp = hashJacBlock_(rowColumnPair, blockRange.second.hgIterator->locusIndexes, similarityCutOff);
+	result.merge(tmp);
 
 	return result;
 }
@@ -1278,7 +1280,7 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ro
 		threadResults.begin() + 1,
 		threadResults.end(),
 		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge( std::move(eachMatrix) );
+			threadResults.at(0).merge(eachMatrix);
 		}
 	);
 
@@ -1307,7 +1309,7 @@ SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<Ha
 		threadResults.begin() + 1,
 		threadResults.end(),
 		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge( std::move(eachMatrix) );
+			threadResults.at(0).merge(eachMatrix);
 		}
 	);
 

@@ -69,14 +69,6 @@ namespace BayesicSpace {
 	 * \param[in,out] target the vector accepting the data from `source`
 	 */
 	void chunkedAppend(std::vector<uint64_t> &source, std::vector<uint64_t> &target);
-	/** \brief Reconstruct vectorized index 
-	 *
-	 * Recovers the vectorized matrix index from a packed index + value pair.
-	 *
-	 * \param[in] packedElementIt iterator pointing to a packed index + similarity element
-	 * \return full index
-	 */
-	[[gnu::warn_unused_result]] inline uint64_t recoverVIdx(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
 	/** \brief Recover row and column indexes 
 	 *
 	 * Recovers the row and column indexes from the matrix element.
@@ -85,14 +77,6 @@ namespace BayesicSpace {
 	 * \return row and column index pair
 	 */
 	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
-	/** \brief Recover row and column indexes 
-	 *
-	 * Recovers the row and column indexes from the packed index + similarity value of the vectorized matrix.
-	 *
-	 * \param[in] packedElementIt iterator pointing to a packed index+similarity element
-	 * \return row and column index pair
-	 */
-	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
 
 	/** \brief Similarity matrix
 	 *
@@ -102,7 +86,6 @@ namespace BayesicSpace {
 	 * to strike a compromise between memory use and matrix manipulation speed.
 	 */
 	class SimilarityMatrix {
-	friend uint64_t recoverFullVIdx(std::vector<uint64_t>::const_iterator packedElementIt) noexcept;
 	friend RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
 	public:
 		/** \brief Default constructor */
@@ -167,7 +150,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] toMerge object to merge
 		 */
-		void merge(SimilarityMatrix &&toMerge);
+		void merge(SimilarityMatrix &toMerge);
 		/** \brief Save to file 
 		 *
 		 * Uses multi-threaded data prep to speed up saving.

@@ -60,25 +60,15 @@ void BayesicSpace::chunkedAppend(std::vector<uint64_t> &source, std::vector<uint
 	source.clear();
 }
 
-uint64_t BayesicSpace::recoverFullVIdx(std::vector<uint64_t>::const_iterator packedElementIt) noexcept {
-	return static_cast<uint64_t>( (*packedElementIt) >> SimilarityMatrix::valueSize_ );
-};
-
 RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &packedElement) noexcept {
 	constexpr double tfiCoeff{8.0};
 	RowColIdx result{};
-	const uint64_t vectorizedIdx = packedElement >> SimilarityMatrix::valueSize_;
+	const uint64_t vectorizedIdx{packedElement >> SimilarityMatrix::valueSize_};
 
 	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(vectorizedIdx))) / 2.0);
 	result.jCol    = static_cast<uint32_t>(vectorizedIdx - row * (row - 1) / 2);
 	result.iRow    = static_cast<uint32_t>(row);
 
-	return result;
-}
-
-RowColIdx BayesicSpace::recoverRCindexes(std::vector<uint64_t>::const_iterator packedElementIt) noexcept {
-	const uint64_t thisFullIdx{recoverFullVIdx(packedElementIt)};
-	RowColIdx result{recoverRCindexes(thisFullIdx)};
 	return result;
 }
 
@@ -137,7 +127,7 @@ constexpr std::array<const char*, 256> SimilarityMatrix::stringLookUp_{
 };
 
 constexpr uint64_t SimilarityMatrix::maxIdxBitfield_{0x00FFFFFFFFFFFFFF};
-constexpr uint32_t SimilarityMatrix::maxRowColValue_{759250125};
+constexpr uint32_t SimilarityMatrix::maxRowColValue_{379625062};
 constexpr uint64_t SimilarityMatrix::valueMask_{0x00000000000000FF};
 constexpr uint64_t SimilarityMatrix::valueSize_{8};
 constexpr uint64_t SimilarityMatrix::maxValueIdx_{0x00000000000000FF};
@@ -171,26 +161,25 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &ja
 	this->insert_(tmp);
 }
 
-void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
+void SimilarityMatrix::merge(SimilarityMatrix &toMerge) {
 	// trivial cases
 	if ( matrix_.empty() ) {
-		*this = std::move(toMerge);
+		std::swap(matrix_, toMerge.matrix_);
 		return;
 	}
 	if ( toMerge.matrix_.empty() ) {
 		return;
 	}
 
+	auto idxComparison = [](const uint64_t &packedIdx1, const uint64_t &packedIdx2) {
+		return (packedIdx1 >> valueSize_) < (packedIdx2 >> valueSize_);
+	};
 	// We will copy things in sqrt(size of the two matrices) chunks to conserve memory
 	const float chunkSizeFloat = std::sqrt( static_cast<float>( matrix_.size() + toMerge.matrix_.size() ) );
 	const auto  chunkSizeDiff  = static_cast<std::vector<uint64_t>::difference_type>(chunkSizeFloat);
 
 	std::vector<uint64_t> mergedMatrix;
 	std::vector<uint64_t> unionBuffer;
-
-	auto idxComparison = [](const uint64_t &packedIdx1, const uint64_t &packedIdx2) {
-		return (packedIdx1 >> valueSize_) < (packedIdx2 >> valueSize_);
-	};
 
 	// Initialize the merge matrix with the first pair of chunks
 	const auto thisChunk1size{std::min( chunkSizeDiff, std::distance( matrix_.cbegin(), matrix_.cend() ) )};
@@ -229,10 +218,10 @@ void SimilarityMatrix::merge(SimilarityMatrix &&toMerge) {
 			idxComparison
 		);
 		unionBuffer.clear();
-		toMerge.matrix_.erase(toMerge.matrix_.begin(), thisChunkEndIt);
+		toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunkEndIt);
 	}
 
-	assert( ( !matrix_.empty() && !toMerge.matrix_.empty() )  //NOLINT
+	assert( ( matrix_.empty() || toMerge.matrix_.empty() )  //NOLINT
 			&& "ERROR: at least one matrix must be empty in merge" );
 	// move over any straggling elements
 	if ( !matrix_.empty() ) {
@@ -321,15 +310,15 @@ std::string SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator s
 	std::string outString;
 	if ( locusNames.empty() ) {
 		for (auto matIt = start; matIt != end; ++matIt) {
-			const RowColIdx currentPair{recoverRCindexes(matIt)};
-			const std::string similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+			const RowColIdx currentPair{recoverRCindexes(*matIt)};
+			const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
 			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
 		}
 		return outString;
 	}
 	for (auto matIt = start; matIt != end; ++matIt) {
-		const RowColIdx currentPair{recoverRCindexes(matIt)};
-		const std::string similarityValue = stringLookUp_.at( static_cast<size_t>( (*matIt) & valueMask_ ) );
+		const RowColIdx currentPair{recoverRCindexes(*matIt)};
+		const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
 		outString += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
 	}
 	return outString;
@@ -350,56 +339,16 @@ void SimilarityMatrix::insert_(const FullIdxValue &indexWithSimilarity) {
 		matrix_.push_back(packedElement);
 		return;
 	}
-	// will be inserting the new element
-	if (fullIndexWithSimilarity.fullIdx < lastCumulativeIndex_) {
-		const uint64_t newFirstCumIdx{std::min(firstCumulativeIndex_, fullIndexWithSimilarity.fullIdx)};
-		uint64_t firstDiff{firstCumulativeIndex_ - newFirstCumIdx}; // 0 or the distance to newVecIndex if it is in front of firstCumulativeIndex_
-
-		// resolution of the possible index bit-field overload by padding with 0 values
-		const uint64_t nBFmax = firstDiff / maxIdxBitfield_;
-		std::vector<uint32_t> wholeBitField(nBFmax, padding_);
-		firstDiff = firstDiff % maxIdxBitfield_;
-
-		uint32_t firstElement = static_cast<uint32_t>(firstDiff) << valueSize_;
-		const auto firstValue{matrix_[0] & valueMask_};
-		firstElement |= firstValue;
-		matrix_[0]    = firstElement;   // if the firstCumulativeIndex_ has not changed, still 0 index
-		auto matIt    = matrix_.begin();
-		uint64_t currentIdx{recoverFullVIdx(matIt, newFirstCumIdx)};
-		while (currentIdx < fullIndexWithSimilarity.fullIdx) {
-			++matIt;
-			currentIdx = recoverFullVIdx(matIt, currentIdx);
+	// will be inserting the new element if not already present
+	const auto lowerBoundIt = std::lower_bound(
+		matrix_.cbegin(),
+		matrix_.cend(),
+		indexWithSimilarity.fullIdx,
+		[](const uint64_t &packedMatElement, const uint64_t &idxValue) {
+			return (packedMatElement >> valueSize_) < idxValue;
 		}
-		// ignore if the element already present
-		if (currentIdx == fullIndexWithSimilarity.fullIdx) {
-			matrix_[0] &= valueMask_;
-			return;
-		}
-
-		auto nextDiff = static_cast<uint32_t>(currentIdx - fullIndexWithSimilarity.fullIdx);
-		auto currDiff = ( (*matIt) >> valueSize_ ) - nextDiff;
-		currDiff      = currDiff << valueSize_;
-		currDiff     |= static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity);
-		matIt = std::next( matrix_.insert(matIt, currDiff) );
-		const uint32_t nextVal{(*matIt) & valueMask_};
-		nextDiff  = nextDiff << valueSize_;
-		nextDiff |= nextVal;
-		*matIt    = nextDiff;
-		matrix_.insert( matIt, wholeBitField.cbegin(), wholeBitField.cend() );
-		matrix_[0]           &= valueMask_;
-		firstCumulativeIndex_ = newFirstCumIdx;
-		return;
+	);
+	if ( indexWithSimilarity.fullIdx != (*lowerBoundIt >> valueSize_) ) {
+		matrix_.insert(lowerBoundIt, packedElement);
 	}
-	uint64_t newDiff = fullIndexWithSimilarity.fullIdx - lastCumulativeIndex_;
-
-	// if the difference overflows the bit-field, pad with 0-valued entries
-	const size_t nBFmax = newDiff / maxIdxBitfield_;
-	std::vector<uint32_t> wholeBitField(nBFmax, padding_);
-	std::move( wholeBitField.begin(), wholeBitField.end(), std::back_inserter(matrix_) );
-	newDiff = newDiff % maxIdxBitfield_;
-
-	uint32_t newEntry{static_cast<uint32_t>(newDiff) << valueSize_};
-	newEntry |= static_cast<uint32_t>(fullIndexWithSimilarity.quantSimilarity);
-	matrix_.push_back(newEntry);
-	lastCumulativeIndex_ = fullIndexWithSimilarity.fullIdx;
 }

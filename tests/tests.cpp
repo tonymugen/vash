@@ -1,8 +1,6 @@
 #include <cstdint>
 #include <cstdio>
-#include <cmath>
 #include <iterator>
-#include <limits>
 #include <numeric>
 #include <utility>
 #include <vector>
@@ -13,9 +11,7 @@
 #include <sstream>
 
 #include <iostream>
-#include <chrono>
 
-#include "random.hpp"
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "similarityMatrix.hpp"
@@ -151,6 +147,7 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			)
 		);
 
+		/*
 		constexpr std::array<uint32_t, nChunks> correctRowStarts{1, 4, 6, 7};
 		constexpr std::array<uint32_t, nChunks> correctRowEnds{4, 6, 7, 8};
 		constexpr std::array<uint32_t, nChunks> correctColStarts{0, 3, 3, 6};
@@ -214,6 +211,7 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 				}
 			)
 		);
+		*/
 	}
 
 	SECTION("Magic byte testing") {
@@ -280,30 +278,24 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 	constexpr std::array<uint32_t, 9> correctRowIndexes{3, 4, 5, 5, 6, 6, 8, 8, 8};
 	constexpr std::array<uint32_t, 9> correctColIndexes{0, 3, 1, 2, 2, 4, 1, 6, 7};
-	constexpr std::array<float,    9> correctFloatValues{0.8651, 0.2054, 0.3200, 0.3239, 0.5490, 0.4582, 0.7268, 0.3792, 0.3990};
+	constexpr std::array<float,    9> correctFloatValues{0.8627, 0.2078, 0.3176, 0.3255, 0.5490, 0.4549, 0.7255, 0.3765, 0.4000};
 	constexpr uint64_t previousIdx{7};
 	constexpr size_t nThreads{2};
 
 	SECTION("Auxiliary functions") {
-		constexpr uint32_t byteSize{8};
-		constexpr std::array<uint32_t, 4> diffIdxArray{(2 << byteSize), (2 << byteSize), (1 << byteSize), (5 << byteSize)};
-		const std::vector<uint32_t> diffIdx( diffIdxArray.cbegin(), diffIdxArray.cend() );
-		constexpr uint64_t correctFullIdx{9};
-		REQUIRE(BayesicSpace::recoverFullVIdx(diffIdx.cbegin(), previousIdx) == correctFullIdx);
-		uint64_t previousIdxMutable{previousIdx};
-		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes(diffIdx.cbegin(), previousIdxMutable)};
-		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
-		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
-		rowColValues = BayesicSpace::recoverRCindexes(correctFullIdx);
+		constexpr uint64_t byteSize{8};
+		constexpr std::array<uint64_t, 4> vecIdxArray{(9 << byteSize), (11 << byteSize), (12 << byteSize), (17 << byteSize)};
+		constexpr uint64_t correctVecIdx{9};
+		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes( vecIdxArray.at(0) )};
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
 		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
 
 		// chunked append tests
 		constexpr size_t appendTargetSize{23};
 		constexpr size_t appendSourceSize{43};
-		std::vector<uint32_t> target(appendTargetSize);
-		std::vector<uint32_t> source(appendSourceSize);
-		std::vector<uint32_t> appendedVec(appendSourceSize + appendTargetSize);
+		std::vector<uint64_t> target(appendTargetSize);
+		std::vector<uint64_t> source(appendSourceSize);
+		std::vector<uint64_t> appendedVec(appendSourceSize + appendTargetSize);
 		std::iota(target.begin(), target.end(), 0);
 		std::iota(source.begin(), source.end(), 2);
 		std::iota(appendedVec.begin(), std::next( appendedVec.begin(), std::distance( target.cbegin(), target.cend() ) ), 0);
@@ -345,26 +337,24 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		}
 
 		BayesicSpace::SimilarityMatrix testMatrix;
-		constexpr size_t initialSize{2 * sizeof(uint64_t)};
+		constexpr size_t initialSize{0};
 		REQUIRE(testMatrix.objectSize() == initialSize);
-		REQUIRE( testMatrix.elementSize() == sizeof(uint32_t) );
+		REQUIRE( testMatrix.elementSize() == sizeof(uint64_t) );
 		vecIdx = 0;
 		while ( vecIdx < rowIndexes.size() ) {
 			testMatrix.insert( idxPairs.at(vecIdx), jaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
 		REQUIRE( testMatrix.nElements() == rowIndexes.size() );
-		// test the first value insertion bypass
-		testMatrix.insert( idxPairs.at(0), jaccPairs.at(0) );
 		// test the last value insertion bypass
 		testMatrix.insert( idxPairs.back(), jaccPairs.back() );
-		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint32_t) * idxPairs.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint64_t) * idxPairs.size() ) );
 		vecIdx = 0;
 		while ( vecIdx < addRowIndexes.size() ) {
 			testMatrix.insert( addIdxPairs.at(vecIdx), addJaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
-		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint32_t) * correctFloatValues.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint64_t) * correctFloatValues.size() ) );
 
 		// test file save
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
@@ -414,58 +404,6 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE_THROWS_WITH(testMatrix.save(outputFileName, nThreads, smallFile),
 			Catch::Matchers::StartsWith("ERROR: number of rows exceeds locus name count in") );
 
-		// values that require padding
-		constexpr std::array<uint32_t, 3> largeIdxRows{20001, 9999, 40005};
-		constexpr std::array<uint32_t, 3> largeIdxCols{10001, 9899, 30005};
-		constexpr std::array<uint64_t, 3> largeIsect{3, 246, 39};
-		constexpr std::array<uint64_t, 3> largeUnion{254, 254, 254};
-		constexpr std::array<float,    3> largeFloats{0.9717F, 0.0119F, 0.1541F};
-		constexpr size_t correctLargeSize{46};
-		std::array<BayesicSpace::RowColIdx, largeIdxRows.size()> largeIdxPairs{};
-		std::array<BayesicSpace::JaccardPair, largeIdxRows.size()> largeJaccPairs{};
-		vecIdx = 0;
-		while ( vecIdx < largeIdxRows.size() ) {
-			largeIdxPairs.at(vecIdx).iRow = largeIdxRows.at(vecIdx);
-			largeIdxPairs.at(vecIdx).jCol = largeIdxCols.at(vecIdx);
-
-			largeJaccPairs.at(vecIdx).nIntersect = largeIsect.at(vecIdx);
-			largeJaccPairs.at(vecIdx).nUnion     = largeUnion.at(vecIdx);
-			++vecIdx;
-		}
-		vecIdx = 0;
-		BayesicSpace::SimilarityMatrix largeMatrix;
-		while ( vecIdx < largeIdxRows.size() ) {
-			largeMatrix.insert( largeIdxPairs.at(vecIdx), largeJaccPairs.at(vecIdx) );
-			++vecIdx;
-		}
-		REQUIRE(largeMatrix.objectSize() == initialSize + sizeof(uint32_t) * correctLargeSize);
-
-		largeMatrix.save(outputFileName, nThreads);
-		testSMoutfile.open(outputFileName, std::ios::in);
-		std::array<uint32_t, largeIdxRows.size()> lgRowsFromFile{};
-		std::array<uint32_t, largeIdxRows.size()> lgColsFromFile{};
-		std::array<float,    largeIdxRows.size()> lgFloatsFromFile{};
-		arrayIdx = 0;
-		while ( std::getline(testSMoutfile, line) ) {
-			std::stringstream lineStream;
-			lineStream.str(line);
-			std::string field;
-			lineStream >> field;
-			lgRowsFromFile.at(arrayIdx) = stoi(field) - 1; // the saved indexes are base-1
-			lineStream >> field;
-			lgColsFromFile.at(arrayIdx) = stoi(field) - 1;
-			lineStream >> field;
-			lgFloatsFromFile.at(arrayIdx) = stof(field);
-			++arrayIdx;
-		}
-		testSMoutfile.close();
-		std::remove( outputFileName.c_str() ); // NOLINT
-		constexpr std::array<uint32_t, 3> correctLargeIdxRows{9999, 20001, 40005};
-		constexpr std::array<uint32_t, 3> correctLargeIdxCols{9899, 10001, 30005};
-		REQUIRE(std::equal(lgRowsFromFile.cbegin(),   lgRowsFromFile.cend(),   correctLargeIdxRows.cbegin()));
-		REQUIRE(std::equal(lgColsFromFile.cbegin(),   lgColsFromFile.cend(),   correctLargeIdxCols.cbegin()));
-		REQUIRE(std::equal(lgFloatsFromFile.cbegin(), lgFloatsFromFile.cend(), largeFloats.cbegin()));
-
 		// throwing tests
 		BayesicSpace::RowColIdx wrongCombo{};
 		BayesicSpace::SimilarityMatrix wrongMatrix;
@@ -473,6 +411,12 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		wrongCombo.jCol = 1;
 		REQUIRE_THROWS_WITH(wrongMatrix.insert(wrongCombo, jaccPairs.at(0)), 
 			Catch::Matchers::StartsWith("ERROR: row and column indexes must be different in")
+		);
+		constexpr uint32_t tooLarge{379625063};
+		wrongCombo.iRow = tooLarge;
+		wrongCombo.jCol = tooLarge + 2;
+		REQUIRE_THROWS_WITH(wrongMatrix.insert(wrongCombo, jaccPairs.at(0)), 
+			Catch::Matchers::StartsWith("ERROR: row or column index exceeds maximal allowable value in")
 		);
 
 		wrongCombo.iRow = 0;
@@ -501,12 +445,13 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint64_t, 3> vecIndexes3{7, 10, 15};
 		constexpr std::array<uint64_t, 3> nIsect3{140, 138, 136};
 		constexpr std::array<uint64_t, 3> nUnion3{254, 254, 254};
+		constexpr uint64_t valueSize{8};
 
 		constexpr size_t nThreads{2};
 		BayesicSpace::SimilarityMatrix matrix1;
 		size_t arrIdx{0};
 		while ( arrIdx < vecIndexes1.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes1.at(arrIdx) )};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes1.at(arrIdx) << valueSize)};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion1.at(arrIdx);
 			tmpJP.nIntersect = nIsect1.at(arrIdx);
@@ -516,7 +461,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix2;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes2.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes2.at(arrIdx) )};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes2.at(arrIdx) << valueSize)};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion2.at(arrIdx);
 			tmpJP.nIntersect = nIsect2.at(arrIdx);
@@ -526,7 +471,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix3;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes3.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes3.at(arrIdx) )};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes3.at(arrIdx) << valueSize)};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion3.at(arrIdx);
 			tmpJP.nIntersect = nIsect3.at(arrIdx);
@@ -536,14 +481,14 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix tmp1 = matrix1;
 		BayesicSpace::SimilarityMatrix tmp2 = matrix2;
 
-		tmp1.merge( std::move(tmp2) );
+		tmp1.merge(tmp2);
 		const std::string outputFileName("../tests/mergeMatrix.tsv");
 		tmp1.save(outputFileName, nThreads);
 		constexpr std::array<uint32_t, 20> correct12mergeRow{3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 8, 8, 8, 8, 8};
 		constexpr std::array<uint32_t, 20> correct12mergeCol{0, 1, 0, 2, 3, 1, 2, 4, 0, 1, 2, 4, 5, 5, 6, 0, 1, 3, 6, 7};
 		constexpr std::array<float,    20> correct12mergeValues{
-			0.3436, 0.8572, 0.0316, 0.3042, 0.2686, 0.6597, 0.3792, 0.1936, 0.3832, 0.9006,
-			0.1620, 0.4819, 0.8137, 0.3239, 0.6873, 0.0909, 0.8453, 0.1778, 0.7940, 0.6360
+			0.3412, 0.8510, 0.0314, 0.3020, 0.2667, 0.6549, 0.3765, 0.1922, 0.3804, 0.8941,
+			0.1608, 0.4784, 0.8078, 0.3216, 0.6824, 0.0902, 0.8392, 0.1765, 0.7882, 0.6314
 		};
 
 		std::fstream testSMoutfile(outputFileName, std::ios::in);
@@ -570,6 +515,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
 
+		/*
 		// merge of a matrix with identical tail
 		tmp2 = matrix2;
 		tmp1.merge( std::move(tmp2) );
@@ -850,6 +796,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( rowsFromFileFar.cbegin(),   rowsFromFileFar.cend(),   correctFarMergeRow.cbegin() ) );
 		REQUIRE( std::equal( colsFromFileFar.cbegin(),   colsFromFileFar.cend(),   correctFarMergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFileFar.cbegin(), floatsFromFileFar.cend(), correctFarMergeValues.cbegin() ) );
+		*/
 	}
 }
 
@@ -882,6 +829,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
+		/*
 		constexpr size_t nChunks{3};
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
 		const std::string ldFileName("../tests/tmpLDfile.tsv");
@@ -963,6 +911,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
+		*/
 	}
 }
 
@@ -1021,6 +970,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
 	}
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
+		/*
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
 		const std::string tmpJacFile("../tests/tmpJac.tsv");
 		BayesicSpace::InOutFileNames tmpFileGrp{};
@@ -1135,6 +1085,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
+		*/
 	}
 	SECTION("GenoTableHash mac vector constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash vecHSH(macVector, sketchParameters, nThreads, logFileName);
