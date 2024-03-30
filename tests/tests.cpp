@@ -147,7 +147,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			)
 		);
 
-		/*
 		constexpr std::array<uint32_t, nChunks> correctRowStarts{1, 4, 6, 7};
 		constexpr std::array<uint32_t, nChunks> correctRowEnds{4, 6, 7, 8};
 		constexpr std::array<uint32_t, nChunks> correctColStarts{0, 3, 3, 6};
@@ -211,7 +210,6 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 				}
 			)
 		);
-		*/
 	}
 
 	SECTION("Magic byte testing") {
@@ -284,7 +282,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 	SECTION("Auxiliary functions") {
 		constexpr uint64_t byteSize{8};
-		constexpr std::array<uint64_t, 4> vecIdxArray{(9 << byteSize), (11 << byteSize), (12 << byteSize), (17 << byteSize)};
+		constexpr std::array<uint64_t, 4> vecIdxArray{9, 11, 12, 17};
 		constexpr uint64_t correctVecIdx{9};
 		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes( vecIdxArray.at(0) )};
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
@@ -451,7 +449,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix1;
 		size_t arrIdx{0};
 		while ( arrIdx < vecIndexes1.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes1.at(arrIdx) << valueSize)};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes1.at(arrIdx))};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion1.at(arrIdx);
 			tmpJP.nIntersect = nIsect1.at(arrIdx);
@@ -461,7 +459,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix2;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes2.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes2.at(arrIdx) << valueSize)};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes2.at(arrIdx))};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion2.at(arrIdx);
 			tmpJP.nIntersect = nIsect2.at(arrIdx);
@@ -471,7 +469,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix3;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes3.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes3.at(arrIdx) << valueSize)};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes3.at(arrIdx))};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion3.at(arrIdx);
 			tmpJP.nIntersect = nIsect3.at(arrIdx);
@@ -515,10 +513,9 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
 
-		/*
 		// merge of a matrix with identical tail
 		tmp2 = matrix2;
-		tmp1.merge( std::move(tmp2) );
+		tmp1.merge(tmp2);
 		tmp1.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -542,7 +539,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		// merge of an identical matrix
 		tmp2 = tmp1;
-		tmp1.merge( std::move(tmp2) );
+		tmp1.merge(tmp2);
 		tmp1.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -565,7 +562,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
 
 		// merge of an empty matrix
-		tmp1.merge( std::move(tmp2) );
+		tmp1.merge(tmp2);
 		tmp1.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -587,7 +584,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
 
-		tmp2.merge( std::move(tmp1) );
+		tmp2.merge(tmp1);
 		tmp2.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -610,8 +607,13 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
 
 		// matrix with smaller indexes as second
+		// correct values will change because of the contrived value assignment
+		constexpr std::array<float,    20> correct12mergeValues2{
+			0.3412, 0.8510, 0.6275, 0.8941, 0.6902, 0.6549, 0.3765, 0.6706, 0.3804, 0.8941,
+			0.1608, 0.4784, 0.8078, 0.3216, 0.6824, 0.0902, 0.8392, 0.1765, 0.7882, 0.6314
+		};
 		tmp1 = matrix1;
-		matrix2.merge( std::move(tmp1) );
+		matrix2.merge(tmp1);
 		matrix2.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -631,21 +633,21 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( outputFileName.c_str() ); // NOLINT
 		REQUIRE( std::equal( rowsFromFile.cbegin(),   rowsFromFile.cend(),   correct12mergeRow.cbegin() ) );
 		REQUIRE( std::equal( colsFromFile.cbegin(),   colsFromFile.cend(),   correct12mergeCol.cbegin() ) );
-		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile.cbegin(), floatsFromFile.cend(), correct12mergeValues2.cbegin() ) );
 
 		// a matrix completely within another
 		constexpr std::array<uint32_t, 14> correct13mergeRow{3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 8, 8};
 		constexpr std::array<uint32_t, 14> correct13mergeCol{0, 0, 1, 2, 3, 0, 2, 4, 0, 2, 4, 5, 0, 3};
 		constexpr std::array<float,    14> correct13mergeValues{
-			0.3436, 0.0316, 0.5530, 0.3042, 0.2686, 0.5451, 0.3792,
-			0.1936, 0.5372, 0.1620, 0.4819, 0.3239, 0.0909, 0.1778
+			0.3412, 0.0314, 0.5490, 0.3020, 0.2667, 0.5412, 0.3765,
+			0.1922, 0.3804, 0.1608, 0.4784, 0.3216, 0.0902, 0.1765
 		};
 		std::array<uint32_t, correct13mergeValues.size()> rowsFromFile13{};
 		std::array<uint32_t, correct13mergeValues.size()> colsFromFile13{};
 		std::array<float,    correct13mergeValues.size()> floatsFromFile13{};
 		tmp1 = matrix1;
 		tmp2 = matrix3;
-		tmp1.merge( std::move(tmp2) );
+		tmp1.merge(tmp2);
 		tmp1.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -667,7 +669,12 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile13.cbegin(),   colsFromFile13.cend(),   correct13mergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile13.cbegin(), floatsFromFile13.cend(), correct13mergeValues.cbegin() ) );
 
-		matrix3.merge( std::move(matrix1) );
+		// similarity value preservation is asymmetric
+		constexpr std::array<float,    14> correct13mergeValues2{
+			0.3412, 0.0314, 0.5490, 0.3020, 0.2667, 0.5412, 0.3765,
+			0.1922, 0.5333, 0.1608, 0.4784, 0.3216, 0.0902, 0.1765
+		};
+		matrix3.merge(matrix1);
 		matrix3.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -687,7 +694,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( outputFileName.c_str() ); // NOLINT
 		REQUIRE( std::equal( rowsFromFile13.cbegin(),   rowsFromFile13.cend(),   correct13mergeRow.cbegin() ) );
 		REQUIRE( std::equal( colsFromFile13.cbegin(),   colsFromFile13.cend(),   correct13mergeCol.cbegin() ) );
-		REQUIRE( std::equal( floatsFromFile13.cbegin(), floatsFromFile13.cend(), correct13mergeValues.cbegin() ) );
+		REQUIRE( std::equal( floatsFromFile13.cbegin(), floatsFromFile13.cend(), correct13mergeValues2.cbegin() ) );
 
 		// full append test
 		constexpr std::array<uint32_t, 5> vecIndexes4{3, 6, 8, 9, 12};
@@ -700,8 +707,8 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		constexpr std::array<uint32_t, 12> correct45mergeRow{3, 4, 4, 4, 5, 5, 6, 6, 6, 7, 8, 8};
 		constexpr std::array<uint32_t, 12> correct45mergeCol{0, 0, 2, 3, 2, 4, 0, 2, 4, 5, 0, 3};
 		constexpr std::array<float,    12> correct45mergeValues{
-			0.0158, 0.0316, 0.0514, 0.1225, 0.162, 0.6004,
-			0.6320, 0.9006, 0.6952, 0.6597, 0.636, 0.5964
+			0.0157, 0.0314, 0.0510, 0.1216, 0.1608, 0.5961,
+			0.6275, 0.8941, 0.6902, 0.6549, 0.6314, 0.5922
 		};
 		std::array<uint32_t, correct45mergeValues.size()> rowsFromFile45{};
 		std::array<uint32_t, correct45mergeValues.size()> colsFromFile45{};
@@ -710,7 +717,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix4;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes4.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes4.at(arrIdx) )};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes4.at(arrIdx))};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion4.at(arrIdx);
 			tmpJP.nIntersect = nIsect4.at(arrIdx);
@@ -720,14 +727,14 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::SimilarityMatrix matrix5;
 		arrIdx = 0;
 		while ( arrIdx < vecIndexes5.size() ) {
-			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes( vecIndexes5.at(arrIdx) )};
+			BayesicSpace::RowColIdx tmp{BayesicSpace::recoverRCindexes(vecIndexes5.at(arrIdx))};
 			BayesicSpace::JaccardPair tmpJP{};
 			tmpJP.nUnion     = nUnion5.at(arrIdx);
 			tmpJP.nIntersect = nIsect5.at(arrIdx);
 			matrix5.insert(tmp, tmpJP);
 			++arrIdx;
 		}
-		matrix4.merge( std::move(matrix5) );
+		matrix4.merge(matrix5);
 		matrix4.save(outputFileName, nThreads);
 		testSMoutfile.open(outputFileName, std::ios::in);
 		arrIdx = 0;
@@ -749,10 +756,10 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFile45.cbegin(),   colsFromFile45.cend(),   correct45mergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFile45.cbegin(), floatsFromFile45.cend(), correct45mergeValues.cbegin() ) );
 
-		// indexes far from the current (require padding)
-		constexpr std::array<uint32_t, 3> largeIdxRows{9999, 20001, 40005};
-		constexpr std::array<uint32_t, 3> largeIdxCols{9899, 10001, 30005};
-		constexpr std::array<uint64_t, 3> largeNisect{246, 3, 39};
+		// smaller matrix with an index far past the larger
+		constexpr std::array<uint32_t, 3> largeIdxRows{4, 6, 40005};
+		constexpr std::array<uint32_t, 3> largeIdxCols{1, 2, 30005};
+		constexpr std::array<uint64_t, 3> largeNisect{246, 201, 251};
 		constexpr std::array<uint64_t, 3> largeNunion{254, 254, 254};
 		BayesicSpace::SimilarityMatrix matrixFar;
 		arrIdx = 0;
@@ -766,13 +773,14 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 			matrixFar.insert(tmp, tmpJP);
 			++arrIdx;
 		}
-		matrix4.merge( std::move(matrixFar) );
-		matrix4.save(outputFileName, nThreads);
-		constexpr std::array<uint32_t, 15> correctFarMergeRow{3, 4, 4, 4, 5, 5, 6, 6, 6, 7, 8, 8, 9999, 20001, 40005};
-		constexpr std::array<uint32_t, 15> correctFarMergeCol{0, 0, 2, 3, 2, 4, 0, 2, 4, 5, 0, 3, 9899, 10001, 30005};
-		constexpr std::array<float,    15> correctFarMergeValues{
-			0.0158, 0.0316, 0.0514, 0.1225, 0.1620, 0.6004, 0.6320, 0.9006,
-			0.6952, 0.6597, 0.6360, 0.5964, 0.9717, 0.0119, 0.1541
+		matrix2.merge(matrixFar);
+		matrix2.save(outputFileName, nThreads);
+		constexpr std::array<uint32_t, 22> correctFarMergeRow{3, 3, 4, 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6, 7, 7, 8, 8, 8, 8, 8, 40005};
+		constexpr std::array<uint32_t, 22> correctFarMergeCol{0, 1, 0, 1, 2, 3, 1, 2, 4, 0, 1, 2, 4, 5, 5, 6, 0, 1, 3, 6, 7, 30005};
+		constexpr std::array<float,    22> correctFarMergeValues{
+			0.3412, 0.8510, 0.6275, 0.9647, 0.8941, 0.6902, 0.6549, 0.3765,
+			0.6706, 0.3804, 0.8941, 0.1608, 0.4784, 0.8078, 0.3216, 0.6824,
+			0.0902, 0.8392, 0.1765, 0.7882, 0.6314, 0.9843
 		};
 		testSMoutfile.open(outputFileName, std::ios::in);
 		std::array<uint32_t, correctFarMergeValues.size()> rowsFromFileFar{};
@@ -796,7 +804,6 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( rowsFromFileFar.cbegin(),   rowsFromFileFar.cend(),   correctFarMergeRow.cbegin() ) );
 		REQUIRE( std::equal( colsFromFileFar.cbegin(),   colsFromFileFar.cend(),   correctFarMergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFileFar.cbegin(), floatsFromFileFar.cend(), correctFarMergeValues.cbegin() ) );
-		*/
 	}
 }
 
@@ -829,7 +836,6 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
-		/*
 		constexpr size_t nChunks{3};
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
 		const std::string ldFileName("../tests/tmpLDfile.tsv");
@@ -911,7 +917,6 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		);
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
-		*/
 	}
 }
 
@@ -970,7 +975,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
 	}
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
-		/*
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
 		const std::string tmpJacFile("../tests/tmpJac.tsv");
 		BayesicSpace::InOutFileNames tmpFileGrp{};
@@ -1085,7 +1089,6 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
-		*/
 	}
 	SECTION("GenoTableHash mac vector constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash vecHSH(macVector, sketchParameters, nThreads, logFileName);

@@ -859,8 +859,8 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	logMessages_ += "Estimating LD in groups\n";
 	logMessages_ += "number of pairs in the hash table: " + std::to_string(totalPairNumber) + "\n";
 
-	// The matrix merge uses sqrt(nElements) scratch space of uint64_t
-	const size_t matrixSize = totalPairNumber + 3UL * static_cast<size_t>( std::sqrt( static_cast<float>(totalPairNumber) ) );
+	// The matrix merge uses nElements of scratch space
+	const size_t matrixSize = 2UL * totalPairNumber;
 
 	const SimilarityMatrix emptyMatrix;
 	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations

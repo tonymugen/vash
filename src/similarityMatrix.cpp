@@ -60,13 +60,12 @@ void BayesicSpace::chunkedAppend(std::vector<uint64_t> &source, std::vector<uint
 	source.clear();
 }
 
-RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &packedElement) noexcept {
+RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	constexpr double tfiCoeff{8.0};
 	RowColIdx result{};
-	const uint64_t vectorizedIdx{packedElement >> SimilarityMatrix::valueSize_};
 
-	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(vectorizedIdx))) / 2.0);
-	result.jCol    = static_cast<uint32_t>(vectorizedIdx - row * (row - 1) / 2);
+	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(vecIdx))) / 2.0);
+	result.jCol    = static_cast<uint32_t>(vecIdx - row * (row - 1) / 2);
 	result.iRow    = static_cast<uint32_t>(row);
 
 	return result;
@@ -174,63 +173,17 @@ void SimilarityMatrix::merge(SimilarityMatrix &toMerge) {
 	auto idxComparison = [](const uint64_t &packedIdx1, const uint64_t &packedIdx2) {
 		return (packedIdx1 >> valueSize_) < (packedIdx2 >> valueSize_);
 	};
-	// We will copy things in sqrt(size of the two matrices) chunks to conserve memory
-	const float chunkSizeFloat = std::sqrt( static_cast<float>( matrix_.size() + toMerge.matrix_.size() ) );
-	const auto  chunkSizeDiff  = static_cast<std::vector<uint64_t>::difference_type>(chunkSizeFloat);
 
 	std::vector<uint64_t> mergedMatrix;
-	std::vector<uint64_t> unionBuffer;
-
-	// Initialize the merge matrix with the first pair of chunks
-	const auto thisChunk1size{std::min( chunkSizeDiff, std::distance( matrix_.cbegin(), matrix_.cend() ) )};
-	const auto thisChunk1endIt{matrix_.cbegin() + thisChunk1size};
-	const auto toMergeChunk1size{std::min( chunkSizeDiff, std::distance( toMerge.matrix_.cbegin(), toMerge.matrix_.cend() ) )};
-	const auto toMergeChunk1endIt{toMerge.matrix_.cbegin() + toMergeChunk1size};
 	std::set_union(
-		matrix_.cbegin(), thisChunk1endIt,
-		toMerge.matrix_.cbegin(), toMergeChunk1endIt,
+		matrix_.cbegin(), matrix_.cend(),
+		toMerge.matrix_.cbegin(), toMerge.matrix_.cend(),
 		std::back_inserter(mergedMatrix),
 		idxComparison
 	);
-	matrix_.erase(matrix_.begin(), thisChunk1endIt);
-	toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunk1endIt);
-	while (std::max( matrix_.size(), toMerge.matrix_.size() ) > 0) {
-		const auto thisChunkSize{
-			std::min( chunkSizeDiff, std::distance( matrix_.cbegin(), matrix_.cend() ) )
-		};
-		const auto thisChunkEndIt{matrix_.cbegin() + thisChunkSize};
-		std::set_union(
-			mergedMatrix.cbegin(), mergedMatrix.cend(),
-			matrix_.cbegin(), thisChunkEndIt,
-			std::back_inserter(unionBuffer),
-			idxComparison
-		);
-		mergedMatrix.clear();
-		matrix_.erase(matrix_.begin(), thisChunkEndIt);
-		const auto toMergeChunkSize{
-			std::min( chunkSizeDiff, std::distance( toMerge.matrix_.cbegin(), toMerge.matrix_.cend() ) )
-		};
-		const auto toMergeChunkEndIt{toMerge.matrix_.cbegin() + toMergeChunkSize};
-		std::set_union(
-			unionBuffer.cbegin(), unionBuffer.cend(),
-			toMerge.matrix_.cbegin(), toMergeChunkEndIt,
-			std::back_inserter(mergedMatrix),
-			idxComparison
-		);
-		unionBuffer.clear();
-		toMerge.matrix_.erase(toMerge.matrix_.begin(), toMergeChunkEndIt);
-	}
-
-	assert( ( matrix_.empty() || toMerge.matrix_.empty() )  //NOLINT
-			&& "ERROR: at least one matrix must be empty in merge" );
-	// move over any straggling elements
-	if ( !matrix_.empty() ) {
-		chunkedAppend(matrix_, mergedMatrix);
-	}
-	if ( !toMerge.matrix_.empty() ) {
-		chunkedAppend(toMerge.matrix_, mergedMatrix);
-	}
 	std::swap(mergedMatrix, matrix_);
+	toMerge.matrix_.clear();
+
 }
 
 void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile) const {
@@ -239,7 +192,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	}
 	// determine how many line strings can fit in RAM
 	// using the last entry because it will lave longest indexes
-	const RowColIdx lastIdxPair{recoverRCindexes( matrix_.back() )};
+	const RowColIdx lastIdxPair{recoverRCindexes( matrix_.back() >> valueSize_ )};
 
 	std::vector<std::string> locusNames;
 	if ( !locusNameFile.empty() ) {
@@ -310,14 +263,14 @@ std::string SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator s
 	std::string outString;
 	if ( locusNames.empty() ) {
 		for (auto matIt = start; matIt != end; ++matIt) {
-			const RowColIdx currentPair{recoverRCindexes(*matIt)};
+			const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
 			const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
 			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
 		}
 		return outString;
 	}
 	for (auto matIt = start; matIt != end; ++matIt) {
-		const RowColIdx currentPair{recoverRCindexes(*matIt)};
+		const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
 		const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
 		outString += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
 	}

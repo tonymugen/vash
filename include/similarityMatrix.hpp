@@ -73,10 +73,10 @@ namespace BayesicSpace {
 	 *
 	 * Recovers the row and column indexes from the matrix element.
 	 *
-	 * \param[in] packedElement packed element with index and similarity value
+	 * \param[in] vecIdx index into the vectorized matrix
 	 * \return row and column index pair
 	 */
-	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
+	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &vecIdx) noexcept;
 
 	/** \brief Similarity matrix
 	 *
@@ -86,7 +86,6 @@ namespace BayesicSpace {
 	 * to strike a compromise between memory use and matrix manipulation speed.
 	 */
 	class SimilarityMatrix {
-	friend RowColIdx recoverRCindexes(const uint64_t &packedElement) noexcept;
 	public:
 		/** \brief Default constructor */
 		SimilarityMatrix() noexcept  = default;
