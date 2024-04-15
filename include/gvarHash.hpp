@@ -32,14 +32,10 @@
 #include <cstddef>
 #include <fstream>
 #include <vector>
-#include <array>
-#include <unordered_map>
 #include <utility>        // for std::pair
 #include <string>
 #include <thread>
-#include <mutex>
 
-#include "random.hpp"
 #include "similarityMatrix.hpp"
 
 namespace BayesicSpace {
@@ -299,9 +295,8 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] macData vector of minor allele counts
 		 * \param[in] locusIndRange locus index range
-		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
 		 */
-		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen);
+		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange);
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] blockRange row/column index pair range
@@ -330,7 +325,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, fSketches_{0.0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
@@ -483,8 +478,6 @@ namespace BayesicSpace {
 		uint32_t nIndividuals_;
 		/** \brief Number of sketches */
 		uint16_t kSketches_;
-		/** \brief Number of sketches, float representation */
-		float fSketches_;
 		/** \brief Sketch size */
 		uint32_t sketchSize_;
 		/** \brief Number of loci */
@@ -560,7 +553,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] bedData _.bed_ file input
 		 * \param[in] threadRanges vector of locus ranges, one per thread
-		 * \param[in] bedLocusSpan position and of the first _.bed_ locus with its size
+		 * \param[in] bedLocusSpan position of the first _.bed_ locus with its size
 		 * \param[in] permutation permutation to be applied to each locus 
 		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 * \return new value of `firstLocusInd`
@@ -585,11 +578,24 @@ namespace BayesicSpace {
 		 * The vector portion corresponds to a block of loci.
 		 *
 		 * \param[in] macData vector of minor allele counts
-		 * \param[in] locusBlock locus block start and size
-		 * \param[in] randVecLen length of the random bit vector (for heterozygote resolution)
+		 * \param[in] blockRange range of loci in the block
 		 * \param[in] permutation permutation to be applied to each locus 
 		 */
-		void mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation);
+		void mac2ophBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &blockRange,
+				const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
+		/** \brief OPH from minor allele counts using multiple threads
+		 *
+		 * Hashes input from a vector of minor allele counts using multiple threads.
+		 *
+		 * \param[in] macData vector of minor allele counts
+		 * \param[in] threadRanges vector of locus ranges, one per thread
+		 * \param[in] locusBlock locus block start and size
+		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
+		 * \return new value of `firstLocusInd`
+		 */
+		size_t mac2ophThreaded_(const std::vector<int> &macData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &locusBlock,
+							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
 		/** \brief Hash-based similarity in a block of loci
 		 *
 		 * The provided row and column values index the `locusIndexes` vector that translates them to the actual locus indexes.

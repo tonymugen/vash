@@ -32,11 +32,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
-#include <vector>
-#include <array>
 #include <unordered_map>
-#include <cmath>
-#include <stdexcept>
 
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"

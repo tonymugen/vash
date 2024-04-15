@@ -34,9 +34,7 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
-#include <fstream>
 
-#include "random.hpp"
 #include "gvarHash.hpp"
 #include "similarityMatrix.hpp"
 
@@ -171,7 +169,16 @@ namespace BayesicSpace {
 	 * \return vector of row/column pair ranges, an element per chunk
 	 */
 	[[gnu::warn_unused_result]] std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);
-
+	/** \brief Delimit a chunk of indexes
+	 *
+	 * Identifies the start and end hash table buckets (groups of loci) and indexes within them
+	 * for chunked pair-wise LD estimation.
+	 *
+	 * \param[in] groupVector vector of hash table buckets
+	 * \param[in] startHGPC start group iterator with index into the group
+	 * \param[in] chunkSize size of the chunk to be processed
+	 * \return pair of hash group (bucket) iterators with indexes into the first and last group
+	 */
 	[[gnu::warn_unused_result]] std::pair<HashGroupItPairCount, HashGroupItPairCount>
 		makeGroupRanges(const std::vector<HashGroup> &groupVector, const HashGroupItPairCount &startHGPC, const size_t &chunkSize);
 	/** \brief Convert a locus from _.bed_ to binary format
@@ -193,14 +200,21 @@ namespace BayesicSpace {
 	 */
 	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
 													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
-	/** \brief Save values 
+	/** \brief Convert a locus from a vector of minor allele counts
 	 *
-	 * Saves each value from the vector to the provided `fstream` with space as the delimiter.
+	 * Convert minor allele counts to one-bit binary.
+	 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
+	 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
+	 * The counts are checked and re-coded if necessary so that set bits represent the minor allele. This function should run faster if the 0 is the major allele homozygote.
+	 * While the above values are the norm, any negative number will be interpreted as missing, any odd number as 1, and any (non-0) even number as 2.
 	 *
-	 * \param[in] inVec vector of floats to save
-	 * \param[in, out] outputStream `fstream` to save to
+	 * If the number of individuals is not divisible by eight, the last binary byte is padded with 0s.
+	 *
+	 * \param[in] macLocus vector of minor allele counts at a locus
+	 * \param[in] binLocusWindow window covering the binary locus
+	 * \param[out] binLocus vector of binary format bytes
 	 */
-	void saveValues(const std::vector<float> &inVec, std::fstream &outputStream);
+	void binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
 	/** \brief Extract locus names 
 	 *
 	 * Extract locus names from a _.bim_ file.

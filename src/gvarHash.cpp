@@ -175,26 +175,25 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	logMessages_ += "Number of threads: " + std::to_string(nThreads_) + "\n";
 	binLocusSize_ = nIndividuals_ / byteSize_ + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
-	const size_t ranVecSize     = nIndividuals_ / llWordSize_ + static_cast<size_t>( (nIndividuals_ % llWordSize_) > 0 );
-	const size_t nLociPerThread = nLoci_ / nThreads_;
-	if (nLociPerThread > 0) {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = nLociPerThread;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		threadRanges.back().second = nLoci_;
-		std::vector< std::future<void> > tasks;
-		tasks.reserve(nThreads_);
-		for (const auto &eachTR : threadRanges) {
-			tasks.emplace_back(
-				std::async([this, &maCounts, &eachTR, ranVecSize]{
-					mac2binBlk_(maCounts, eachTR, ranVecSize);
-				})
-			);
-		}
-	} else {
+	const size_t nLociPerThread{nLoci_ / nThreads_};
+	if (nLociPerThread == 0) {
 		const std::pair<size_t, size_t> fullRange{0, nLoci_};
-		mac2binBlk_(maCounts, fullRange, ranVecSize);
+		mac2binBlk_(maCounts, fullRange);
+		return;
+	}
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = nLociPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	threadRanges.back().second = nLoci_;
+	std::vector< std::future<void> > tasks;
+	tasks.reserve(nThreads_);
+	for (const auto &eachTR : threadRanges) {
+		tasks.emplace_back(
+			std::async([this, &maCounts, &eachTR]{
+				mac2binBlk_(maCounts, eachTR);
+			})
+		);
 	}
 }
 
@@ -316,77 +315,14 @@ size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream 
 	return locusInd;
 }
 
-void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange, const size_t &randVecLen) {
-	// Define constants. Some can be taken outside of the function as an optimization
-	// Opting for more encapsulation for now unless I find significant performance penalties
-	constexpr uint8_t middleMask{0b10000011};
-	constexpr uint8_t endTwoBitMask{0b00000011};
-	RanDraw locPRNG;
-	auto remainderInd          = static_cast<uint8_t>(binLocusSize_ * byteSize_ - nIndividuals_);
-	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
-	remainderInd               = byteSize_ - remainderInd;
-	// Create a vector to store random bytes for stochastic heterozygote resolution
-	std::vector<uint64_t> rand(randVecLen);
-	auto *randBytes    = reinterpret_cast<uint8_t*>( rand.data() );
+void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange) {
 	for (size_t iLocus = locusIndRange.first; iLocus < locusIndRange.second; ++iLocus) {
-		// Fill the random byte vector
-		for (auto &randValue : rand) {
-			randValue = locPRNG.ranInt();
-		}
-		size_t iIndiv         = 0;
-		size_t iRB            = 0;                                                                 // randBytes index
-		const size_t begIndiv = iLocus * nIndividuals_;
-		const size_t begByte  = iLocus * binLocusSize_;
-		std::vector<uint8_t> missMasks(binLocusSize_, 0);
-		size_t i0Byte = 0;                                                                         // to index the missMasks vector
-		for (size_t iByte = begByte; iByte < begByte + binLocusSize_ - 1; ++iByte) {                // treat the last byte separately
-			uint8_t binByte = 0;
-			for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte) {
-				auto curIndiv            = static_cast<uint8_t>(macData[begIndiv + iIndiv]);       // cramming down to one byte because I do not care what the actual value is
-				curIndiv                 &= middleMask;                                            // mask everything in the middle
-				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
-				missMasks[i0Byte]        |= static_cast<uint8_t>(missingMask << iInByte);
-				curIndiv                 &= endTwoBitMask;
-				const uint8_t randMask    = (randBytes[iRB] >> iInByte) & oneBit_;                 // 0b00000000 or 0b00000001 with equal chance
-				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
-				binByte                  |= static_cast<uint8_t>(curBitMask << iInByte);
-				++iIndiv;
-			}
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[iByte] = binByte;
-			++i0Byte;
-			++iRB;
-		}
-		// now deal with the last byte in the individual
-		uint8_t lastBinByte = 0;
-		for (uint8_t iRem = 0; iRem < remainderInd; ++iRem) {
-			auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
-			curIndiv                 &= middleMask;                                                // mask everything in the middle
-			const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
-			missMasks.back()         |= static_cast<uint8_t>(missingMask << iRem);
-			curIndiv                 &= endTwoBitMask;                                                
-			const uint8_t randMask    = (randBytes[binLocusSize_ - 1] >> iRem) & oneBit_;          // 0b00000000 or 0b00000001 with equal chance
-			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-			curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
-
-			lastBinByte              |= static_cast<uint8_t>(curBitMask << iRem);
-			++iIndiv;
-		}
-		// should be safe: each thread accesses different vector elements
-		binGenotypes_[begByte + binLocusSize_ - 1] = lastBinByte;
-		const LocationWithLength genoWindow{begByte, binLocusSize_};
-		float maf = static_cast<float>( countSetBits(binGenotypes_, genoWindow) ) / static_cast<float>(nIndividuals_);
-		if (maf > 0.5F) { // always want the alternative to be the minor allele
-			i0Byte = 0;
-			for (size_t i = begByte; i < begByte + binLocusSize_; ++i) {
-				// should be safe: each thread accesses different vector elements
-				binGenotypes_[i] = (~binGenotypes_[i]) & (~missMasks[i0Byte]);
-				++i0Byte;
-			}
-			// should be safe: each thread accesses different vector elements
-			binGenotypes_[begByte + binLocusSize_ - 1] &= lastByteMask; // unset the remainder bits
-		}
+		LocationWithLength binLocusRange{};
+		binLocusRange.start  = iLocus * binLocusSize_;
+		binLocusRange.length = binLocusSize_;
+		std::vector<int> macLocus(nIndividuals_);
+		memcpy(macLocus.data(), macData.data() + iLocus * nIndividuals_, nIndividuals_);
+		binarizeMacLocus(macLocus, binLocusRange, binGenotypes_);
 	}
 }
 
@@ -480,8 +416,12 @@ constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                         
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName)
-								: kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)}, nLoci_{0}, nThreads_{nThreads}, emptyBinIdxSeed_{0}, logFileName_{std::move(logFileName)} {
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) :
+					kSketches_{indivSketchCounts.kSketches},
+					nLoci_{0},
+					nThreads_{nThreads},
+					emptyBinIdxSeed_{0},
+					logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime{std::time(nullptr)};
 	struct tm buf{};
@@ -589,9 +529,13 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	inStream.close();
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) 
-		: nIndividuals_{indivSketchCounts.nIndividuals}, kSketches_{indivSketchCounts.kSketches}, fSketches_{static_cast<float>(indivSketchCounts.kSketches)},
-				nLoci_{static_cast<uint32_t>(maCounts.size() / indivSketchCounts.nIndividuals)}, nThreads_{nThreads}, emptyBinIdxSeed_{0}, logFileName_{std::move(logFileName)} {
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) :
+								nIndividuals_{indivSketchCounts.nIndividuals},
+								kSketches_{indivSketchCounts.kSketches},
+								nLoci_{static_cast<uint32_t>(maCounts.size() / indivSketchCounts.nIndividuals)},
+								nThreads_{nThreads},
+								emptyBinIdxSeed_{0},
+								logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
 	struct tm buf{};
@@ -626,6 +570,8 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 
 	nThreads_     = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
 	nThreads_     = std::max(nThreads_, 1UL);
+	logMessages_ += "Number of threads used: " + std::to_string(nThreads_) + "\n";
+
 	sketchSize_   = indivSketchCounts.nIndividuals / kSketches_ + static_cast<uint16_t>( (indivSketchCounts.nIndividuals % kSketches_) > 0 );
 	nIndividuals_ = sketchSize_ * kSketches_;
 	if (indivSketchCounts.kSketches >= emptyBinToken_) {
@@ -634,44 +580,50 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 			std::to_string(indivSketchCounts.kSketches) + std::string(") that is larger than ") + std::to_string(emptyBinToken_) +
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
+	// Sample with replacement additional individuals to pad out the total
+	std::vector< std::pair<size_t, size_t> > addIndv;
+	for (size_t iAddIndiv = indivSketchCounts.nIndividuals; iAddIndiv < nIndividuals_; ++iAddIndiv) {
+		addIndv.emplace_back( iAddIndiv, prng.sampleInt(indivSketchCounts.nIndividuals) );
+	}
+	if ( !addIndv.empty() ) {
+		std::string addIndexes;
+		for (const auto &eachIdx : addIndv) {
+			addIndexes += std::to_string(eachIdx.second) + " ";
+		}
+		logMessages_ += "Re-sampled individuals: " + addIndexes + "\n";
+	}
 	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
 	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
 	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
-	const size_t ranVecSize = locusSize_ / llWordSize_ + static_cast<size_t>( (locusSize_ % llWordSize_) > 0);
 	// generate the sequence of random integers; each column must be permuted the same
 	std::vector<size_t> ranInts{prng.fyIndexesUp(nIndividuals_)};
 
-	logMessages_ += "Number of threads used: " + std::to_string(nThreads_) + "\n";
 	logMessages_ += "Number of individuals: "  + std::to_string(nIndividuals_) + "\n";
 	logMessages_ += "Number of loci: "         + std::to_string(nLoci_) + "\n";
 	logMessages_ += "Hash size: "              + std::to_string(kSketches_) + "\n";
 
 	const size_t nLociPerThread = nLoci_ / nThreads_;
-	if (nLociPerThread > 0) {
-		CountAndSize threadCounts{0, 0};
-		threadCounts.count = nThreads_;
-		threadCounts.size  = nLociPerThread;
-		std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-		threadRanges.back().second = nLoci_;
-		std::vector< std::future<void> > tasks;
-		tasks.reserve(nThreads_);
-		for (const auto &eachTR : threadRanges) {
-			tasks.emplace_back(
-				std::async([this, &maCounts, &eachTR, ranVecSize, &ranInts]{
-					LocationWithLength threadLoci{0, 0};
-					threadLoci.start  = eachTR.first;
-					threadLoci.length = eachTR.second - eachTR.first;
-					mac2ophBlk_(maCounts, threadLoci, ranVecSize, ranInts);
-				})
-			);
-		}
-		for (const auto &eachTask : tasks) {
-			eachTask.wait();
-		}
-	} else {
-		LocationWithLength allLoci{0, 0};
-		allLoci.length = nLoci_;
-		mac2ophBlk_(maCounts, allLoci, ranVecSize, ranInts);
+	if (nLociPerThread == 0) {
+		std::pair<size_t, size_t> allLoci{0, nLoci_};
+		mac2ophBlk_(maCounts, allLoci, ranInts, addIndv);
+		return;
+	}
+	CountAndSize threadCounts{0, 0};
+	threadCounts.count = nThreads_;
+	threadCounts.size  = nLociPerThread;
+	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
+	threadRanges.back().second = nLoci_;
+	std::vector< std::future<void> > tasks;
+	tasks.reserve(nThreads_);
+	for (const auto &eachTR : threadRanges) {
+		tasks.emplace_back(
+			std::async([this, &maCounts, &eachTR, &ranInts, &addIndv]{
+				mac2ophBlk_(maCounts, eachTR, ranInts, addIndv);
+			})
+		);
+	}
+	for (const auto &eachTask : tasks) {
+		eachTask.wait();
 	}
 }
 
@@ -1091,13 +1043,13 @@ size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream
 	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
 	assert( (locusGroupStats.nLociToRead >= threadRanges.back().second) // NOLINT
 				&& "ERROR: nLociToRead smaller than threadRanges.back().second in bed2oph_()");
+	assert( ( locusGroupStats.nBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
+				&& "ERROR: amount to read larger than maximum streamsize in bed2oph_()");
 	const size_t excessLoci = locusGroupStats.nLociToRead - threadRanges.back().second;
 	threadRanges.back().second = locusGroupStats.nLociToRead;
 	std::vector<char> bedChunkToRead(locusGroupStats.nBytesToRead, 0);
 	size_t locusInd{locusGroupStats.firstLocusIdx};
 	for (size_t iChunk = 0; iChunk < locusGroupStats.nMemChunks; ++iChunk) {
-		assert( ( locusGroupStats.nBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
-				&& "ERROR: amount to read larger than maximum streamsize in bed2oph_()");
 		bedStream.read( bedChunkToRead.data(), static_cast<std::streamsize>(locusGroupStats.nBytesToRead) );
 		LocationWithLength bedLocusSpan{0, 0};
 		bedLocusSpan.start  = locusInd;
@@ -1108,65 +1060,26 @@ size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream
 	return locusInd;
 }
 
-void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const LocationWithLength &locusBlock, const size_t &randVecLen, const std::vector<size_t> &permutation) {
-	// Define constants. Some can be taken outside of the function as an optimization
-	// Opting for more encapsulation for now unless I find significant performance penalties
-	RanDraw prng;
-	constexpr uint8_t middleMask{0b10000011};
-	constexpr uint8_t endTwoBitMask{0b00000011};
-	auto remainderInd          = static_cast<uint8_t>(locusSize_ * byteSize_ - nIndividuals_);
-	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
-	remainderInd               = byteSize_ - remainderInd;
-	// Create a vector to store random bytes for stochastic heterozygote resolution
-	std::vector<uint64_t> rand(randVecLen);
-	auto *randBytes          = reinterpret_cast<uint8_t*>( rand.data() );
-	const size_t endLocusInd = locusBlock.start + locusBlock.length;
-	for (size_t iLocus = locusBlock.start; iLocus < endLocusInd; ++iLocus) {
-		// Fill the random byte vector
-		for (auto &randValue : rand) {
-			randValue = prng.ranInt();
-		}
-		size_t iIndiv         = 0;
-		const size_t begIndiv = iLocus * nIndividuals_;
-		std::vector<uint8_t> missMasks(locusSize_, 0);
+void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &blockRange,
+				const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv) {
+	for (size_t iLocus = blockRange.first; iLocus < blockRange.second; ++iLocus) {
 		std::vector<uint8_t> binLocus(locusSize_, 0);
-		size_t i0Byte = 0;                                                                         // to index the missMasks vector
-		for (size_t iByte = 0; iByte < locusSize_ - 1; ++iByte) {                                  // treat the last byte separately
-			for (uint8_t iInByte = 0; iInByte < byteSize_; ++iInByte) {
-				auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);      // cramming down to one byte because I do not care what the actual value is
-				curIndiv                 &= middleMask;                                            // mask everything in the middle
-				const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
-				missMasks[i0Byte]        |= static_cast<uint8_t>(missingMask << iInByte);
-				curIndiv                 &= endTwoBitMask;
-				const uint8_t randMask    = (randBytes[iByte] >> iInByte) & oneBit_;               // 0b00000000 or 0b00000001 with equal chance
-				uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-				curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
-				binLocus[iByte]          |= static_cast<uint8_t>(curBitMask << iInByte);
-				++iIndiv;
+		LocationWithLength binLocusRange{};
+		binLocusRange.start  = 0;
+		binLocusRange.length = locusSize_;
+		std::vector<int> macLocus(nIndividuals_);
+		const size_t nIndivUnpadded{nIndividuals_ - padIndiv.size()};
+		memcpy(macLocus.data(), macData.data() + iLocus * nIndivUnpadded, nIndivUnpadded);
+		size_t iPad = nIndivUnpadded;
+		std::for_each(
+			padIndiv.cbegin(),
+			padIndiv.cend(),
+			[&iPad, &macLocus](const std::pair<size_t, size_t> &padIdxPair) {
+				macLocus[iPad] = macLocus[padIdxPair.second];
+				++iPad;
 			}
-			++i0Byte;
-		}
-		// now deal with the last byte in the individual
-		for (uint8_t iRem = 0; iRem < remainderInd; ++iRem) {
-			auto curIndiv             = static_cast<uint8_t>(macData[begIndiv + iIndiv]);          // cramming down to one byte because I do not care what the actual value is
-			curIndiv                 &= middleMask;                                                // mask everything in the middle
-			const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
-			missMasks.back()         |= static_cast<uint8_t>(missingMask << iRem);
-			curIndiv                 &= endTwoBitMask;                                                
-			const uint8_t randMask    = (randBytes[locusSize_ - 1] >> iRem) & oneBit_;             // 0b00000000 or 0b00000001 with equal chance
-			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
-			curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
-
-			binLocus.back()          |= static_cast<uint8_t>(curBitMask << iRem);
-			++iIndiv;
-		}
-		const float maf = static_cast<float>( countSetBits(binLocus) ) / static_cast<float>(nIndividuals_);
-		if (maf > 0.5F) { // always want the alternative to be the minor allele
-			for (size_t iBL = 0; iBL < locusSize_; ++iBL) {
-				binLocus[iBL] = (~binLocus[iBL]) & (~missMasks[iBL]);
-			}
-			binLocus.back() &= lastByteMask; // unset the remainder bits
-		}
+		);
+		binarizeMacLocus(macLocus, binLocusRange, binLocus);
 		locusOPH_(iLocus, permutation, binLocus);
 	}
 }

@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <immintrin.h>
 
+#include "random.hpp"
 #include "gvarHash.hpp"
 #include "similarityMatrix.hpp"
 #include "vashFunctions.hpp"
@@ -348,6 +349,7 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	}
 	// test if the set bits are minor alleles and flip them if not
 	assert( (nIndividuals > missingCount) && "ERROR: fewer individuals than missing values in binarizeBedLocus()" );      // NOLINT
+	// TODO: make sure to count all hets and reverse if maximal count is > 0.5
 	if ( (2UL * setCount) > (nIndividuals - missingCount) ) {
 		size_t missWordIdx{0};
 		for (auto &eachBinWord : binWords) {
@@ -373,9 +375,79 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	}
 }
 
-void BayesicSpace::saveValues(const std::vector<float> &inVec, std::fstream &outputStream) {
-	for (const auto &eachValue : inVec) {
-		outputStream << eachValue << " ";
+void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
+	// Define constants. Some can be taken outside of the function as an optimization
+	// Opting for more encapsulation for now unless I find significant performance penalties
+	constexpr uint8_t byteSize{8};
+	constexpr uint8_t oneBit{0b00000001};       // One set bit for masking
+	constexpr uint8_t middleMask{0b10000011};
+	constexpr uint8_t endTwoBitMask{0b00000011};
+	RanDraw locPRNG;
+	auto remainderInd          = static_cast<uint8_t>( binLocusWindow.length * byteSize - macLocus.size() );
+	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
+	remainderInd               = byteSize - remainderInd;
+	// Create a vector to store random bytes for stochastic heterozygote resolution
+	const size_t randVecLen{macLocus.size() / sizeof(uint64_t) + static_cast<size_t>( ( macLocus.size() % sizeof(uint64_t) ) > 0 )};
+	std::vector<uint64_t> rand(randVecLen);
+	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
+	// Fill the random byte vector
+	for (auto &randValue : rand) {
+		randValue = locPRNG.ranInt();
+	}
+	size_t iIndiv = 0;
+	size_t iRB    = 0;                                                                         // randBytes index
+	const size_t begByte{binLocusWindow.start * binLocusWindow.length};
+	std::vector<uint8_t> missMasks(binLocusWindow.length, 0);
+	size_t i0Byte = 0;                                                                         // to index the missMasks vector
+	for (size_t iByte = begByte; iByte < begByte + binLocusWindow.length - 1; ++iByte) {       // treat the last byte separately
+		uint8_t binByte = 0;
+		for (uint8_t iInByte = 0; iInByte < byteSize; ++iInByte) {
+			auto curIndiv            = static_cast<uint8_t>(macLocus[iIndiv]);                 // cramming down to one byte because I do not care what the actual value is
+			curIndiv                 &= middleMask;                                            // mask everything in the middle
+			const uint8_t missingMask = curIndiv >> 7;                                         // 0b00000001 iff is missing (negative value)
+			missMasks[i0Byte]        |= static_cast<uint8_t>(missingMask << iInByte);
+			curIndiv                 &= endTwoBitMask;
+			const uint8_t randMask    = (randBytes[iRB] >> iInByte) & oneBit;                  // 0b00000000 or 0b00000001 with equal chance
+			uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);               // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+			curBitMask               &= ~missingMask;                                          // zero it out if missing value is set
+			binByte                  |= static_cast<uint8_t>(curBitMask << iInByte);
+			++iIndiv;
+		}
+		// should be safe: each thread accesses different vector elements
+		binLocus[iByte] = binByte;
+		++i0Byte;
+		++iRB;
+	}
+	// now deal with the last byte in the individual
+	uint8_t lastBinByte = 0;
+	for (uint8_t iRem = 0; iRem < remainderInd; ++iRem) {
+		auto curIndiv             = static_cast<uint8_t>(macLocus[iIndiv]);                    // cramming down to one byte because I do not care what the actual value is
+		curIndiv                 &= middleMask;                                                // mask everything in the middle
+		const uint8_t missingMask = curIndiv >> 7;                                             // 0b00000001 iff is missing (negative value)
+		missMasks.back()         |= static_cast<uint8_t>(missingMask << iRem);
+		curIndiv                 &= endTwoBitMask;                                                
+		const uint8_t randMask    = (randBytes[binLocusWindow.length - 1] >> iRem) & oneBit;   // 0b00000000 or 0b00000001 with equal chance
+		uint8_t curBitMask        = (curIndiv >> 1) ^ (curIndiv & randMask);                   // if curIndiv == 0b00000001 or 0b00000011 (i.e. het) can be 1 or 0 with equal chance
+		curBitMask               &= ~missingMask;                                              // zero it out if missing value is set
+
+		lastBinByte              |= static_cast<uint8_t>(curBitMask << iRem);
+		++iIndiv;
+	}
+	// should be safe: each thread accesses different vector elements
+	binLocus[begByte + binLocusWindow.length - 1] = lastBinByte;
+	const LocationWithLength genoWindow{begByte, binLocusWindow.length};
+	const auto nMissing = static_cast<size_t>( std::count_if(macLocus.cbegin(), macLocus.cend(), [](const int &genotype){return genotype < 0;}) );
+	const auto setCount = countSetBits(binLocus, genoWindow);
+	// TODO: make sure to count all hets and reverse if maximal count is > 0.5
+	if (2UL * setCount > macLocus.size() - nMissing) { // always want the alternative to be the minor allele
+		i0Byte = 0;
+		for (size_t i = begByte; i < begByte + binLocusWindow.length; ++i) {
+			// should be safe: each thread accesses different vector elements
+			binLocus[i] = (~binLocus[i]) & (~missMasks[i0Byte]);
+			++i0Byte;
+		}
+		// should be safe: each thread accesses different vector elements
+		binLocus[begByte + binLocusWindow.length - 1] &= lastByteMask; // unset the remainder bits
 	}
 }
 
