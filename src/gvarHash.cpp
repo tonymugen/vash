@@ -48,6 +48,8 @@
 #include <thread>
 #include <immintrin.h>
 
+#include <iostream>
+
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -188,12 +190,17 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	threadRanges.back().second = nLoci_;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
+	mac2binBlk_(maCounts, threadRanges.at(0));
 	for (const auto &eachTR : threadRanges) {
+		std::cout << eachTR.first << "--" << eachTR.second << "\n";
+		//mac2binBlk_(maCounts, eachTR);
+		/*
 		tasks.emplace_back(
 			std::async([this, &maCounts, &eachTR]{
 				mac2binBlk_(maCounts, eachTR);
 			})
 		);
+		*/
 	}
 }
 

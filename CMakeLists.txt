@@ -203,6 +203,9 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 		PRIVATE include
 		PRIVATE ${brutilities_SOURCE_DIR}/include
 	)
+	target_compile_options(tests
+		PRIVATE -mpopcnt
+	)
 	include(CTest)
 	include(Catch)
 	catch_discover_tests(tests)

@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <numeric>
 #include <utility>
@@ -9,9 +10,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
-
-#include <iostream>
-#include <bitset>
+#include <popcntintrin.h>
 
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
@@ -239,33 +238,27 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		constexpr size_t nIndivPerBinByte{8};
 		constexpr size_t nBedBytes{5};
 		constexpr size_t nBinBytes{3};
+		constexpr uint64_t correctMinUnion{6};
 		constexpr std::array<uint8_t, nBedBytes> bedBytes{0b11001100, 0b00011011, 0b11001100, 0b00111001, 0b00000011};
 		constexpr std::array<int, nIndividuals> macArray{0, 2, 0, 2, 2, 1, -9, 0, 0, 2, 0, 2, 1, -9, 2, 0, 2};
 		BayesicSpace::LocationWithLength bedWindow{0, bedBytes.size()};
 		BayesicSpace::LocationWithLength binWindow{0, nBinBytes};
 		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
 			std::vector<char> bedByteVec{bedBytes.cbegin(), bedBytes.cend()};
-			std::vector<uint8_t> binBytes(nBinBytes, 0);
-			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytes);
-			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytes) * 2);
+			std::vector<uint8_t> binBytesBed(nBinBytes, 0);
+			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytesBed);
+			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytesBed) * 2);
+			std::vector<int> macVec{macArray.cbegin(), macArray.cend()};
+			std::vector<uint8_t> binBytesMAC(nBinBytes, 0);
+			BayesicSpace::binarizeMacLocus(macVec, binWindow, binBytesMAC);
+			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytesMAC) * 2);
+			uint32_t binBed{0};
+			memcpy( &binBed, binBytesBed.data(), binBytesBed.size() );
+			uint32_t binMAC{0};
+			memcpy( &binMAC, binBytesMAC.data(), binBytesMAC.size() );
+			const auto macBedUnion{static_cast<uint32_t>(binBed & binMAC)};
+			REQUIRE(_mm_popcnt_u32(macBedUnion) >= correctMinUnion);
 		}
-		std::vector<int> macVec{macArray.cbegin(), macArray.cend()};
-		std::vector<uint8_t> tstBB(nBinBytes, 0);
-		//BayesicSpace::binarizeMacLocus(macVec, binWindow, binBytes);
-		BayesicSpace::binarizeMacLocus(macVec, binWindow, tstBB);
-		for (const auto &eachByte : tstBB) {
-			std::bitset<8> byte{eachByte}; // NOLINT
-			std::cout << byte << " ";
-		}
-		std::cout << "\n";
-		std::vector<uint8_t> tstBBB(nBinBytes, 0);
-		std::vector<char> tstBedByteVec{bedBytes.cbegin(), bedBytes.cend()};
-		BayesicSpace::binarizeBedLocus(bedWindow, tstBedByteVec, nIndividuals, binWindow, tstBBB);
-		for (const auto &eachByte : tstBBB) {
-			std::bitset<8> byte{eachByte}; // NOLINT
-			std::cout << byte << " ";
-		}
-		std::cout << "\n";
 
 		// makeGroupRanges tests
 		std::vector<BayesicSpace::HashGroup> groups;
@@ -917,8 +910,8 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 			macVector.push_back( std::stoi(eachLine) );
 		}
 		inAlleleCounts.close();
+		BayesicSpace::GenoTableBin macGTB(macVector, nIndividuals, logFileName, nThreads);
 		/*
-		BayesicSpace::GenoTableBin macGTB(macVector, nIndividuals, logFileName);
 		outAndBim.outputFileName = ldFileName;
 		bedGTB.allJaccardLD(outAndBim, nChunks);
 
