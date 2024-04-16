@@ -48,8 +48,6 @@
 #include <thread>
 #include <immintrin.h>
 
-#include <iostream>
-
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "random.hpp"
@@ -190,17 +188,12 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	threadRanges.back().second = nLoci_;
 	std::vector< std::future<void> > tasks;
 	tasks.reserve(nThreads_);
-	mac2binBlk_(maCounts, threadRanges.at(0));
 	for (const auto &eachTR : threadRanges) {
-		std::cout << eachTR.first << "--" << eachTR.second << "\n";
-		//mac2binBlk_(maCounts, eachTR);
-		/*
 		tasks.emplace_back(
 			std::async([this, &maCounts, &eachTR]{
 				mac2binBlk_(maCounts, eachTR);
 			})
 		);
-		*/
 	}
 }
 
@@ -325,10 +318,14 @@ size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream 
 void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange) {
 	for (size_t iLocus = locusIndRange.first; iLocus < locusIndRange.second; ++iLocus) {
 		LocationWithLength binLocusRange{};
-		binLocusRange.start  = iLocus * binLocusSize_;
+		binLocusRange.start  = iLocus;
 		binLocusRange.length = binLocusSize_;
 		std::vector<int> macLocus(nIndividuals_);
-		memcpy(macLocus.data(), macData.data() + iLocus * nIndividuals_, nIndividuals_);
+		std::copy_n(
+			std::next( macData.cbegin(), static_cast<std::vector<int>::difference_type>(iLocus * nIndividuals_) ),
+			nIndividuals_,
+			macLocus.begin()
+		);
 		binarizeMacLocus(macLocus, binLocusRange, binGenotypes_);
 	}
 }
@@ -1076,7 +1073,11 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const std::pair
 		binLocusRange.length = locusSize_;
 		std::vector<int> macLocus(nIndividuals_);
 		const size_t nIndivUnpadded{nIndividuals_ - padIndiv.size()};
-		memcpy(macLocus.data(), macData.data() + iLocus * nIndivUnpadded, nIndivUnpadded);
+		std::copy_n(
+			std::next( macData.cbegin(), static_cast<std::vector<int>::difference_type>(iLocus * nIndivUnpadded) ),
+			nIndivUnpadded,
+			macLocus.begin()
+		);
 		size_t iPad = nIndivUnpadded;
 		std::for_each(
 			padIndiv.cbegin(),

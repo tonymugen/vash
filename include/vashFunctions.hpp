@@ -211,7 +211,7 @@ namespace BayesicSpace {
 	 * If the number of individuals is not divisible by eight, the last binary byte is padded with 0s.
 	 *
 	 * \param[in] macLocus vector of minor allele counts at a locus
-	 * \param[in] binLocusWindow window covering the binary locus
+	 * \param[in] binLocusWindow window into the binary vector giving the locus index and length in bytes
 	 * \param[out] binLocus vector of binary format bytes
 	 */
 	void binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);

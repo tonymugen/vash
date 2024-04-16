@@ -388,9 +388,9 @@ void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const Loca
 	constexpr uint8_t middleMask{0b10000011};
 	constexpr uint8_t endTwoBitMask{0b00000011};
 	RanDraw locPRNG;
-	auto remainderInd          = static_cast<uint8_t>( binLocusWindow.length * byteSize - macLocus.size() );
-	const uint8_t lastByteMask = static_cast<uint8_t>(0b11111111) >> remainderInd;
-	remainderInd               = byteSize - remainderInd;
+	auto remainderInd = static_cast<uint8_t>( binLocusWindow.length * byteSize - macLocus.size() );
+	const auto lastByteMask{static_cast<uint8_t>(0b11111111 >> remainderInd)};
+	remainderInd = byteSize - remainderInd;
 	// Create a vector to store random bytes for stochastic heterozygote resolution
 	const size_t randVecLen{macLocus.size() / sizeof(uint64_t) + static_cast<size_t>( ( macLocus.size() % sizeof(uint64_t) ) > 0 )};
 	std::vector<uint64_t> rand(randVecLen);

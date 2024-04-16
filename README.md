@@ -47,11 +47,12 @@ Installation may require root privileges.
         The software does its best to not use up RAM, but this has only been tested on Linux.
 
     --only-groups     - no LD calculations are performed and only groups
-        and the loci they contain is saved to a file.
+        and the loci they contain are saved to a file.
+
     --add-locus-names - locus names from the corresponding `.bim` file are outputinstead
         instead the default (base-1) locus indexes. This may result in larger output files.
 
-Output files are tab-delimited and include group IDs, locus pair indexes, and Jaccard similarity estimates. If full Jaccard estimates are produced, group IDs are not included, but \f$r^2\f$ as well as Jaccard similarity estimates are output.
+Output files are tab-delimited and include locus pair indexes and Jaccard similarity estimates. The range of Jaccard estimates (0.0 to 1.0) is discretized into 256 bins, so not all floating point values are represented.
 
 Running the software on whole genomes with millions of loci should not tax RAM (the software keeps track of free memory and only uses about half available RAM), but can still tax disk space. In addition, some pairs can be assigned to more than one group. Removal of these duplicates requires in-memory operations, so if partial results are written to disk some of these duplicates are retained. I recommend using the `--only-groups` flags in preliminary runs to get a sense of the number of locus pairs that will result given a set of parameters. Analyzing a single chromosome at a time also speeds up the analyses.
 
