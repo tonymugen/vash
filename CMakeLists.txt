@@ -181,7 +181,7 @@ set_target_properties(vash PROPERTIES
 	CXX_STANDARD_REQUIRED ON
 )
 target_compile_options(vash
-	PRIVATE ${PROJECT_WARNINGS_CXX} -mbmi -mbmi2 -mpopcnt -pthread
+	PRIVATE ${PROJECT_WARNINGS_CXX} -mbmi -mbmi2 -mpopcnt -lpthread
 )
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	target_compile_options(vash
