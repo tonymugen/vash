@@ -135,9 +135,9 @@ namespace BayesicSpace {
 	 * \return hash value
 	 */
 	[[gnu::warn_unused_result]] uint32_t murMurHash(const std::vector<uint16_t> &key, const LocationWithLength &keyWindow, const uint32_t &seed);
-	/** \brief Test .bed magic bytes
+	/** \brief Test _.bed_ magic bytes
 	 *
-	 * Throws if one of the input bytes does not match the three magic values in `plink` .bed files.
+	 * Throws if one of the input bytes does not match the three magic values in `plink` _.bed_ files.
 	 *
 	 * \param[in] bytesToTest the byte set to test
 	 */

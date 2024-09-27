@@ -55,7 +55,9 @@ namespace BayesicSpace {
 	 * Groups the start index and length (in number of elements) of a window spanning container elements.
 	 */
 	struct LocationWithLength {
+		/** \brief Window start index */
 		size_t start;
+		/** \brief Window size */
 		size_t length;
 	};
 
@@ -64,7 +66,9 @@ namespace BayesicSpace {
 	 * Groups the number of items with size of each.
 	 */
 	struct CountAndSize {
+		/** \brief Number of items */
 		size_t count;
+		/** \brief Item size */
 		size_t size;
 	};
 
@@ -73,7 +77,9 @@ namespace BayesicSpace {
 	 * Groups the number of individuals with sketch numbers for hashing.
 	 */
 	struct IndividualAndSketchCounts {
+		/** \brief Number of individuals */
 		uint32_t nIndividuals;
+		/** \brief Number of sketches */
 		uint16_t kSketches;
 	};
 
@@ -82,19 +88,27 @@ namespace BayesicSpace {
 	 * Data attributes of locus groups for reading _.bed_ files.
 	 */
 	struct BedDataStats {
+		/** \brief First locus index */
 		size_t firstLocusIdx;
+		/** \brief Number of loci per thread */
 		size_t nLociPerThread;
+		/** \brief Number of bytes per locus */
 		size_t nBytesPerLocus;
+		/** \brief Number of bytes to read from a _.bed_ file */
 		size_t nBytesToRead;
+		/** \brief Number of loci to read from a _.bed_ file */
 		size_t nLociToRead;
-		size_t nMemChunks;     // number of chunks to read into memory
+		/** \brief Number of chunks needed to fit data into RAM */
+		size_t nMemChunks;
 	};
 	/** \brief Input and output file names
 	 *
 	 * Groups input and output file names.
 	 */
 	struct InOutFileNames {
+		/** \brief Input file name */
 		std::string inputFileName;
+		/** \brief Output file name */
 		std::string outputFileName;
 	};
 	/** \brief LD matrix sparsity parameters
@@ -104,7 +118,9 @@ namespace BayesicSpace {
 	 * in fewer elements included in the matrix.
 	 */
 	struct SparsityParameters{
+		/** \brief Number of rows in a band of a banded hash */
 		size_t nRowsPerBand;
+		/** \brief Similarity cut-off value for saving pairs */
 		float similarityCutOff;
 	};
 	/** \brief Hash-derived group
@@ -113,7 +129,9 @@ namespace BayesicSpace {
 	 * (including the current) groups.
 	 */
 	struct HashGroup {
+		/** \brief Cumulative number of previously considered pairs */
 		uint64_t cumulativeNpairs;
+		/** \brief Indexes of loci in the current groups */
 		std::vector<uint32_t> locusIndexes;
 	};
 
@@ -122,8 +140,9 @@ namespace BayesicSpace {
 	 * Used to delimit ranges of locus pairs for chunked processing.
 	 */
 	struct HashGroupItPairCount {
-		// how many pairs already processed
+		/** \brief Number of pairs already processed */
 		size_t pairCount{0};
+		/** \brief `HashGroup` vector iterator */
 		std::vector<HashGroup>::const_iterator hgIterator;
 	};
 
@@ -226,6 +245,7 @@ namespace BayesicSpace {
 		 * If the result does not fit in RAM, calculates in blocks and saves to disk periodically.
 		 *
 		 * \param[in] bimAndLDnames name of the input _.bim_ file that has locus names and the output LD value file name
+		 * \param[in] suggestNchunks force processing in chunks
 		 */
 		void allJaccardLD( const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
 		/** \brief Save the log to a file
@@ -247,13 +267,13 @@ namespace BayesicSpace {
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Leading bytes for .bed files */
+		/** \brief Leading bytes for _.bed_ files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
 		static const uint8_t byteSize_;
-		/** \brief Number of .bed genotypes per byte */
+		/** \brief Number of _.bed_ genotypes per byte */
 		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
@@ -328,7 +348,7 @@ namespace BayesicSpace {
 		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
-		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
 		 * The binary stream is then hashed using a one-permutation hash (OPH; one sketch per locus).
@@ -338,13 +358,13 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] indivSketchCounts number of individuals and sketches
-		 * \param[in] nThreds maximal number of threads to use
+		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
 		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
 		/** \brief Constructor with input file name
 		 *
-		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed) format.
+		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
 		 * Heterozygotes are assigned the major or minor allele at random, missing genotypes are assigned the major allele.
 		 * If necessary, alleles are re-coded so that the set bit is always the minor allele.
 		 * The input is a vectorized matrix of genotypes. The original matrix has individuals on rows, and is vectorized by row.
@@ -372,7 +392,7 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] indivSketchCounts number of individuals and sketches
-		 * \param[in] nThreds maximal number of threads to use
+		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
 		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
@@ -458,7 +478,6 @@ namespace BayesicSpace {
 		 * If the .bim file name is left blank or the file does not exist, base-1 locus indexes are used instead of locus names.
 		 *
 		 * \param[in] sparsityValues `SparsityParameters` object that controls output matrix sparsity
-		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \param[in] bimAndLDnames _.bim_ and output LD file names
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
@@ -498,13 +517,13 @@ namespace BayesicSpace {
 		mutable std::string logMessages_;
 		/** \brief Log file name */
 		std::string logFileName_;
-		/** \brief Leading bytes for .bed files */
+		/** \brief Leading bytes for _.bed_ files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
 		static const uint8_t oneBit_;
 		/** \brief Size of one byte in bits */
 		static const uint8_t byteSize_;
-		/** \brief Number of .bed genotypes per byte */
+		/** \brief Number of _.bed_ genotypes per byte */
 		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
@@ -580,6 +599,7 @@ namespace BayesicSpace {
 		 * \param[in] macData vector of minor allele counts
 		 * \param[in] blockRange range of loci in the block
 		 * \param[in] permutation permutation to be applied to each locus 
+		 * \param[in] padIndiv additional individuals, `first` is the placement index, `second` is the index of the individual to add
 		 */
 		void mac2ophBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &blockRange,
 				const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);

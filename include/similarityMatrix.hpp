@@ -45,17 +45,23 @@ namespace BayesicSpace {
 
 	/** \brief Row and column index pair */
 	struct RowColIdx {
+		/** \brief Row index */
 		uint32_t iRow;
+		/** \brief Column index */
 		uint32_t jCol;
 	};
 	/** \brief Full vectorized index and similarity value */
 	struct FullIdxValue {
+		/** \brief Full index of a vectorized triangular matrix */
 		uint64_t fullIdx;
+		/** \brief Quantized similarity value */
 		uint8_t quantSimilarity;
 	};
 	/** \brief Pair of integers to calculate Jaccard similarity */
 	struct JaccardPair {
+		/** \brief Intersection size */
 		uint64_t nIntersect;
+		/** \brief Union size */
 		uint64_t nUnion;
 	};
 

@@ -97,6 +97,17 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	)
 	FetchContent_MakeAvailable(Catch2)
 endif()
+
+#
+# Documentation
+#
+option(BUILD_DOCS
+	"Build docs"
+	OFF
+)
+if(PROJECT_IS_TOP_LEVEL AND BUILD_DOCS)
+	add_subdirectory(docs)
+endif()
 #
 # Find active available sanitizers
 #
