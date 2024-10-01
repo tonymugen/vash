@@ -31,6 +31,27 @@ cmake --install .
 ```
 Installation may require root privileges.
 
+# Building tests and documentation
+
+Building and running unit tests is optional. To do so, after creating the `build` directory as above, run
+
+```sh
+cmake -DCMAKE_BUILD_TYPE=Test -DBUILD_TESTS=ON
+cmake --build .
+./tests
+```
+
+Tests require [Catch2](https://github.com/catchorg/Catch2), which is installed as part of the build.
+
+Building documentation is also optional, and can be done using
+
+```sh
+cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_DOCS=ON
+cmake --build .
+```
+
+in the `build` directory. This requires that [Doxygen](https://www.doxygen.nl/) and `pdflatex` are installed in the execution path.
+
 # Use ldblocks
 
 `lblocks` is a command line tool that estimates LD among loci in a `plink` `.bed` file. Running it without command line flags prints the flags and their possible values. Most flags are self-explanatory, but setting values to some of them requires special consideration.
@@ -54,6 +75,6 @@ Installation may require root privileges.
 
 Output files are tab-delimited and include locus pair indexes and Jaccard similarity estimates. The range of Jaccard estimates (0.0 to 1.0) is discretized into 256 bins, so not all floating point values are represented.
 
-Running the software on whole genomes with millions of loci should not tax RAM (the software keeps track of free memory and only uses about half available RAM), but can still tax disk space. In addition, some pairs can be assigned to more than one group. Removal of these duplicates requires in-memory operations, so if partial results are written to disk some of these duplicates are retained. I recommend using the `--only-groups` flags in preliminary runs to get a sense of the number of locus pairs that will result given a set of parameters. Analyzing a single chromosome at a time also speeds up the analyses.
+Running the software on whole genomes with millions of loci should not tax RAM (the software keeps track of free memory and only uses about half available RAM), but can still tax disk space. In addition, some pairs can be assigned to more than one group. Removal of these duplicates requires in-memory operations, so if partial results are written to disk some of these duplicates are retained. I recommend using the `--only-groups` flags in preliminary runs to get a sense of the number of locus pairs that will result given a set of parameters.
 
 Library interface documentation can be found [here](https://www.bayesicresearch.org/softwareDocs/vash/html/index.html).

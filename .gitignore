@@ -6,6 +6,5 @@ tests/*
 !tests/*.bim
 !tests/*.fam
 !tests/*.txt
-Doxyfile
 docs/doxygen/*
 docs/Doxyfile

@@ -89,11 +89,11 @@ option(BUILD_TESTS
 )
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	FetchContent_Declare(
-	  Catch2
-	  GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-	  GIT_TAG        v3.5.2 # or a later release
-	  GIT_PROGRESS   TRUE
-	  SYSTEM                # to disable Catch2 warnings
+		Catch2
+		GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+		GIT_TAG        v3.5.2 # or a later release
+		GIT_PROGRESS   TRUE
+		SYSTEM                # to disable Catch2 warnings
 	)
 	FetchContent_MakeAvailable(Catch2)
 endif()
