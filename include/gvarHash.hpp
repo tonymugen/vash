@@ -322,19 +322,19 @@ namespace BayesicSpace {
 		 * \param[in] blockRange row/column index pair range
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
+		[[nodiscard]] SimilarityMatrix jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
 		/** \brief Jaccard similarity between locus pairs using multiple threads
 		 *
 		 * \param[in] indexPairs vector of row/column index ranges, one per thread
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
+		[[nodiscard]] SimilarityMatrix jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
 		/** \brief Calculate the union and intersection Jaccard similarity pair
 		 *
 		 * \param[in] rowColumn indexes of the locus pair to compare
 		 * \return Intersection and union for Jaccard similarity calculation between two binarized loci
 		 */
-		[[gnu::warn_unused_result]] JaccardPair makeJaccardPair_(const RowColIdx &rowColumn) const;
+		[[nodiscard]] JaccardPair makeJaccardPair_(const RowColIdx &rowColumn) const;
 	};
 	/** \brief Class to store compressed genotype tables
 	 *
@@ -458,7 +458,7 @@ namespace BayesicSpace {
 		 * \param[in] nRowsPerBand number of rows per sketch matrix band
 		 * \return locus index hash table
 		 */
-		[[gnu::warn_unused_result]] std::vector<HashGroup> makeLDgroups(const size_t &nRowsPerBand) const;
+		[[nodiscard]] std::vector<HashGroup> makeLDgroups(const size_t &nRowsPerBand) const;
 		/** \brief Assign groups by LD and save to a file with locus names
 		 *
 		 * Assign groups as above and save locus names with their group IDs to a file.
@@ -626,7 +626,7 @@ namespace BayesicSpace {
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange, const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
+		[[nodiscard]] SimilarityMatrix hashJacBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange, const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
 		/** \brief Hash-based similarity in a range of locus groups
 		 *
 		 * The range points to a hash table of locus indexes.
@@ -636,7 +636,7 @@ namespace BayesicSpace {
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \return a `SimilarityMatrix` object
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix hashJacBlock_(const std::pair<HashGroupItPairCount, HashGroupItPairCount> &blockRange, const float &similarityCutOff) const;
+		[[nodiscard]] SimilarityMatrix hashJacBlock_(const std::pair<HashGroupItPairCount, HashGroupItPairCount> &blockRange, const float &similarityCutOff) const;
 		/** \brief Hash-based similarity between locus pairs using multiple threads
 		 *
 		 * The provided row and column values index the `locusIndexes` vector that translates them to the actual locus indexes.
@@ -647,7 +647,7 @@ namespace BayesicSpace {
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs,
+		[[nodiscard]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs,
 				const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
 		/** \brief Threaded hash-based similarity in ranges of locus groups
 		 *
@@ -658,12 +658,12 @@ namespace BayesicSpace {
 		 * \param[in] similarityCutOff only save pairs with at least this similarity
 		 * \return a `SimilarityMatrix` object
 		 */
-		[[gnu::warn_unused_result]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const;
+		[[nodiscard]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const;
 		/** \brief Calculate the union and intersection Jaccard similarity pair
 		 *
 		 * \param[in] rowColumn indexes of the locus pair to compare
 		 * \return Intersection and union for Jaccard similarity calculation between two loci using OPH
 		 */
-		[[gnu::warn_unused_result]] JaccardPair makeJaccardPair_(const RowColIdx &rowColumn) const noexcept;
+		[[nodiscard]] JaccardPair makeJaccardPair_(const RowColIdx &rowColumn) const noexcept;
 	};
 }

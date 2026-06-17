@@ -64,8 +64,8 @@ RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	constexpr double tfiCoeff{8.0};
 	RowColIdx result{};
 
-	const auto row = static_cast<uint64_t>((1.0 + sqrt(1.0 + tfiCoeff * static_cast<double>(vecIdx))) / 2.0);
-	result.jCol    = static_cast<uint32_t>(vecIdx - row * (row - 1) / 2);
+	const auto row = static_cast<uint64_t>( ( 1.0 + sqrt( 1.0 + ( tfiCoeff * static_cast<double>(vecIdx) ) ) ) / 2.0 );
+	result.jCol    = static_cast<uint32_t>( vecIdx - (row * (row - 1) / 2) );
 	result.iRow    = static_cast<uint32_t>(row);
 
 	return result;
@@ -151,7 +151,7 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &ja
 	}
 	const auto jCol{static_cast<uint64_t>(rowColOrdered.first)};
 	const auto iRow{static_cast<uint64_t>(rowColOrdered.second)};
-	const uint64_t newVecIndex = (iRow - 1UL) * iRow / 2UL + jCol;
+	const uint64_t newVecIndex = ( (iRow - 1UL) * iRow / 2UL ) + jCol;
 
 	const auto quantSimilarity = static_cast<uint8_t>( (jaccardCounts.nIntersect * maxValueIdx_) / jaccardCounts.nUnion );
 	FullIdxValue tmp{};

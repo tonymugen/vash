@@ -1,0 +1,343 @@
+/*
+ * Custom Doxygen stylesheet for plasma-show-stdout.
+ *
+ * Derived from the design of https://bayesicresearch.org (a static Hugo site):
+ * the Nord colour palette (https://www.nordtheme.com) for the page chrome, the
+ * site's three typefaces, and — matching the site's Dracula-highlighted code
+ * fences — a dark Dracula treatment for code blocks on the otherwise light page.
+ *
+ * It is loaded via HTML_EXTRA_STYLESHEET, i.e. *after* doxygen.css / tabs.css /
+ * navtree.css, so these rules override the stock ones. It is self-contained:
+ * no web fonts are fetched and no font files are shipped. The typefaces are
+ * named with fallbacks, so the docs match the website exactly on a machine that
+ * has the site fonts installed (Tinos, Comfortaa, Inconsolata) and degrade
+ * gracefully to comparable system fonts elsewhere.
+ */
+
+:root {
+	/* Nord — Polar Night (dark) */
+	--nord0: #2e3440;
+	--nord1: #3b4252;
+	--nord2: #434c5e;
+	--nord3: #4c566a;
+	/* Nord — Snow Storm (light) */
+	--nord4: #d8dee9;
+	--nord5: #e5e9f0;
+	--nord6: #eceff4;
+	/* Nord — Frost (blue/teal) */
+	--nord7: #8fbcbb;
+	--nord8: #88c0d0;
+	--nord9: #81a1c1;
+	--nord10: #5e81ac;
+	/* Nord — Aurora (accents) */
+	--nord11: #bf616a;
+	--nord12: #d08770;
+	--nord13: #ebcb8b;
+	--nord14: #a3be8c;
+	--nord15: #b48ead;
+
+	/* Roles (mirroring the website's CSS) */
+	--page-bg:    var(--nord6);
+	--panel-bg:   var(--nord5);
+	--body-text:  var(--nord2);
+	--heading:    var(--nord0);
+	--subhead:    var(--nord3);
+	--rule:       var(--nord4);
+	--link:       var(--nord10);
+	--link-hover: var(--nord15);
+	--muted:      #a5abb7;
+
+	/* Typefaces — match the website, with graceful fallbacks */
+	--font-body: "Tinos", "Times New Roman", Times, serif;
+	--font-head: "Comfortaa", "Segoe UI", system-ui, sans-serif;
+	--font-mono: "Inconsolata", "Cascadia Code", "Source Code Pro", ui-monospace, monospace;
+
+	/* Dracula — code blocks, matching the site's syntax highlighting */
+	--drac-bg:      #282a36;
+	--drac-line:    #44475a;
+	--drac-fg:      #f8f8f2;
+	--drac-comment: #6272a4;
+	--drac-cyan:    #8be9fd;
+	--drac-green:   #50fa7b;
+	--drac-orange:  #ffb86c;
+	--drac-pink:    #ff79c6;
+	--drac-purple:  #bd93f9;
+	--drac-red:     #ff5555;
+	--drac-yellow:  #f1fa8c;
+}
+
+/* ---- Base text ---- */
+body {
+	background-color: var(--page-bg);
+	color: var(--body-text);
+}
+body, table, div, p, dl {
+	font-family: var(--font-body);
+	color: var(--body-text);
+}
+.contents {
+	font-size: 15px;
+	line-height: 1.5;
+}
+
+/* ---- Headings ---- */
+.title, h1, h2, h3, h4, h5, h6 {
+	font-family: var(--font-head);
+	color: var(--heading);
+	font-weight: 600;
+}
+h1.groupheader,
+h2.groupheader,
+h3.groupheader,
+.groupheader {
+	font-family: var(--font-head);
+	color: var(--subhead);
+	border-bottom: 1px solid var(--rule);
+	box-shadow: none;
+}
+h4.groupheader { color: var(--subhead); }
+dt { color: var(--heading); }
+
+/* ---- Links ---- */
+a {
+	color: var(--link);
+	text-decoration: none;
+}
+a:hover {
+	color: var(--link-hover);
+	text-decoration: none;
+}
+a.el { font-weight: 600; }
+.contents a:visited { color: var(--link); }
+
+/* ---- Title area / project banner ---- */
+#titlearea {
+	background-color: var(--page-bg);
+	border-bottom: 1px solid var(--rule);
+}
+#projectname {
+	font-family: var(--font-head);
+	color: var(--heading);
+}
+#projectbrief {
+	font-family: var(--font-body);
+	color: var(--muted);
+	font-style: italic;
+}
+
+/* ---- Tab / menu bar ---- */
+.tabs, .tabs2, .tabs3 {
+	background-color: var(--page-bg);
+	font-family: var(--font-head);
+}
+#navrow2, #navrow3, #navrow4 { border-top: 1px solid var(--rule); }
+.tablist li,
+.tablist a {
+	background-color: transparent;
+	color: var(--subhead);
+}
+.tablist a:hover {
+	background-color: var(--nord4);
+	color: var(--heading);
+	border-radius: 5px;
+}
+.tablist li.current a {
+	color: var(--link);
+	font-weight: 600;
+}
+.tablist li.current a:after {
+	background-color: var(--link);
+	border-color: var(--link);
+}
+
+/* ---- Navigation tree (sidebar) ---- */
+#side-nav,
+#nav-tree {
+	background-color: var(--panel-bg);
+}
+#nav-tree .label { font-family: var(--font-body); }
+#nav-tree a { color: var(--body-text); }
+#nav-tree .selected {
+	background-image: none;
+	background-color: var(--nord4);
+	color: var(--heading);
+	text-shadow: none;
+}
+.ui-resizable-e { background: var(--rule); }
+
+/* ---- Breadcrumb / footer paths ---- */
+.navpath ul {
+	background-image: none;
+	background-color: var(--panel-bg);
+	border: none;
+	border-top: 1px solid var(--rule);
+}
+.navpath li.navelem a {
+	background-image: none;
+	color: var(--subhead);
+	text-shadow: none;
+}
+.navpath li.navelem a:hover { color: var(--link-hover); }
+address.footer {
+	color: var(--muted);
+	font-family: var(--font-head);
+	font-size: 11px;
+}
+
+/* ---- Member declaration tables ---- */
+table.memberdecls { font-family: var(--font-body); }
+.memItemLeft, .memItemRight,
+.memTemplItemLeft, .memTemplItemRight,
+.memTemplParams {
+	background-color: var(--panel-bg);
+	border: none;
+}
+.memTemplParams { color: var(--link); }
+.mdescLeft, .mdescRight {
+	background-color: var(--page-bg);
+	color: var(--subhead);
+}
+.memSeparator {
+	background-color: var(--rule);
+	border-bottom: 1px solid var(--rule);
+	height: 1px;
+}
+.memItemLeft, .memItemRight { border-top: 1px solid var(--rule); }
+
+/* ---- Member documentation blocks ---- */
+.memitem {
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	box-shadow: none;
+	margin-bottom: 18px;
+}
+.memproto, .memname {
+	font-family: var(--font-mono);
+	color: var(--heading);
+}
+.memproto {
+	background-color: var(--panel-bg);
+	background-image: none;
+	border-bottom: 1px solid var(--rule);
+	border-left: 4px solid var(--link);
+	box-shadow: none;
+	text-shadow: none;
+	border-radius: 0;
+}
+.memdoc {
+	background-color: #ffffff;
+	background-image: none;
+	border: none;
+	box-shadow: none;
+}
+.memtitle {
+	background-color: var(--panel-bg);
+	background-image: none;
+	border: 1px solid var(--rule);
+	border-bottom: none;
+	color: var(--subhead);
+	font-family: var(--font-head);
+	box-shadow: none;
+}
+.paramname, .paramname em { color: var(--nord12); font-style: normal; }
+.paramtype { color: var(--link); }
+.paramdir { color: var(--muted); }
+
+/* Member labels: [explicit] [inline] [static] … */
+span.mlabel {
+	background-color: var(--link);
+	border: none;
+	color: var(--page-bg);
+	border-radius: 4px;
+}
+
+/* ---- Parameter / return / note sections ---- */
+dl.section {
+	border-left: 4px solid var(--nord9);
+	background-color: var(--panel-bg);
+	padding: 6px 12px;
+	margin: 12px 0;
+	border-radius: 0 6px 6px 0;
+}
+dl.section dt { color: var(--heading); }
+dl.note     { border-left-color: var(--nord13); }
+dl.warning, dl.attention { border-left-color: var(--nord11); }
+dl.return   { border-left-color: var(--nord14); }
+dl.see      { border-left-color: var(--nord10); }
+
+/* ---- Tables of contents ---- */
+div.toc {
+	background-color: var(--panel-bg);
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+}
+div.toc h3 {
+	font-family: var(--font-head);
+	color: var(--subhead);
+}
+div.toc li { font-family: var(--font-body); }
+div.toc a { color: var(--link); }
+
+/* ---- Horizontal rules ---- */
+hr { border: none; border-top: 1px solid var(--rule); }
+.contents hr { color: var(--rule); }
+
+/* ---- Inline code ---- */
+code, tt, kbd, samp,
+.tt, span.tt, .computeroutput {
+	font-family: var(--font-mono);
+}
+code, .tt, span.tt {
+	background-color: var(--panel-bg);
+	color: var(--nord0);
+	padding: 1px 4px;
+	border-radius: 3px;
+}
+
+/* ---- Code blocks: dark Dracula, matching the website's fenced code ---- */
+div.fragment,
+pre.fragment {
+	font-family: var(--font-mono);
+	background-color: var(--drac-bg);
+	color: var(--drac-fg);
+	border: 1px solid var(--drac-line);
+	border-radius: 6px;
+	padding: 10px 12px;
+}
+div.fragment .line { color: var(--drac-fg); }
+div.line:hover { background-color: var(--drac-line); }
+/* Inline code inherits the panel look, so reset it inside dark fragments. */
+div.fragment code, div.fragment .tt, pre.fragment code {
+	background: transparent;
+	color: inherit;
+	padding: 0;
+}
+/* Line numbers in listings */
+span.lineno {
+	background-color: var(--drac-line);
+	color: var(--drac-comment);
+	border-right: 1px solid var(--drac-comment);
+}
+span.lineno a, span.lineno a:hover { color: var(--drac-cyan); background: transparent; }
+
+/* Dracula syntax tokens */
+.fragment .comment,      span.comment      { color: var(--drac-comment); font-style: italic; }
+.fragment .keyword,      span.keyword      { color: var(--drac-pink); }
+.fragment .keywordflow,  span.keywordflow  { color: var(--drac-pink); }
+.fragment .keywordtype,  span.keywordtype  { color: var(--drac-cyan); }
+.fragment .preprocessor, span.preprocessor { color: var(--drac-purple); }
+.fragment .stringliteral,span.stringliteral{ color: var(--drac-yellow); }
+.fragment .charliteral,  span.charliteral  { color: var(--drac-yellow); }
+.fragment .vhdlchar,     span.vhdlchar     { color: var(--drac-fg); }
+.fragment a.code, .fragment a.code:visited,
+div.fragment a { color: var(--drac-cyan); }
+
+/* ---- Search box ---- */
+#MSearchBox {
+	background: var(--panel-bg);
+	border: 1px solid var(--rule);
+	border-radius: 6px;
+	box-shadow: none;
+}
+#MSearchField { font-family: var(--font-body); color: var(--body-text); }
+.left #MSearchSelect { background: none; }

@@ -65,7 +65,7 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec) {
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, wordSize);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
-		iByte += wordSize;
+		iByte  += wordSize;
 	}
 	if ( nWholeWords < inVec.size() ) {
 		uint64_t chunk{0};
@@ -86,7 +86,7 @@ uint64_t BayesicSpace::countSetBits(const std::vector<uint8_t> &inVec, const Loc
 		uint64_t chunk{0};
 		memcpy(&chunk, inVec.data() + iByte, wordSize);
 		totSet += static_cast<uint64_t>( _mm_popcnt_u64(chunk) );
-		iByte += wordSize;
+		iByte  += wordSize;
 	}
 	if (roundLength < window.length) {
 		uint64_t chunk{0};
@@ -136,7 +136,7 @@ uint32_t BayesicSpace::murMurHashMixer(const std::array<uint32_t, SIZE_OF_SIZET>
 
 		hash ^= eachBlock;
 		hash  = (hash << blockShifts[2]) | (hash >> blockShifts[3]);
-		hash  = hash * hashMultiplier + hashAdder;
+		hash  = (hash * hashMultiplier) + hashAdder;
 	}
 	return hash;
 }
@@ -274,7 +274,7 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 	std::pair<HashGroupItPairCount, HashGroupItPairCount> result;
 	result.first = startHGPC;
 	const size_t startPairCount{
-		startHGPC.hgIterator->cumulativeNpairs - startHGPC.hgIterator->locusIndexes.size() * (startHGPC.hgIterator->locusIndexes.size() - 1) / 2
+		startHGPC.hgIterator->cumulativeNpairs - (startHGPC.hgIterator->locusIndexes.size() * (startHGPC.hgIterator->locusIndexes.size() - 1) / 2)
 			+ startHGPC.pairCount
 	};
 	const size_t chunkCutOff = std::min(startPairCount + chunkSize, groupVector.back().cumulativeNpairs);
@@ -290,7 +290,7 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 		return result;
 	}
 	const size_t lastGroupPairNumber{
-		gvIterator->locusIndexes.size() * (gvIterator->locusIndexes.size() - 1) / 2 - (gvIterator->cumulativeNpairs - chunkCutOff)
+		(gvIterator->locusIndexes.size() * (gvIterator->locusIndexes.size() - 1) / 2) - (gvIterator->cumulativeNpairs - chunkCutOff)
 	};
 	result.second.pairCount = lastGroupPairNumber;
 
@@ -388,11 +388,11 @@ void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const Loca
 	constexpr uint8_t middleMask{0b10000011};
 	constexpr uint8_t endTwoBitMask{0b00000011};
 	RanDraw locPRNG;
-	auto remainderInd = static_cast<uint8_t>( binLocusWindow.length * byteSize - macLocus.size() );
+	auto remainderInd = static_cast<uint8_t>( (binLocusWindow.length * byteSize) - macLocus.size() );
 	const auto lastByteMask{static_cast<uint8_t>(0b11111111 >> remainderInd)};
 	remainderInd = byteSize - remainderInd;
 	// Create a vector to store random bytes for stochastic heterozygote resolution
-	const size_t randVecLen{macLocus.size() / sizeof(uint64_t) + static_cast<size_t>( ( macLocus.size() % sizeof(uint64_t) ) > 0 )};
+	const size_t randVecLen{( macLocus.size() / sizeof(uint64_t) ) + static_cast<size_t>( ( macLocus.size() % sizeof(uint64_t) ) > 0 )};
 	std::vector<uint64_t> rand(randVecLen);
 	auto *randBytes = reinterpret_cast<uint8_t*>( rand.data() );
 	// Fill the random byte vector
@@ -453,7 +453,7 @@ void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const Loca
 		i0Byte = 0;
 		for (size_t i = begByte; i < begByte + binLocusWindow.length; ++i) {
 			// should be safe: each thread accesses different vector elements
-			binLocus[i] = (~binLocus[i]) & (~missMasks[i0Byte]);
+			binLocus[i] = ( static_cast<uint8_t>(~binLocus[i]) ) & (~missMasks[i0Byte]);
 			++i0Byte;
 		}
 		// should be safe: each thread accesses different vector elements

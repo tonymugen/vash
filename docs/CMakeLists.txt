@@ -1,30 +1,16 @@
 find_package(Doxygen REQUIRED)
-find_package(LATEX
-	COMPONENTS PDFLATEX
-	REQUIRED
-)
 
-message("pdflatex: ${PDFLATEX_COMPILER}")
+file(GLOB PUBLIC_HEADERS ${PROJECT_SOURCE_DIR}/plugin/*.hpp)
 
-FetchContent_Declare(
-	awesome
-	GIT_REPOSITORY https://github.com/jothepro/doxygen-awesome-css.git
-	GIT_TAG        v2.3.4 # or a later release
-	GIT_PROGRESS   TRUE
-)
-FetchContent_MakeAvailable(awesome)
-
-file(GLOB PUBLIC_HEADERS ${PROJECT_SOURCE_DIR}/include/*.hpp)
-
-set(DOXYGEN_INPUT_DIR  ${PROJECT_SOURCE_DIR}/include)
+set(DOXYGEN_INPUT_DIR  ${PROJECT_SOURCE_DIR}/plugin)
 set(DOXYGEN_OUTPUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/doxygen)
 set(README_FILE        ${PROJECT_SOURCE_DIR}/README.md)
 set(DOXYGEN_INDEX_FILE ${DOXYGEN_OUTPUT_DIR}/html/index.html)
-set(LATEX_REFMAN_TEX   ${DOXYGEN_OUTPUT_DIR}/latex/refman.tex)
-set(LATEX_REFMAN_PDF   ${DOXYGEN_OUTPUT_DIR}/latex/refman.pdf)
 set(DOXYFILE_IN        ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in)
 set(DOXYFILE_OUT       ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile)
-set(AWESOME_CSS        ${awesome_SOURCE_DIR}/doxygen-awesome.css)
+# Custom stylesheet matching the bayesicresearch.org design (Nord palette + the
+# site's typefaces). Self-contained, so the build needs no external theme.
+set(CUSTOM_CSS_FILE    ${CMAKE_CURRENT_SOURCE_DIR}/bayesic.css)
 
 # Replace variables in Doxyfile
 configure_file(${DOXYFILE_IN} ${DOXYFILE_OUT} @ONLY)
@@ -34,8 +20,8 @@ add_custom_command(
 	OUTPUT            ${DOXYGEN_INDEX_FILE}
 	DEPENDS           ${PUBLIC_HEADERS}
 	                  ${README_FILE}
+	                  ${CUSTOM_CSS_FILE}
 	COMMAND           ${DOXYGEN_EXECUTABLE}
-	COMMAND           make --directory=${DOXYGEN_OUTPUT_DIR}/latex pdf
 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 	MAIN_DEPENDENCY   ${DOXYFILE_IN}
 	COMMENT           "Generating docs"

@@ -82,7 +82,7 @@ namespace BayesicSpace {
 	 * \param[in] vecIdx index into the vectorized matrix
 	 * \return row and column index pair
 	 */
-	[[gnu::warn_unused_result]] RowColIdx recoverRCindexes(const uint64_t &vecIdx) noexcept;
+	[[nodiscard]] RowColIdx recoverRCindexes(const uint64_t &vecIdx) noexcept;
 
 	/** \brief Similarity matrix
 	 *
@@ -124,19 +124,19 @@ namespace BayesicSpace {
 		 *
 		 * \return matrix element size in bytes
 		 */
-		[[gnu::warn_unused_result]] static size_t elementSize() noexcept {return sizeof(uint64_t);};
+		[[nodiscard]] static size_t elementSize() noexcept { return sizeof(uint64_t); };
 		/** \brief Object size in bytes 
 		 *
 		 * \return object size in bytes
 		 */
-		[[gnu::warn_unused_result]] size_t objectSize() const noexcept { 
+		[[nodiscard]] size_t objectSize() const noexcept { 
 			return	elementSize() * matrix_.size();
 		};
 		/** \brief Number of elements in the matrix
 		 *
 		 * \return number of elements
 		 */
-		[[gnu::warn_unused_result]] size_t nElements() const noexcept {return matrix_.size();};
+		[[nodiscard]] size_t nElements() const noexcept { return matrix_.size(); };
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix. Addresses the lower triangle of the similarity matrix,
@@ -212,7 +212,7 @@ namespace BayesicSpace {
 		 * \param[in] locusNames locus name vector
 		 *  \return output string
 		 */
-		[[gnu::warn_unused_result]] static std::string stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+		[[nodiscard]] static std::string stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
 								const std::vector<std::string> &locusNames);
 		/** \brief Insert a value (updating the index) 
 		 *
