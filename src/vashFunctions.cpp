@@ -499,6 +499,9 @@ void BayesicSpace::parseCL(int &argc, char **argv, std::unordered_map<std::strin
 			}
 		}
 	}
+	if (val) { // a trailing flag with no value
+		cli[curFlag] = "set";
+	}
 }
 
 void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::string> &parsedCLI, std::unordered_map<std::string, int> &intVariables,

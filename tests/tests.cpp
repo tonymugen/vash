@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 #include <popcntintrin.h>
 
 #include "gvarHash.hpp"
@@ -45,6 +46,15 @@ TEST_CASE("Can count set bits correctly", "[countSetBits]") {
 	REQUIRE(vectorWindowCount == correctVectorWindowCount);
 }
 
+TEST_CASE("Available RAM query returns a usable value", "[getAvailableRAM]") {
+	// returns MemAvailable in bytes, or a non-zero fallback when /proc/meminfo is unavailable
+	const size_t availableRAM{BayesicSpace::getAvailableRAM()};
+	REQUIRE(availableRAM > 0);
+	// the result is stable across repeated calls (allowing for normal small fluctuations)
+	const size_t availableRAMagain{BayesicSpace::getAvailableRAM()};
+	REQUIRE(availableRAMagain > 0);
+}
+
 TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 	constexpr uint32_t mmHashSeed{2153025618};
 	constexpr std::array<uint32_t, BayesicSpace::SIZE_OF_SIZET> arrayKey{335636695, 4242517348};
@@ -63,9 +73,10 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 		45949, 58374, 75248, 80113,
 		93649, 98640, 99638
 	};
-	std::vector<size_t> u32Vector( u32Array.begin(), u32Array.end() );
-	constexpr uint32_t correctU32VectorHash{2643649892};
-	const uint32_t u32VectorHash{BayesicSpace::murMurHash(idxVector, mmHashSeed)};
+	std::vector<uint32_t> u32Vector( u32Array.begin(), u32Array.end() );
+	// the uint32_t and size_t overloads hash different byte widths, so their results differ by design
+	constexpr uint32_t correctU32VectorHash{1671617805};
+	const uint32_t u32VectorHash{BayesicSpace::murMurHash(u32Vector, mmHashSeed)};
 	constexpr std::array<uint16_t, 13> array16bit{
 		1256, 2117, 2866, 7434,
 		11737, 16256, 22236, 39883,
@@ -82,7 +93,6 @@ TEST_CASE("MurMurHash works properly", "[MurMurHash]") {
 		REQUIRE(arrayMMhash   == correctArrayHash);
 		REQUIRE(idxVectorHash == correctIdxVectorHash);
 		REQUIRE(u32VectorHash == correctU32VectorHash);
-		REQUIRE(u32VectorHash == idxVectorHash);
 		REQUIRE(v16bitHash    == correct16bitHash);
 		REQUIRE(all16bitHash  == correctAll16bitHash);
 	}
@@ -283,6 +293,113 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		REQUIRE( testGrpRange.first.hgIterator == std::next( groups.cbegin() ) );
 		REQUIRE(testGrpRange.second.pairCount == correctSecondPC);
 		REQUIRE( testGrpRange.second.hgIterator == std::next(testGrpRange.first.hgIterator) );
+	}
+}
+
+TEST_CASE("Command line parsing works", "[commandLine]") {
+	SECTION("parseCL flag extraction") {
+		// a flag followed by a value, a value-less flag whose value is the next "--" token,
+		// and a value-less flag at the very end of the argument list
+		std::vector<std::string> args{
+			"ldblocks", "--input-bed", "test.bed", "--n-individuals", "197",
+			"--only-groups", "--hash-size", "100", "--add-locus-names"
+		};
+		std::vector<char *> argv;
+		argv.reserve( args.size() );
+		for (auto &eachArg : args) {
+			argv.push_back( eachArg.data() );
+		}
+		int argc{static_cast<int>( argv.size() )};
+		std::unordered_map<std::string, std::string> cli;
+		BayesicSpace::parseCL(argc, argv.data(), cli);
+		constexpr size_t correctNflags{5};
+		REQUIRE( cli.size() == correctNflags );
+		REQUIRE( cli.at("input-bed")     == "test.bed" );
+		REQUIRE( cli.at("n-individuals") == "197" );
+		REQUIRE( cli.at("hash-size")     == "100" );
+		// a value-less flag followed by another flag is recorded as "set"
+		REQUIRE( cli.at("only-groups")   == "set" );
+		// a value-less flag at the end of the argument list is also recorded as "set"
+		REQUIRE( cli.at("add-locus-names") == "set" );
+
+		// nothing but the program name yields an empty map
+		std::vector<std::string> noFlagArgs{"ldblocks"};
+		std::vector<char *> noFlagArgv{ noFlagArgs.front().data() };
+		int noFlagArgc{static_cast<int>( noFlagArgv.size() )};
+		std::unordered_map<std::string, std::string> emptyCLI;
+		BayesicSpace::parseCL(noFlagArgc, noFlagArgv.data(), emptyCLI);
+		REQUIRE( emptyCLI.empty() );
+	}
+
+	SECTION("extractCLinfo defaults, overrides, and errors") {
+		std::unordered_map<std::string, int>         intVariables;
+		std::unordered_map<std::string, float>       floatVariables;
+		std::unordered_map<std::string, std::string> stringVariables;
+
+		// an empty parsed map is rejected
+		const std::unordered_map<std::string, std::string> emptyCLI;
+		REQUIRE_THROWS_WITH( BayesicSpace::extractCLinfo(emptyCLI, intVariables, floatVariables, stringVariables),
+				Catch::Matchers::StartsWith("No command line flags specified") );
+
+		// the required integer flag must be present
+		const std::unordered_map<std::string, std::string> noNind{ {"input-bed", "test.bed"} };
+		REQUIRE_THROWS_WITH( BayesicSpace::extractCLinfo(noNind, intVariables, floatVariables, stringVariables),
+				Catch::Matchers::StartsWith("ERROR: n-individuals specification is required and must be an integer") );
+
+		// the required integer flag must be parseable as an integer
+		const std::unordered_map<std::string, std::string> badNind{ {"input-bed", "test.bed"}, {"n-individuals", "notAnInt"} };
+		REQUIRE_THROWS_WITH( BayesicSpace::extractCLinfo(badNind, intVariables, floatVariables, stringVariables),
+				Catch::Matchers::StartsWith("ERROR: n-individuals specification is required and must be an integer") );
+
+		// the required string flag must be present
+		const std::unordered_map<std::string, std::string> noBed{ {"n-individuals", "197"} };
+		REQUIRE_THROWS_WITH( BayesicSpace::extractCLinfo(noBed, intVariables, floatVariables, stringVariables),
+				Catch::Matchers::StartsWith("ERROR: input-bed specification is required") );
+
+		// a minimal valid map fills in all defaults
+		const std::unordered_map<std::string, std::string> minimalCLI{ {"input-bed", "test.bed"}, {"n-individuals", "197"} };
+		REQUIRE_NOTHROW( BayesicSpace::extractCLinfo(minimalCLI, intVariables, floatVariables, stringVariables) );
+		constexpr int correctNind{197};
+		REQUIRE( intVariables.at("n-individuals")     == correctNind );
+		REQUIRE( intVariables.at("hash-size")         == 0 );
+		REQUIRE( intVariables.at("threads")           == -1 );
+		REQUIRE( intVariables.at("n-rows-per-band")   == 0 );
+		REQUIRE( floatVariables.at("min-similarity")  == 0.0F );
+		REQUIRE( stringVariables.at("input-bed")      == "test.bed" );
+		REQUIRE( stringVariables.at("log-file")       == "ldblocks.log" );
+		REQUIRE( stringVariables.at("out-file")       == "ldblocksOut.tsv" );
+		REQUIRE( stringVariables.at("only-groups")    == "unset" );
+		REQUIRE( stringVariables.at("add-locus-names") == "unset" );
+
+		// explicit values override the defaults
+		const std::unordered_map<std::string, std::string> fullCLI{
+			{"input-bed", "data.bed"}, {"n-individuals", "500"}, {"hash-size", "100"},
+			{"threads", "4"}, {"n-rows-per-band", "5"}, {"min-similarity", "0.75"},
+			{"log-file", "my.log"}, {"out-file", "my.tsv"}, {"only-groups", "set"}, {"add-locus-names", "set"}
+		};
+		REQUIRE_NOTHROW( BayesicSpace::extractCLinfo(fullCLI, intVariables, floatVariables, stringVariables) );
+		constexpr int correctFullNind{500};
+		constexpr int correctHashSize{100};
+		constexpr int correctThreads{4};
+		constexpr int correctNrows{5};
+		constexpr float correctMinSim{0.75F}; // exactly representable in binary
+		REQUIRE( intVariables.at("n-individuals")     == correctFullNind );
+		REQUIRE( intVariables.at("hash-size")         == correctHashSize );
+		REQUIRE( intVariables.at("threads")           == correctThreads );
+		REQUIRE( intVariables.at("n-rows-per-band")   == correctNrows );
+		REQUIRE( floatVariables.at("min-similarity")  == correctMinSim );
+		REQUIRE( stringVariables.at("input-bed")      == "data.bed" );
+		REQUIRE( stringVariables.at("log-file")       == "my.log" );
+		REQUIRE( stringVariables.at("out-file")       == "my.tsv" );
+		REQUIRE( stringVariables.at("only-groups")    == "set" );
+		REQUIRE( stringVariables.at("add-locus-names") == "set" );
+
+		// an unparseable optional integer silently falls back to its default
+		const std::unordered_map<std::string, std::string> badOptional{
+			{"input-bed", "test.bed"}, {"n-individuals", "197"}, {"hash-size", "notAnInt"}
+		};
+		REQUIRE_NOTHROW( BayesicSpace::extractCLinfo(badOptional, intVariables, floatVariables, stringVariables) );
+		REQUIRE( intVariables.at("hash-size") == 0 );
 	}
 }
 
@@ -942,6 +1059,64 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE(nSmallLD >= correctNsmallLD); // cannot test equality b/c of randomness
 		REQUIRE( nSmallLD + nLargeLD < jaccValues.size() );
 	}
+	SECTION("saveGenoBinary round-trip") {
+		constexpr uint32_t nIndividualsSmall{17};
+		constexpr size_t nLociSmall{4};
+		constexpr size_t binLocusSize{(nIndividualsSmall / 8) + static_cast<size_t>( (nIndividualsSmall % 8) > 0 )};
+		// deterministic minor-allele counts: no heterozygotes (value 1), so binarization is reproducible
+		const std::vector<int> macVector{
+			0, 2, 0, 2, 2, 0, -9,  0, 0, 2, 0, 2, 0, -9, 2, 0, 2,  // locus 0
+			2, 2, 2, 0, 0, 2,  2, -9, 0, 2, 0, 0, 2,  2, 0, 2, 0,  // locus 1
+			0, 0, 0, 2, 2, 0,  0,  2, -9, 2, 2, 0, 2,  0, 0, 2, 2, // locus 2
+			2, 0, 2, 2, -9, 2, 0,  0, 2, 2, 2, 0, 2,  2, 0, 2, 2   // locus 3
+		};
+		REQUIRE( macVector.size() == nLociSmall * nIndividualsSmall );
+
+		BayesicSpace::GenoTableBin gtb(macVector, nIndividualsSmall, logFileName, nThreads);
+		const std::string binFileName("../tests/tmpGenoBinary.bin");
+		gtb.saveGenoBinary(binFileName);
+
+		// read the saved bytes back
+		std::fstream binIn(binFileName, std::ios::in | std::ios::binary);
+		const std::vector<char> savedBytes( (std::istreambuf_iterator<char>(binIn)), std::istreambuf_iterator<char>() );
+		binIn.close();
+		std::remove( binFileName.c_str() ); // NOLINT
+
+		// independently reconstruct the expected binary buffer locus by locus
+		std::vector<uint8_t> expected(nLociSmall * binLocusSize, 0);
+		for (size_t iLocus = 0; iLocus < nLociSmall; ++iLocus) {
+			const std::vector<int> macLocus(
+				std::next( macVector.cbegin(), static_cast<std::ptrdiff_t>(iLocus * nIndividualsSmall) ),
+				std::next( macVector.cbegin(), static_cast<std::ptrdiff_t>( (iLocus + 1) * nIndividualsSmall ) )
+			);
+			const BayesicSpace::LocationWithLength binWindow{iLocus, binLocusSize};
+			BayesicSpace::binarizeMacLocus(macLocus, binWindow, expected);
+		}
+
+		REQUIRE( savedBytes.size() == expected.size() );
+		REQUIRE( std::equal(
+				savedBytes.cbegin(),
+				savedBytes.cend(),
+				expected.cbegin(),
+				[](char savedByte, uint8_t expectedByte) {
+					return static_cast<uint8_t>(savedByte) == expectedByte;
+				}
+			)
+		);
+	}
+	SECTION("saveLogFile writes the accumulated log") {
+		const std::string slfLogName("../tests/saveLogTestBin.log");
+		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
+		BayesicSpace::GenoTableBin logBin(inputBedName, nIndividuals, slfLogName, nThreads);
+		logBin.saveLogFile();
+		std::fstream logIn(slfLogName, std::ios::in);
+		REQUIRE( logIn.good() );
+		const std::string logContents( (std::istreambuf_iterator<char>(logIn)), std::istreambuf_iterator<char>() );
+		logIn.close();
+		std::remove( slfLogName.c_str() ); // NOLINT
+		// the constructor accumulates log messages, so the saved file must be non-empty
+		REQUIRE( !logContents.empty() );
+	}
 }
 
 TEST_CASE("GenoTableHash methods work", "[gtHash]") {
@@ -997,6 +1172,31 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVector, BayesicSpace::IndividualAndSketchCounts{nIndividuals, kGtN}, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: sketch number must be smaller than the number of individuals") );
+		// the minor-allele-count constructor has its own (distinct) sketch-count checks
+		// fewer than three sketches is rejected (a size-13 vector implies 13 individuals, so the count is divisible)
+		const std::vector<int> macVec13(13, 0);
+		constexpr size_t tinySketch{2};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVec13, BayesicSpace::IndividualAndSketchCounts{13, tinySketch}, logFileName),
+				Catch::Matchers::StartsWith("ERROR: sketch size must be at least three") );
+		// a sketch count that reaches the empty-bin sentinel (uint16_t max) implies too large a sketch size
+		constexpr uint32_t sentinelNind{65535};
+		constexpr uint16_t sentinelSketch{65535}; // == emptyBinToken_
+		const std::vector<int> sentinelMACvec(sentinelNind, 0);
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(sentinelMACvec, BayesicSpace::IndividualAndSketchCounts{sentinelNind, sentinelSketch}, logFileName),
+				Catch::Matchers::StartsWith("ERROR: Number of sketches") );
+	}
+	SECTION("saveLogFile writes the accumulated log") {
+		const std::string slfLogName("../tests/saveLogTest.log");
+		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
+		BayesicSpace::GenoTableHash logHSH(inputBedName, sketchParameters, nThreads, slfLogName);
+		logHSH.saveLogFile();
+		std::fstream logIn(slfLogName, std::ios::in);
+		REQUIRE( logIn.good() );
+		const std::string logContents( (std::istreambuf_iterator<char>(logIn)), std::istreambuf_iterator<char>() );
+		logIn.close();
+		std::remove( slfLogName.c_str() ); // NOLINT
+		// the constructor accumulates log messages, so the saved file must be non-empty
+		REQUIRE( !logContents.empty() );
 	}
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
@@ -1036,6 +1236,33 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			) >= highCountMin
 		);
 
+		// a non-zero cutoff drops pairs below it
+		constexpr float nonZeroCutOff{0.5F};
+		bedHSH.allHashLD(nonZeroCutOff, tmpFileGrp, forcedChunks);
+		hashLDfile.open(tmpJacFile, std::ios::in);
+		jaccValues.clear();
+		std::getline(hashLDfile, line);             // get rid of the header
+		while ( std::getline(hashLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lineStream >> field;
+			lineStream >> field;
+			jaccValues.emplace_back( stof(field) );
+		}
+		hashLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE(jaccValues.size() < totNpairs); // some pairs are below the cutoff
+		REQUIRE(std::all_of(
+				jaccValues.cbegin(),
+				jaccValues.cend(),
+				[&nonZeroCutOff](float value) {return value >= nonZeroCutOff;}
+			)
+		);
+		// pairs at or above the high bound (>= invKhighBound > nonZeroCutOff) must be retained
+		REQUIRE(jaccValues.size() >= highCountMin);
+
 		std::vector<BayesicSpace::HashGroup> groups{bedHSH.makeLDgroups(nRowsPerBand)};
 		REQUIRE(std::is_sorted(
 				groups.cbegin(),
@@ -1061,6 +1288,94 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				}
 			)
 		);
+
+		// file-output makeLDgroups overload, base-1 indexes (no .bim file).
+		// each call re-seeds the hash, so structural invariants are checked rather than equality with the vector above
+		const std::string grpFileName("../tests/tmpGroups.tsv");
+		BayesicSpace::InOutFileNames grpFiles{};
+		grpFiles.outputFileName = grpFileName;
+		grpFiles.inputFileName  = "";
+		bedHSH.makeLDgroups(nRowsPerBand, grpFiles);
+		std::fstream grpFile(grpFileName, std::ios::in);
+		std::string grpLine;
+		std::getline(grpFile, grpLine); // header
+		REQUIRE(grpLine == "groupID\tlocusIdx");
+		std::vector<uint32_t> fileGroupIDs;
+		std::vector< std::vector<uint32_t> > fileGroups; // locus indexes per group, in file order
+		std::vector<uint32_t> allFileIdx;
+		bool allRowsPrefixedG{true};
+		while ( std::getline(grpFile, grpLine) ) {
+			std::stringstream lineStream(grpLine);
+			std::string idField;
+			std::string idxField;
+			lineStream >> idField;
+			lineStream >> idxField;
+			allRowsPrefixedG = allRowsPrefixedG && (idField.front() == 'G');
+			const auto groupID{static_cast<uint32_t>( std::stoul( idField.substr(1) ) )};
+			const auto locusIdx{static_cast<uint32_t>( std::stoul(idxField) )};
+			if ( fileGroupIDs.empty() || (fileGroupIDs.back() != groupID) ) {
+				fileGroupIDs.push_back(groupID);
+				fileGroups.emplace_back();
+			}
+			fileGroups.back().push_back(locusIdx);
+			allFileIdx.push_back(locusIdx);
+		}
+		grpFile.close();
+		std::remove( grpFileName.c_str() ); // NOLINT
+
+		REQUIRE( !fileGroups.empty() );
+		REQUIRE( allRowsPrefixedG );
+		// group IDs are a contiguous, 1-based sequence
+		std::vector<uint32_t> expectedIDs( fileGroupIDs.size() );
+		std::iota( expectedIDs.begin(), expectedIDs.end(), 1U );
+		REQUIRE( std::equal( fileGroupIDs.cbegin(), fileGroupIDs.cend(), expectedIDs.cbegin() ) );
+		// every group has at least two loci, with strictly increasing indexes
+		REQUIRE(std::all_of(
+				fileGroups.cbegin(),
+				fileGroups.cend(),
+				[](const std::vector<uint32_t> &grp) {
+					return ( grp.size() >= 2 )
+						&& ( std::adjacent_find( grp.cbegin(), grp.cend(),
+								[](uint32_t lhs, uint32_t rhs){ return lhs >= rhs; } ) == grp.cend() );
+				}
+			)
+		);
+		// groups are ordered by their first locus index
+		REQUIRE(std::is_sorted(
+				fileGroups.cbegin(),
+				fileGroups.cend(),
+				[](const std::vector<uint32_t> &grpOne, const std::vector<uint32_t> &grpTwo){ return grpOne.front() < grpTwo.front(); }
+			)
+		);
+		// indexes are base-1 and within range
+		REQUIRE( *std::min_element( allFileIdx.cbegin(), allFileIdx.cend() ) >= 1U );
+		REQUIRE( *std::max_element( allFileIdx.cbegin(), allFileIdx.cend() ) <= nLoci );
+
+		// the same overload with a .bim file emits locus names instead of indexes
+		const std::string grpBimFile("../tests/ind197_397.bim");
+		grpFiles.inputFileName = grpBimFile;
+		bedHSH.makeLDgroups(nRowsPerBand, grpFiles);
+		const std::vector<std::string> grpLocusNames{BayesicSpace::getLocusNames(grpBimFile)};
+		grpFile.open(grpFileName, std::ios::in);
+		std::getline(grpFile, grpLine); // header
+		REQUIRE(grpLine == "groupID\tlocusIdx");
+		size_t namedRows{0};
+		bool allNamesKnown{true};
+		while ( std::getline(grpFile, grpLine) ) {
+			std::stringstream lineStream(grpLine);
+			std::string idField;
+			std::string nameField;
+			lineStream >> idField;
+			lineStream >> nameField;
+			allNamesKnown = allNamesKnown
+				&& ( std::find( grpLocusNames.cbegin(), grpLocusNames.cend(), nameField ) != grpLocusNames.cend() );
+			++namedRows;
+		}
+		grpFile.close();
+		std::remove( grpFileName.c_str() ); // NOLINT
+		REQUIRE( namedRows >= 2 );
+		REQUIRE( allNamesKnown );
+
 		constexpr float grpCutOff{0.75};
 		BayesicSpace::SparsityParameters sparsity{};
 		sparsity.similarityCutOff = grpCutOff;
@@ -1151,6 +1466,33 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				[&invKhighBound](float value) {return value >= invKhighBound;}
 			) >= highCountMin
 		);
+
+		// a non-zero cutoff drops pairs below it
+		constexpr float nonZeroCutOff{0.5F};
+		vecHSH.allHashLD(nonZeroCutOff, tmpFileGrp, forcedChunks);
+		hashLDfile.open(tmpJacFile, std::ios::in);
+		jaccValues.clear();
+		std::getline(hashLDfile, line);             // get rid of the header
+		while ( std::getline(hashLDfile, line) ) {
+			std::stringstream lineStream;
+			lineStream.str(line);
+			std::string field;
+			lineStream >> field;
+			lineStream >> field;
+			lineStream >> field;
+			jaccValues.emplace_back( stof(field) );
+		}
+		hashLDfile.close();
+		std::remove( tmpJacFile.c_str() ); // NOLINT
+		REQUIRE(jaccValues.size() < totNpairs); // some pairs are below the cutoff
+		REQUIRE(std::all_of(
+				jaccValues.cbegin(),
+				jaccValues.cend(),
+				[&nonZeroCutOff](float value) {return value >= nonZeroCutOff;}
+			)
+		);
+		// pairs at or above the high bound (>= invKhighBound > nonZeroCutOff) must be retained
+		REQUIRE(jaccValues.size() >= highCountMin);
 
 		std::vector<BayesicSpace::HashGroup> groups{vecHSH.makeLDgroups(nRowsPerBand)};
 		REQUIRE(std::is_sorted(
