@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(vash
-	VERSION 0.1
+	VERSION 0.2
 	LANGUAGES CXX
 )
 include(CheckCXXCompilerFlag)
@@ -123,7 +123,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES ".*Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GN
 	if(${HAS_LEAK_SANITIZER})
 		list(APPEND SANITIZERS "leak")
 	endif()
-	# weird linking errors wiht UBSAN
+	# weird linking errors with UBSAN
 	#if(${HAS_UNDEFINED_SANITIZER})
 	#	list(APPEND SANITIZERS "undefined")
 	#endif()
@@ -148,6 +148,70 @@ set(CMAKE_CXX_FLAGS_DEBUG
 set(CMAKE_CXX_FLAGS_TEST
 	"-g -O3"
 )
+
+#
+# Parallel-algorithm (PSTL) backend
+#
+# std::execution::par needs a backend, and only the Intel TBB backend exposes a
+# thread-count cap (tbb::global_control):
+#   * libstdc++ (GCC, and Clang on most Linux distributions) always routes par through TBB.
+#   * libc++ selects its PSTL backend at build time (TBB / std-thread / serial);
+#     only the TBB build can be capped.
+# CMake therefore locates or fetches TBB and exposes VASH_HAVE_TBB to the sources.
+# The code itself distinguishes libstdc++ from libc++ via __GLIBCXX__ / _LIBCPP_VERSION.
+#
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("
+#include <ciso646>
+#if !defined(_LIBCPP_VERSION)
+#error not libc++
+#endif
+int main() { return 0; }"
+	VASH_STDLIB_IS_LIBCXX
+)
+if(VASH_STDLIB_IS_LIBCXX)
+	message(STATUS "vash: C++ standard library is libc++")
+else()
+	message(STATUS "vash: C++ standard library is libstdc++ (par requires TBB)")
+endif()
+
+option(VASH_USE_TBB
+	"Back parallel algorithms with Intel TBB and enable thread-count capping"
+	ON
+)
+set(VASH_TBB_AVAILABLE FALSE)
+if(VASH_USE_TBB)
+	find_package(TBB CONFIG QUIET)
+	if(TBB_FOUND)
+		message(STATUS "vash: using system TBB ${TBB_VERSION}")
+		set(VASH_TBB_AVAILABLE TRUE)
+	else()
+		message(STATUS "vash: system TBB not found, fetching oneTBB via FetchContent")
+		# Build only the TBB runtime, not its own tests/examples.
+		set(TBB_TEST OFF CACHE BOOL "" FORCE)
+		set(TBB_STRICT OFF CACHE BOOL "" FORCE)
+		set(TBBMALLOC_BUILD OFF CACHE BOOL "" FORCE)
+		FetchContent_Declare(
+			TBB
+			GIT_REPOSITORY https://github.com/uxlfoundation/oneTBB
+			GIT_TAG        v2022.0.0   # adjust to a tag available upstream
+			GIT_PROGRESS   TRUE
+			SYSTEM
+		)
+		FetchContent_MakeAvailable(TBB)
+		set(VASH_TBB_AVAILABLE TRUE)
+	endif()
+endif()
+if(NOT VASH_TBB_AVAILABLE)
+	message(WARNING
+		"vash: building without TBB - parallel algorithms fall back to serial "
+		"execution (std::execution::seq) and the thread-count ceiling is ignored."
+	)
+elseif(VASH_STDLIB_IS_LIBCXX)
+	message(STATUS
+		"vash: under libc++ the thread cap works only if its PSTL backend is TBB"
+	)
+endif()
 
 include(GNUInstallDirs)
 # executable
@@ -194,6 +258,15 @@ set_target_properties(vash PROPERTIES
 target_compile_options(vash
 	PRIVATE ${PROJECT_WARNINGS_CXX} -mbmi -mbmi2 -mpopcnt -lpthread
 )
+# Propagate the TBB backend (PUBLIC: consumers including the parallel shim need it too)
+if(VASH_TBB_AVAILABLE)
+	target_link_libraries(vash
+		PUBLIC TBB::tbb
+	)
+	target_compile_definitions(vash
+		PUBLIC VASH_HAVE_TBB
+	)
+endif()
 if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	target_compile_options(vash
 		PRIVATE -fsanitize=${SANITIZER_LIST}

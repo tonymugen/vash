@@ -179,8 +179,10 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file
 		 * \param[in] nThreads maximal number of threads to use
+		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
 		 */
-		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads);
+		// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) maxLociPerChunk is an optional trailing seam; swap risk is low
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads, const size_t &maxLociPerChunk = 0);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -309,14 +311,6 @@ namespace BayesicSpace {
 		 * \return new start individual index
 		 */
 		size_t bed2bin_(const BedDataStats &locusGroupStats, std::fstream &bedStream);
-		/** \brief Binarize minor allele counts in a locus block
-		 *
-		 * Binarizes a portion of a vector of per-individual minor allele counts (0, 1, or 2; see the count vector constructor documentation for details).
-		 *
-		 * \param[in] macData vector of minor allele counts
-		 * \param[in] locusIndRange locus index range
-		 */
-		void mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange);
 		/** \brief Jaccard similarity in a block of loci
 		 *
 		 * \param[in] blockRange row/column index pair range
@@ -360,8 +354,9 @@ namespace BayesicSpace {
 		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
+		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
 		 */
-		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName, const size_t &maxLociPerChunk = 0);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).

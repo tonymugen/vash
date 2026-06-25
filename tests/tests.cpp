@@ -26,6 +26,35 @@ static constexpr uint16_t N_RAN_ITERATIONS{10};
 // precision for float comparisons
 static constexpr float FPREC{1e-4F};
 
+namespace {
+	// Write a minimal .bed file containing only homozygous (codes 00 and 11) and missing
+	// (01) genotypes -- NO heterozygotes (code 10). Heterozygotes are the only source of
+	// randomness in binarization, so a het-free file binarizes deterministically. With
+	// identicalLoci == false the genotype of (locus, individual) varies with both indices;
+	// with identicalLoci == true every locus is the same (so every OPH-Jaccard pair is
+	// exactly 1.0, and any locus the chunked reader fails to write stands out).
+	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) two dimension counts; this is test-only
+	void writeHetFreeBed(const std::string &fileName, const size_t nIndividuals, const size_t nLoci, const bool identicalLoci) {
+		std::fstream out(fileName, std::ios::out | std::ios::binary | std::ios::trunc);
+		const std::array<char, 3> magicBytes{0x6c, 0x1b, 0x01};
+		out.write( magicBytes.data(), static_cast<std::streamsize>( magicBytes.size() ) );
+		const size_t bytesPerLocus{(nIndividuals + 3) / 4};
+		const std::array<uint8_t, 3> codes{0b00, 0b01, 0b11};   // hom-major, missing, hom-minor (no het 0b10)
+		std::vector<char> locusBytes(bytesPerLocus, 0);
+		for (size_t iLocus = 0; iLocus < nLoci; ++iLocus) {
+			std::fill( locusBytes.begin(), locusBytes.end(), static_cast<char>(0) );
+			for (size_t iIndiv = 0; iIndiv < nIndividuals; ++iIndiv) {
+				const size_t codeIdx{(identicalLoci ? iIndiv : iLocus + iIndiv) % codes.size()};
+				const uint8_t code{codes.at(codeIdx)};
+				const auto shifted{static_cast<uint8_t>( code << ((iIndiv % 4U) * 2U) )};
+				locusBytes.at(iIndiv / 4) = static_cast<char>( static_cast<uint8_t>( locusBytes.at(iIndiv / 4) ) | shifted );
+			}
+			out.write( locusBytes.data(), static_cast<std::streamsize>(bytesPerLocus) );
+		}
+		out.close();
+	}
+} // anonymous namespace
+
 TEST_CASE("Can count set bits correctly", "[countSetBits]") {
 	constexpr uint16_t oneWord{0b11001110'01101001};
 	constexpr uint16_t wCorrectCount{9};
@@ -1117,6 +1146,39 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		// the constructor accumulates log messages, so the saved file must be non-empty
 		REQUIRE( !logContents.empty() );
 	}
+	SECTION("Chunked .bed reading matches single-chunk reading") {
+		// Regression test for the chunk-boundary index accounting in bed2bin_. Force the
+		// .bed to be read in several memory chunks with a remainder that is not divisible
+		// by the thread count; het-free input makes binarization deterministic, so the
+		// chunked result must be byte-identical to the single-chunk result (a stale
+		// `locusInd += excessLoci` overshoots, leaving gaps and overflowing binGenotypes_).
+		const std::string chunkBedName("../tests/tmpChunked.bed");
+		constexpr uint32_t chunkNind{37};
+		constexpr size_t   chunkNloci{100};
+		constexpr size_t   maxLociPerChunk{30};   // -> 3 full chunks + 10 remainder; 30 % nThreads(4) != 0
+		writeHetFreeBed(chunkBedName, chunkNind, chunkNloci, false);
+
+		BayesicSpace::GenoTableBin singleChunk(chunkBedName, chunkNind, logFileName, nThreads);
+		BayesicSpace::GenoTableBin multiChunk(chunkBedName, chunkNind, logFileName, nThreads, maxLociPerChunk);
+		const std::string singleFile("../tests/tmpSingleChunk.bin");
+		const std::string multiFile("../tests/tmpMultiChunk.bin");
+		singleChunk.saveGenoBinary(singleFile);
+		multiChunk.saveGenoBinary(multiFile);
+
+		std::fstream singleIn(singleFile, std::ios::in | std::ios::binary);
+		const std::vector<char> singleBytes( (std::istreambuf_iterator<char>(singleIn)), std::istreambuf_iterator<char>() );
+		singleIn.close();
+		std::fstream multiIn(multiFile, std::ios::in | std::ios::binary);
+		const std::vector<char> multiBytes( (std::istreambuf_iterator<char>(multiIn)), std::istreambuf_iterator<char>() );
+		multiIn.close();
+		std::remove( chunkBedName.c_str() ); // NOLINT
+		std::remove( singleFile.c_str() );   // NOLINT
+		std::remove( multiFile.c_str() );    // NOLINT
+
+		const size_t binLocusSize{(static_cast<size_t>(chunkNind) / 8) + static_cast<size_t>( (chunkNind % 8) > 0 )};
+		REQUIRE( singleBytes.size() == chunkNloci * binLocusSize );
+		REQUIRE( singleBytes == multiBytes );
+	}
 }
 
 TEST_CASE("GenoTableHash methods work", "[gtHash]") {
@@ -1569,6 +1631,56 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				[&grpCutOff](const float &eachLDval) {
 					return eachLDval >= grpCutOff;
 				}
+			)
+		);
+	}
+	SECTION("Chunked .bed reading is correct in the hash path") {
+		// Regression test for the chunk-boundary index accounting in bed2oph_ (the OPH
+		// analogue of the bed2bin_ fix). The OPH permutation is re-randomized per
+		// construction, so we cannot compare against a single-chunk run; instead every
+		// locus is made identical, so a correct read yields OPH-Jaccard == 1.0 for every
+		// pair. A stale `locusInd += excessLoci` skips loci across chunk boundaries,
+		// leaving them at the emptyBinToken_ default, which drops their pairs well below
+		// 1.0 (and overflows sketches_).
+		const std::string chunkBedName("../tests/tmpChunkedHash.bed");
+		constexpr uint32_t chunkNind{37};
+		constexpr size_t   chunkNloci{100};
+		constexpr uint16_t chunkSketches{5};
+		constexpr size_t   maxLociPerChunk{30};   // -> 3 full chunks + 10 remainder
+		writeHetFreeBed(chunkBedName, chunkNind, chunkNloci, true);   // every locus identical
+		constexpr BayesicSpace::IndividualAndSketchCounts chunkParams{chunkNind, chunkSketches};
+
+		BayesicSpace::GenoTableHash multiChunkHash(chunkBedName, chunkParams, nThreads, logFileName, maxLociPerChunk);
+		const std::string tmpJacFile("../tests/tmpChunkedHashJac.tsv");
+		BayesicSpace::InOutFileNames outNames{};
+		outNames.outputFileName = tmpJacFile;
+		outNames.inputFileName  = "";
+		constexpr float  zeroCutOff{0.0};
+		constexpr size_t forcedChunks{2};
+		multiChunkHash.allHashLD(zeroCutOff, outNames, forcedChunks);
+
+		std::fstream jacIn(tmpJacFile, std::ios::in);
+		REQUIRE( jacIn.good() );
+		std::vector<float> jaccValues;
+		std::string line;
+		std::getline(jacIn, line);   // discard the header
+		while ( std::getline(jacIn, line) ) {
+			std::stringstream lineStream(line);
+			std::string field;
+			lineStream >> field >> field >> field;   // locus1, locus2, jaccard
+			jaccValues.emplace_back( std::stof(field) );
+		}
+		jacIn.close();
+		std::remove( chunkBedName.c_str() ); // NOLINT
+		std::remove( tmpJacFile.c_str() );   // NOLINT
+		// at a zero cutoff every unique locus pair is reported
+		REQUIRE( jaccValues.size() == chunkNloci * (chunkNloci - 1) / 2 );
+		// every locus is identical, so every pair must be a perfect match; a chunk-boundary
+		// gap would leave some loci unwritten and pull their pairs below 1.0
+		REQUIRE( std::all_of(
+				jaccValues.cbegin(),
+				jaccValues.cend(),
+				[](const float value) { return value >= 1.0F - FPREC; }
 			)
 		);
 	}

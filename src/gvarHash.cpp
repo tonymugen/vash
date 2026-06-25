@@ -50,6 +50,7 @@
 
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
+#include "vashParallel.hpp"
 #include "random.hpp"
 #include "similarityMatrix.hpp"
 
@@ -63,7 +64,8 @@ constexpr uint8_t  GenoTableBin::bedGenoPerByte_ = 4;                // Number o
 constexpr uint8_t  GenoTableBin::llWordSize_     = 8;                // 64 bit word size in bytes
 
 // Constructors
-GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads)
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) maxLociPerChunk is an optional trailing seam; swap risk is low
+GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads, const size_t &maxLociPerChunk)
 															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, logFileName_{std::move(logFileName)} {
 	std::stringstream logStream;
 	const time_t startTime = std::time(nullptr);
@@ -116,6 +118,9 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 	BedDataStats locusGroupAttributes{};
 	const size_t ramSize                = getAvailableRAM() / 2UL;                                                 // measuring here, after all the major allocations; use half to leave resources for other operations
 	locusGroupAttributes.nLociToRead    = std::min( ramSize / nBedBytesPerLocus, static_cast<size_t>(nLoci_) );    // number of .bed loci to read at a time
+	if (maxLociPerChunk > 0) {                                                                                     // optional cap (bounds memory; lets tests force multi-chunk reads)
+		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, maxLociPerChunk);
+	}
 	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
 	const size_t remainingBytes         = remainingLoci * nBedBytesPerLocus;
@@ -177,26 +182,31 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 
 	binLocusSize_ = (nIndividuals_ / byteSize_) + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
-	const size_t nLociPerThread{nLoci_ / nThreads_};
-	if (nLociPerThread == 0) {
-		const std::pair<size_t, size_t> fullRange{0, nLoci_};
-		mac2binBlk_(maCounts, fullRange);
-		return;
-	}
-	CountAndSize threadCounts{0, 0};
-	threadCounts.count = nThreads_;
-	threadCounts.size  = nLociPerThread;
-	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
-	threadRanges.back().second = nLoci_;
-	std::vector< std::future<void> > tasks;
-	tasks.reserve(nThreads_);
-	for (const auto &eachTR : threadRanges) {
-		tasks.emplace_back(
-			std::async([this, &maCounts, &eachTR]{
-				mac2binBlk_(maCounts, eachTR);
-			})
-		);
-	}
+
+	// Each locus binarizes into a disjoint slice of binGenotypes_, so the loop is
+	// data-parallel. The parallel STL chunks the loci across worker threads; the
+	// ThreadCeiling caps concurrency to nThreads_ when it is below the hardware
+	// maximum, and is a no-op otherwise (and without a TBB backend).
+	const ThreadCeiling threadCeiling(nThreads_);
+	std::vector<size_t> locusIndices(nLoci_);
+	std::iota(locusIndices.begin(), locusIndices.end(), static_cast<size_t>(0));
+	std::for_each(
+		parallelPolicy,
+		locusIndices.cbegin(),
+		locusIndices.cend(),
+		[this, &maCounts](const size_t iLocus) {
+			LocationWithLength binLocusRange{};
+			binLocusRange.start  = iLocus;
+			binLocusRange.length = binLocusSize_;
+			std::vector<int> macLocus(nIndividuals_);
+			std::copy_n(
+				std::next( maCounts.cbegin(), static_cast<std::vector<int>::difference_type>(iLocus * nIndividuals_) ),
+				nIndividuals_,
+				macLocus.begin()
+			);
+			binarizeMacLocus(macLocus, binLocusRange, binGenotypes_);
+		}
+	);
 }
 
 void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
@@ -275,21 +285,26 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 }
 
 size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &locusSpan) {
-	size_t locusInd = locusSpan.start;
-	std::vector< std::future<void> > tasks;
-	tasks.reserve(nThreads_);
-	for (const auto &eachTR : threadRanges) {
-		tasks.emplace_back(
-			std::async([this, &bedData, &eachTR, locusInd, &locusSpan]{
-				LocationWithLength currentLocusSpan{0, 0};
-				currentLocusSpan.start  = locusInd;
-				currentLocusSpan.length = locusSpan.length;
-				bed2binBlk_(bedData, eachTR, currentLocusSpan);
-			})
-		);
-		locusInd += eachTR.second - eachTR.first;
-	}
-	return locusInd;
+	// The thread ranges are contiguous and start at 0 (see makeThreadRanges), so a
+	// range's output locus index is simply locusSpan.start + bedLocusIndRange.first.
+	// Each range writes a disjoint slice of binGenotypes_ and reads a disjoint slice
+	// of bedData, so the loop is data-parallel; the ThreadCeiling caps concurrency to
+	// nThreads_ (a no-op without a TBB backend).
+	const ThreadCeiling threadCeiling(nThreads_);
+	std::for_each(
+		parallelPolicy,
+		threadRanges.cbegin(),
+		threadRanges.cend(),
+		[this, &bedData, &locusSpan](const std::pair<size_t, size_t> &bedLocusIndRange) {
+			LocationWithLength currentLocusSpan{0, 0};
+			currentLocusSpan.start  = locusSpan.start + bedLocusIndRange.first;
+			currentLocusSpan.length = locusSpan.length;
+			bed2binBlk_(bedData, bedLocusIndRange, currentLocusSpan);
+		}
+	);
+	// Equivalent to the old sequential accumulation: contiguous-from-0 ranges sum to
+	// back().second, so the next free locus index is locusSpan.start + that total.
+	return locusSpan.start + threadRanges.back().second;
 }
 
 size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream &bedStream) {
@@ -300,7 +315,9 @@ size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream 
 	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
 	assert( (locusGroupStats.nLociToRead >= threadRanges.back().second) // NOLINT
 								&& "ERROR: nLociToRead smaller than threadRanges.back().second in bed2bin_" );
-	const size_t excessLoci    = locusGroupStats.nLociToRead - threadRanges.back().second;
+	// Extend the last thread's range to cover the remainder loci (nLociToRead is not
+	// necessarily divisible by nThreads_); bed2binThreaded_ then writes all
+	// nLociToRead loci of this chunk contiguously and returns the next free index.
 	threadRanges.back().second = locusGroupStats.nLociToRead;
 	std::vector<char> bedChunkToRead(locusGroupStats.nBytesToRead, 0);
 	for (size_t iChunk = 0; iChunk < locusGroupStats.nMemChunks; ++iChunk) {
@@ -311,24 +328,8 @@ size_t GenoTableBin::bed2bin_(const BedDataStats &locusGroupStats, std::fstream 
 		currentLocusSpan.start  = locusInd;
 		currentLocusSpan.length = locusGroupStats.nBytesPerLocus;
 		locusInd                = bed2binThreaded_(bedChunkToRead, threadRanges, currentLocusSpan);
-		locusInd               += excessLoci;
 	}
 	return locusInd;
-}
-
-void GenoTableBin::mac2binBlk_(const std::vector<int> &macData, const std::pair<size_t, size_t> &locusIndRange) {
-	for (size_t iLocus = locusIndRange.first; iLocus < locusIndRange.second; ++iLocus) {
-		LocationWithLength binLocusRange{};
-		binLocusRange.start  = iLocus;
-		binLocusRange.length = binLocusSize_;
-		std::vector<int> macLocus(nIndividuals_);
-		std::copy_n(
-			std::next( macData.cbegin(), static_cast<std::vector<int>::difference_type>(iLocus * nIndividuals_) ),
-			nIndividuals_,
-			macLocus.begin()
-		);
-		binarizeMacLocus(macLocus, binLocusRange, binGenotypes_);
-	}
 }
 
 SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const {
@@ -421,7 +422,7 @@ constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                         
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName) :
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName, const size_t &maxLociPerChunk) :
 					kSketches_{indivSketchCounts.kSketches},
 					nLoci_{0},
 					nThreads_{nThreads},
@@ -498,6 +499,9 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	locusGroupAttributes.nBytesPerLocus = (indivSketchCounts.nIndividuals / bedGenoPerByte_) + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
 	const size_t ramSize                = getAvailableRAM() / 2UL;                                    // measuring here, after all the major allocations; use half to leave resources for other operations
 	locusGroupAttributes.nLociToRead    = std::min( ramSize / locusGroupAttributes.nBytesPerLocus, static_cast<size_t>(nLoci_) );       // number of .bed loci to read at a time
+	if (maxLociPerChunk > 0) {                                                                                                          // optional cap (bounds memory; lets tests force multi-chunk reads)
+		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, maxLociPerChunk);
+	}
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
 	const size_t remainingBytes         = remainingLoci * locusGroupAttributes.nBytesPerLocus;
 	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
@@ -1051,7 +1055,9 @@ size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream
 				&& "ERROR: nLociToRead smaller than threadRanges.back().second in bed2oph_()");
 	assert( ( locusGroupStats.nBytesToRead < std::numeric_limits<std::streamsize>::max() ) // NOLINT
 				&& "ERROR: amount to read larger than maximum streamsize in bed2oph_()");
-	const size_t excessLoci = locusGroupStats.nLociToRead - threadRanges.back().second;
+	// Extend the last thread's range to cover the remainder loci; bed2ophThreaded_
+	// then writes all nLociToRead loci of this chunk contiguously and returns the
+	// next free index (see the matching fix in bed2bin_).
 	threadRanges.back().second = locusGroupStats.nLociToRead;
 	std::vector<char> bedChunkToRead(locusGroupStats.nBytesToRead, 0);
 	size_t locusInd{locusGroupStats.firstLocusIdx};
@@ -1061,7 +1067,6 @@ size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream
 		bedLocusSpan.start  = locusInd;
 		bedLocusSpan.length = locusGroupStats.nBytesPerLocus;
 		locusInd            = bed2ophThreaded_(bedChunkToRead, threadRanges, bedLocusSpan, permutation, padIndiv);
-		locusInd           += excessLoci;
 	}
 	return locusInd;
 }
