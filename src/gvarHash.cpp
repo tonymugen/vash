@@ -44,7 +44,6 @@
 #include <numeric>
 #include <functional>
 #include <limits>
-#include <future>
 #include <thread>
 #include <immintrin.h>
 
@@ -249,14 +248,22 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 	output.close();
 	size_t cumChunkIdx{0};
 	for (const auto &eachChunkSize : chunkSizes) {
-		const size_t nThreads{std::min(eachChunkSize, nThreads_)};
 		LocationWithLength currStartAndSize{};
 		currStartAndSize.start  = cumChunkIdx;
 		currStartAndSize.length = eachChunkSize;
-		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
+		// makeChunkRanges limits the block count to eachChunkSize; save() clamps its own thread count,
+		// so nThreads_ can be passed straight through (the ThreadCeiling is an upper bound either way).
+		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads_)};
 
-		SimilarityMatrix result{jaccardThreaded_(threadRanges)};
-		result.save(bimAndLDnames.outputFileName, nThreads);
+		SimilarityMatrix result{
+			parallelBuild(
+				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
+				[this, &threadRanges](size_t blockIdx) {
+					return jaccardBlock_(threadRanges[blockIdx]);
+				}
+			)
+		};
+		result.save(bimAndLDnames.outputFileName, nThreads_);
 		cumChunkIdx += eachChunkSize;
 	}
 }
@@ -302,8 +309,8 @@ size_t GenoTableBin::bed2binThreaded_(const std::vector<char> &bedData, const st
 			bed2binBlk_(bedData, bedLocusIndRange, currentLocusSpan);
 		}
 	);
-	// Equivalent to the old sequential accumulation: contiguous-from-0 ranges sum to
-	// back().second, so the next free locus index is locusSpan.start + that total.
+	// contiguous-from-0 ranges sum to back().second,
+	// so the next free locus index is locusSpan.start + that total.
 	return locusSpan.start + threadRanges.back().second;
 }
 
@@ -363,35 +370,6 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 		result.insert(localRC, localJP);
 	}
 	return result;
-}
-
-SimilarityMatrix GenoTableBin::jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const {
-	std::vector<SimilarityMatrix> threadResults( indexPairs.size() );
-	std::vector< std::future<void> > tasks;
-	tasks.reserve( indexPairs.size() );
-	size_t iThread{0};
-	for (const auto &eachRange : indexPairs) {
-		tasks.emplace_back(
-			std::async([this, eachRange, iThread, &threadResults]{
-				threadResults.at(iThread) = jaccardBlock_(eachRange);
-			})
-		);
-		++iThread;
-	}
-
-	for (const auto &eachThread : tasks) {
-		eachThread.wait();
-	}
-
-	std::for_each(
-		threadResults.begin() + 1,
-		threadResults.end(),
-		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge(eachMatrix);
-		}
-	);
-
-	return threadResults.at(0);
 }
 
 JaccardPair GenoTableBin::makeJaccardPair_(const RowColIdx &rowColumn) const {
@@ -623,18 +601,18 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	threadCounts.size  = nLociPerThread;
 	std::vector< std::pair<size_t, size_t> > threadRanges{makeThreadRanges(threadCounts)};
 	threadRanges.back().second = nLoci_;
-	std::vector< std::future<void> > tasks;
-	tasks.reserve(nThreads_);
-	for (const auto &eachTR : threadRanges) {
-		tasks.emplace_back(
-			std::async([this, &maCounts, &eachTR, &ranInts, &addIndv]{
-				mac2ophBlk_(maCounts, eachTR, ranInts, addIndv);
-			})
-		);
-	}
-	for (const auto &eachTask : tasks) {
-		eachTask.wait();
-	}
+	// Each range processes a disjoint set of loci, writing disjoint sketches_ slices via mac2ophBlk_
+	// (local binLocus/macLocus, read-only ranInts/addIndv), so the loop is data-parallel; the
+	// ThreadCeiling caps concurrency to nThreads_ (a no-op without a TBB backend).
+	const ThreadCeiling threadCeiling(nThreads_);
+	std::for_each(
+		parallelPolicy,
+		threadRanges.cbegin(),
+		threadRanges.cend(),
+		[this, &maCounts, &ranInts, &addIndv](const std::pair<size_t, size_t> &eachTR) {
+			mac2ophBlk_(maCounts, eachTR, ranInts, addIndv);
+		}
+	);
 }
 
 void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
@@ -659,14 +637,22 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	output.close();
 	size_t cumChunkIdx{0};
 	for (const auto &eachChunkSize : chunkSizes) {
-		const size_t nThreads{std::min(eachChunkSize, nThreads_)};
 		LocationWithLength currStartAndSize{};
 		currStartAndSize.start  = cumChunkIdx;
 		currStartAndSize.length = eachChunkSize;
 
-		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads)};
-		SimilarityMatrix result{hashJacThreaded_(threadRanges, allLocusIndexes, similarityCutOff)};
-		result.save(bimAndLDnames.outputFileName, nThreads, bimAndLDnames.inputFileName);
+		// makeChunkRanges limits the block count to eachChunkSize; save() clamps its own thread count,
+		// so nThreads_ can be passed straight through (the ThreadCeiling is an upper bound either way).
+		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads_)};
+		SimilarityMatrix result{
+			parallelBuild(
+				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
+				[this, &threadRanges, &allLocusIndexes, &similarityCutOff](size_t blockIdx) {
+					return hashJacBlock_(threadRanges[blockIdx], allLocusIndexes, similarityCutOff);
+				}
+			)
+		};
+		result.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
 
 		cumChunkIdx += eachChunkSize;
 	}
@@ -677,7 +663,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			&& "ERROR: nRowsPerBand must not be 0 in makeLDgroups()" );
 	assert( (nRowsPerBand < kSketches_) // NOLINT
 			&& "ERROR: nRowsPerBand must be less than kSketches_ in makeLDgroups()" );
-	const size_t nBands = kSketches_ / nRowsPerBand;                                                          // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
+	const size_t nBands = kSketches_ / nRowsPerBand;                                       // only using full-size bands because smaller ones permit inclusion of low-similarity pairs
 	assert( ( nBands <= std::numeric_limits<uint16_t>::max() ) // NOLINT
 			&& "ERROR: number of bands cannot exceed uint16_t max in makeLDgroups()" );
 
@@ -855,7 +841,14 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
 				startPair = groupRanges.back().second;
 			}
-			SimilarityMatrix tmp = hashJacThreaded_(groupRanges, sparsityValues.similarityCutOff);
+			SimilarityMatrix tmp{
+				parallelBuild(
+					BlockMaxThreadCounts{groupRanges.size(), nThreads_},
+					[this, &groupRanges, &sparsityValues](size_t blockIdx) {
+						return hashJacBlock_(groupRanges[blockIdx], sparsityValues.similarityCutOff);
+					}
+				)
+			};
 			groupSimilarities.merge(tmp);
 			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
 				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
@@ -1026,24 +1019,25 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 
 size_t GenoTableHash::bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges,
 						const LocationWithLength &bedLocusSpan, const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv) {
-	size_t locusInd = bedLocusSpan.start;
-	std::vector< std::future<void> > tasks;
-	tasks.reserve(nThreads_);
-	for (const auto &eachTR : threadRanges) {
-		LocationWithLength currentBedLocusSpan{0, 0};
-		currentBedLocusSpan.start  = locusInd;
-		currentBedLocusSpan.length = bedLocusSpan.length;
-		tasks.emplace_back(
-			std::async([this, &bedData, &eachTR, currentBedLocusSpan, &permutation, &padIndiv]{ // must pass currentLocusSpan by value, otherwise the threads see the same values
-				bed2ophBlk_(bedData, eachTR, currentBedLocusSpan, permutation, padIndiv);
-			})
-		);
-		locusInd += eachTR.second - eachTR.first;
-	}
-	for (const auto &eachTask : tasks) {
-		eachTask.wait();
-	}
-	return locusInd;
+	// The thread ranges are contiguous and start at 0 (see makeThreadRanges), so a range's
+	// output locus index is simply bedLocusSpan.start + bedLocusIndRange.first. Each range reads
+	// a disjoint slice of bedData and writes a disjoint set of OPH sketches, so the loop is
+	// data-parallel; the ThreadCeiling caps concurrency to nThreads_ (a no-op without a TBB backend).
+	const ThreadCeiling threadCeiling(nThreads_);
+	std::for_each(
+		parallelPolicy,
+		threadRanges.cbegin(),
+		threadRanges.cend(),
+		[this, &bedData, &bedLocusSpan, &permutation, &padIndiv](const std::pair<size_t, size_t> &bedLocusIndRange) {
+			LocationWithLength currentBedLocusSpan{0, 0};
+			currentBedLocusSpan.start  = bedLocusSpan.start + bedLocusIndRange.first;
+			currentBedLocusSpan.length = bedLocusSpan.length;
+			bed2ophBlk_(bedData, bedLocusIndRange, currentBedLocusSpan, permutation, padIndiv);
+		}
+	);
+	// contiguous-from-0 ranges sum to back().second,
+	// so the next free locus index is bedLocusSpan.start + that total.
+	return bedLocusSpan.start + threadRanges.back().second;
 }
 
 size_t GenoTableHash::bed2oph_(const BedDataStats &locusGroupStats, std::fstream &bedStream, const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv) {
@@ -1184,64 +1178,6 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 	result.merge(tmp);
 
 	return result;
-}
-
-SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs, const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const {
-	std::vector<SimilarityMatrix> threadResults( indexPairs.size() );
-	std::vector< std::future<void> > tasks;
-	tasks.reserve( indexPairs.size() );
-	size_t iThread{0};
-	for (const auto &eachRange : indexPairs) {
-		tasks.emplace_back(
-			std::async([this, eachRange, &locusIndexes, &similarityCutOff, iThread, &threadResults]{
-				threadResults.at(iThread) = hashJacBlock_(eachRange, locusIndexes, similarityCutOff);
-			})
-		);
-		++iThread;
-	}
-
-	for (const auto &eachThread : tasks) {
-		eachThread.wait();
-	}
-
-	std::for_each(
-		threadResults.begin() + 1,
-		threadResults.end(),
-		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge(eachMatrix);
-		}
-	);
-
-	return threadResults.at(0);
-}
-
-SimilarityMatrix GenoTableHash::hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const {
-	std::vector<SimilarityMatrix> threadResults( blockRanges.size() );
-	std::vector< std::future<void> > tasks;
-	tasks.reserve( blockRanges.size() );
-	size_t iThread{0};
-	for (const auto &eachRange : blockRanges) {
-		tasks.emplace_back(
-			std::async([this, eachRange, iThread, &threadResults, &similarityCutOff]{
-				threadResults.at(iThread) = hashJacBlock_(eachRange, similarityCutOff);
-			})
-		);
-		++iThread;
-	}
-
-	for (const auto &eachThread : tasks) {
-		eachThread.wait();
-	}
-
-	std::for_each(
-		threadResults.begin() + 1,
-		threadResults.end(),
-		[&threadResults](SimilarityMatrix &eachMatrix) {
-			threadResults.at(0).merge(eachMatrix);
-		}
-	);
-
-	return threadResults.at(0);
 }
 
 JaccardPair GenoTableHash::makeJaccardPair_(const RowColIdx &rowColumn) const noexcept {

@@ -163,9 +163,11 @@ namespace BayesicSpace {
 	/** \brief Build chunk ranges 
 	 *
 	 * Build ranges of row/column index pairs for each chunk for a given length of a vectorized similarity matrix.
+	 * The requested chunk count is limited to the span length so no empty (zero-size) ranges are produced;
+	 * at least one range is always returned.
 	 *
 	 * \param[in] startAndChunkSize full matrix index and chunk size
-	 * \param[in] nChunks number of chunks
+	 * \param[in] nChunks requested number of chunks (limited by span length)
 	 * \return vector of row/column pair ranges, an element per chunk
 	 */
 	[[nodiscard]] std::vector< std::pair<RowColIdx, RowColIdx> > makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks);

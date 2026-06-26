@@ -250,7 +250,10 @@ std::vector<size_t> BayesicSpace::makeChunkSizes(const size_t &nElements, const 
 }
 
 std::vector< std::pair<RowColIdx, RowColIdx> > BayesicSpace::makeChunkRanges(const LocationWithLength &startAndChunkSize, const size_t nChunks) {
-	std::vector<size_t> chunkSizes{makeChunkSizes(startAndChunkSize.length, nChunks)};
+	// Never split a span into more chunks than it has elements: makeChunkSizes would otherwise emit
+	// trailing zero-size chunks (empty ranges). Keep at least one chunk so its division stays well-defined.
+	const size_t clampedNchunks = std::max( std::min(nChunks, startAndChunkSize.length), static_cast<size_t>(1) );
+	std::vector<size_t> chunkSizes{makeChunkSizes(startAndChunkSize.length, clampedNchunks)};
 
 	std::vector< std::pair<RowColIdx, RowColIdx> > chunkPairs;
 	size_t cumChunkSize{startAndChunkSize.start};

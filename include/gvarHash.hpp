@@ -317,12 +317,6 @@ namespace BayesicSpace {
 		 * \return `SimilarityMatrix` object with compressed indexed similarity values
 		 */
 		[[nodiscard]] SimilarityMatrix jaccardBlock_(const std::pair<RowColIdx, RowColIdx> &blockRange) const;
-		/** \brief Jaccard similarity between locus pairs using multiple threads
-		 *
-		 * \param[in] indexPairs vector of row/column index ranges, one per thread
-		 * \return `SimilarityMatrix` object with compressed indexed similarity values
-		 */
-		[[nodiscard]] SimilarityMatrix jaccardThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs) const;
 		/** \brief Calculate the union and intersection Jaccard similarity pair
 		 *
 		 * \param[in] rowColumn indexes of the locus pair to compare
@@ -632,28 +626,6 @@ namespace BayesicSpace {
 		 * \return a `SimilarityMatrix` object
 		 */
 		[[nodiscard]] SimilarityMatrix hashJacBlock_(const std::pair<HashGroupItPairCount, HashGroupItPairCount> &blockRange, const float &similarityCutOff) const;
-		/** \brief Hash-based similarity between locus pairs using multiple threads
-		 *
-		 * The provided row and column values index the `locusIndexes` vector that translates them to the actual locus indexes.
-		 * This is necessary for hash group processing.
-		 *
-		 * \param[in] indexPairs vector of row/column index ranges, one per thread
-		 * \param[in] locusIndexes vector of locus indexes
-		 * \param[in] similarityCutOff only save pairs with at least this similarity
-		 * \return `SimilarityMatrix` object with compressed indexed similarity values
-		 */
-		[[nodiscard]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<RowColIdx, RowColIdx> > &indexPairs,
-				const std::vector<uint32_t> &locusIndexes, const float &similarityCutOff) const;
-		/** \brief Threaded hash-based similarity in ranges of locus groups
-		 *
-		 * The ranges point to a hash table of locus indexes.
-		 * Starts and ends can be within a group.
-		 *
-		 * \param[in] blockRanges ranges of locus hash table groups
-		 * \param[in] similarityCutOff only save pairs with at least this similarity
-		 * \return a `SimilarityMatrix` object
-		 */
-		[[nodiscard]] SimilarityMatrix hashJacThreaded_(const std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > &blockRanges, const float &similarityCutOff) const;
 		/** \brief Calculate the union and intersection Jaccard similarity pair
 		 *
 		 * \param[in] rowColumn indexes of the locus pair to compare

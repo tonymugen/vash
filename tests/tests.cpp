@@ -218,28 +218,32 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 				}
 			)
 		);
+		// makeChunkRanges clamps the requested chunk count to the span length, so asking for more chunks
+		// than elements yields one range per element (no empty trailing ranges) rather than nChunks ranges.
 		BayesicSpace::LocationWithLength smallStartAndNelements{};
 		smallStartAndNelements.start  = 0;
 		smallStartAndNelements.length = smallNelements;
 		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > smallRowColPairs{BayesicSpace::makeChunkRanges(smallStartAndNelements, nChunks)};
-		constexpr std::array<uint32_t, nChunks> smallCorrectRowStarts{1, 2, 2, 3};
-		constexpr std::array<uint32_t, nChunks> smallCorrectRowEnds{2, 2, 3, 3};
-		constexpr std::array<uint32_t, nChunks> smallCorrectColStarts{0, 0, 1, 0};
-		constexpr std::array<uint32_t, nChunks> smallCorrectColEnds{0, 1, 0, 0};
+		REQUIRE(smallRowColPairs.size() == smallNelements);
+		constexpr std::array<uint32_t, smallNelements> smallCorrectRowStarts{1, 2, 2};
+		constexpr std::array<uint32_t, smallNelements> smallCorrectRowEnds{2, 2, 3};
+		constexpr std::array<uint32_t, smallNelements> smallCorrectColStarts{0, 0, 1};
+		constexpr std::array<uint32_t, smallNelements> smallCorrectColEnds{0, 1, 0};
+		std::vector< std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> > smallCorrectRowColPairs;
 		iChunk = 0;
-		while (iChunk < nChunks) {
+		while (iChunk < smallNelements) {
 			std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> tmpPair;
 			tmpPair.first.iRow  = smallCorrectRowStarts.at(iChunk);
 			tmpPair.first.jCol  = smallCorrectColStarts.at(iChunk);
 			tmpPair.second.iRow = smallCorrectRowEnds.at(iChunk);
 			tmpPair.second.jCol = smallCorrectColEnds.at(iChunk);
-			correctRowColPairs.at(iChunk) = std::move(tmpPair);
+			smallCorrectRowColPairs.emplace_back(tmpPair);
 			++iChunk;
 		}
 		REQUIRE(std::equal(
 				smallRowColPairs.cbegin(),
 				smallRowColPairs.cend(),
-				correctRowColPairs.cbegin(),
+				smallCorrectRowColPairs.cbegin(),
 				[](const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair1,
 							const std::pair<BayesicSpace::RowColIdx, BayesicSpace::RowColIdx> &pair2) {
 					return  (pair1.first.iRow  == pair2.first.iRow) &&

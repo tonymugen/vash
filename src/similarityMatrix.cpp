@@ -32,16 +32,18 @@
 #include <string>
 #include <utility>  // for std::pair
 #include <iterator>
+#include <numeric>
+#include <functional>
 #include <cstdint>
 #include <cstring>
 #include <cmath>
 #include <cassert>
 #include <algorithm>
 #include <fstream>
-#include <future>
 
 #include "similarityMatrix.hpp"
 #include "vashFunctions.hpp"
+#include "vashParallel.hpp"
 
 using namespace BayesicSpace;
 
@@ -68,6 +70,44 @@ RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	result.jCol    = static_cast<uint32_t>( vecIdx - (row * (row - 1) / 2) );
 	result.iRow    = static_cast<uint32_t>(row);
 
+	return result;
+}
+
+SimilarityMatrix BayesicSpace::parallelBuild(const BlockMaxThreadCounts &nBlocksThreads, const std::function<SimilarityMatrix(size_t)> &blockToMatrix) {
+	 /*
+	 * Each block is produced into its own private shard, so the `blockToMatrix` callable never
+	 * touches shared state: thread safety is a property of this orchestration rather than of
+	 * `SimilarityMatrix::insert`, and the per-block hot path keeps the lock-free sorted-append
+	 * behavior of a single-threaded build. The shards are merged in block-index order once all of
+	 * them are ready, which is cheap when the block index ranges are disjoint and ascending (the usual case).
+	 *
+	 * The blocks are computed under a `ThreadCeiling`, so concurrency is capped at `maxThreads`
+	 * (a no-op without a TBB backend, where the work runs serially). `blockToMatrix` is invoked once
+	 * per block index in `[0, nBlocks)`, must be safe to call concurrently on distinct indexes, and
+	 * must return the `SimilarityMatrix` for the block index it is given.
+	 */
+	if (nBlocksThreads.nBlocks == 0) {
+		return SimilarityMatrix{};
+	}
+	// Each block lands in its own shard, so the parallel writes target disjoint slots and
+	// blockToMatrix needs no synchronization of its own.
+	std::vector<size_t> blockIndexes(nBlocksThreads.nBlocks);
+	std::iota(blockIndexes.begin(), blockIndexes.end(), static_cast<size_t>(0));
+	std::vector<SimilarityMatrix> shards(nBlocksThreads.nBlocks);
+	{
+		const ThreadCeiling threadCeiling(nBlocksThreads.maxThreads);
+		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
+	}
+	// Consolidate sequentially in block order: merges of ascending, disjoint index ranges are
+	// linear, and the order is deterministic regardless of how the blocks were scheduled.
+	SimilarityMatrix result;
+	std::for_each(
+		shards.begin(),
+		shards.end(),
+		[&result](SimilarityMatrix &eachShard) {
+			result.merge(eachShard);
+		}
+	);
 	return result;
 }
 
@@ -210,6 +250,9 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
+	// Cap concurrency to nThreads for every parallel region below (a no-op without a TBB backend);
+	// constructed in the outermost scope that owns the user-requested thread count.
+	const ThreadCeiling threadCeiling(nThreads);
 	std::vector<uint32_t>::difference_type cumChunkSize{0};
 	for (const auto &eachChunkSize : chunkSizes) {
 		const size_t actualNthreads = std::min(eachChunkSize, nThreads);
@@ -229,26 +272,18 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 			}
 		);
 		std::vector<std::string> outStrings(actualNthreads);
-		std::vector< std::future<void> > tasks;
-		tasks.reserve(actualNthreads);
-		size_t iThread{0};
-		std::for_each(
+		// Each thread range covers a disjoint slice of matrix_ and produces one output string;
+		// transform writes each into its own slot positionally, so the conversion is data-parallel.
+		// stringify_ is static and reads only its own range plus the shared read-only locusNames.
+		std::transform(
+			parallelPolicy,
 			threadPairs.cbegin(),
 			threadPairs.cend(),
-			[&iThread, &tasks, &outStrings, &locusNames, this](auto pairIt) {
-				tasks.emplace_back(
-					std::async(
-						[iThread, pairIt, &outStrings, &locusNames, this]{
-							outStrings.at(iThread) = stringify_(pairIt.first, pairIt.second, locusNames);
-						}
-					)
-				);
-				++iThread;
+			outStrings.begin(),
+			[&locusNames](const std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> &pairIt) {
+				return stringify_(pairIt.first, pairIt.second, locusNames);
 			}
 		);
-		for (const auto &eachThread : tasks) {
-			eachThread.wait();
-		}
 
 		for (const auto &eachString : outStrings) {
 			outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );

@@ -34,6 +34,7 @@
 #include <string>
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 
 namespace BayesicSpace {
 	struct RowColIdx;
@@ -65,6 +66,12 @@ namespace BayesicSpace {
 		uint64_t nUnion;
 	};
 
+	/** \brief Block and maximal thread count */	
+	struct BlockMaxThreadCounts {
+		size_t nBlocks;
+		size_t maxThreads;
+	};
+
 	/** \brief Append one vector to another by chunks
 	 * 
 	 * Moves the contents of the source vector to the end of the target vector.
@@ -83,6 +90,16 @@ namespace BayesicSpace {
 	 * \return row and column index pair
 	 */
 	[[nodiscard]] RowColIdx recoverRCindexes(const uint64_t &vecIdx) noexcept;
+
+	/** \brief Build a similarity matrix from independent blocks in parallel
+	 *
+	 * Computes `nBlocks` matrix blocks concurrently and consolidates them into a single object.
+	 *
+	 * \param[in] nBlocksThreads block and thread ceiling counts
+	 * \param[in] blockToMatrix callable mapping a block index to its `SimilarityMatrix`
+	 * \return consolidated `SimilarityMatrix`
+	 */
+	[[nodiscard]] SimilarityMatrix parallelBuild(const BlockMaxThreadCounts &nBlocksThreads, const std::function<SimilarityMatrix(size_t)> &blockToMatrix);
 
 	/** \brief Similarity matrix
 	 *
@@ -156,7 +173,7 @@ namespace BayesicSpace {
 		 * \param[in] toMerge object to merge
 		 */
 		void merge(SimilarityMatrix &toMerge);
-		/** \brief Save to file 
+		/** \brief Save to file
 		 *
 		 * Uses multi-threaded data prep to speed up saving.
 		 * If the output file already exists, appends to it.
