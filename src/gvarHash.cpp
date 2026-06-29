@@ -497,8 +497,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	}
 	if ( !addIndv.empty() ) {
 		std::string addIndexes;
-		for (const auto &eachIdx : addIndv) {
-			addIndexes += std::to_string(eachIdx.second) + " ";
+		for (const auto &[originalIdx, sampledIdx] : addIndv) {
+			addIndexes += std::to_string(sampledIdx) + " ";
 		}
 		logMessages_ += "Re-sampled individuals: " + addIndexes + "\n";
 	}
@@ -575,12 +575,12 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	}
 	if ( !addIndv.empty() ) {
 		std::string addIndexes;
-		for (const auto &eachIdx : addIndv) {
-			addIndexes += std::to_string(eachIdx.second) + " ";
+		for (const auto &[originalIdx, sampledIdx] : addIndv) {
+			addIndexes += std::to_string(sampledIdx) + " ";
 		}
 		logMessages_ += "Re-sampled individuals: " + addIndexes + "\n";
 	}
-	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
+	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;   // round up to the nearest multiple of 8
 	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
 	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
 	// generate the sequence of random integers; each column must be permuted the same
@@ -695,10 +695,10 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 		}
 	}
 	std::vector< std::vector<uint32_t> > groups;
-	for (auto &eachGrp : ldGroups) {
+	for (auto &[hash, members] : ldGroups) {
 		// remove groups with one locus
-		if (eachGrp.second.size() >= 2) {
-			groups.emplace_back(eachGrp.second);
+		if (members.size() >= 2) {
+			groups.emplace_back(members);
 		}
 	}
 	// pre-sort the groups by position
