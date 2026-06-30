@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cctype>
 #include <iterator>
 #include <numeric>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 #include "similarityMatrix.hpp"
+#include "vashLogging.hpp"
 
 #include "catch2/catch_test_macros.hpp"
 #include "catch2/matchers/catch_matchers.hpp"
@@ -299,7 +301,7 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			memcpy( &binBed, binBytesBed.data(), binBytesBed.size() );
 			uint32_t binMAC{0};
 			memcpy( &binMAC, binBytesMAC.data(), binBytesMAC.size() );
-			const auto macBedUnion{static_cast<uint32_t>(binBed & binMAC)};
+			const auto macBedUnion{binBed & binMAC};
 			REQUIRE(_mm_popcnt_u32(macBedUnion) >= correctMinUnion);
 		}
 
@@ -520,13 +522,13 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( testMatrix.nElements() == rowIndexes.size() );
 		// test the last value insertion bypass
 		testMatrix.insert( idxPairs.back(), jaccPairs.back() );
-		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint64_t) * idxPairs.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + ( sizeof(uint64_t) * idxPairs.size() ) ) );
 		vecIdx = 0;
 		while ( vecIdx < addRowIndexes.size() ) {
 			testMatrix.insert( addIdxPairs.at(vecIdx), addJaccPairs.at(vecIdx) );
 			++vecIdx;
 		}
-		REQUIRE( testMatrix.objectSize() == ( initialSize + sizeof(uint64_t) * correctFloatValues.size() ) );
+		REQUIRE( testMatrix.objectSize() == ( initialSize + ( sizeof(uint64_t) * correctFloatValues.size() ) ) );
 
 		// test file save
 		const std::string outputFileName("../tests/smallSimilarityMatrix.tsv");
@@ -1137,11 +1139,12 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 			)
 		);
 	}
-	SECTION("saveLogFile writes the accumulated log") {
+	SECTION("The log is flushed to file on destruction") {
 		const std::string slfLogName("../tests/saveLogTestBin.log");
 		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
-		BayesicSpace::GenoTableBin logBin(inputBedName, nIndividuals, slfLogName, nThreads);
-		logBin.saveLogFile();
+		{
+			BayesicSpace::GenoTableBin logBin(inputBedName, nIndividuals, slfLogName, nThreads);
+		} // destructor flushes the accumulated log here
 		std::fstream logIn(slfLogName, std::ios::in);
 		REQUIRE( logIn.good() );
 		const std::string logContents( (std::istreambuf_iterator<char>(logIn)), std::istreambuf_iterator<char>() );
@@ -1149,6 +1152,15 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		std::remove( slfLogName.c_str() ); // NOLINT
 		// the constructor accumulates log messages, so the saved file must be non-empty
 		REQUIRE( !logContents.empty() );
+	}
+	SECTION("An empty log file name disables log writing") {
+		const std::string slfLogName("../tests/saveLogTestBinEmpty.log");
+		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
+		{
+			BayesicSpace::GenoTableBin logBin(inputBedName, nIndividuals, std::string(), nThreads);
+		} // destructor must not create a file
+		std::fstream logIn(slfLogName, std::ios::in);
+		REQUIRE( !logIn.good() );
 	}
 	SECTION("Chunked .bed reading matches single-chunk reading") {
 		// Regression test for the chunk-boundary index accounting in bed2bin_. Force the
@@ -1251,11 +1263,12 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(sentinelMACvec, BayesicSpace::IndividualAndSketchCounts{sentinelNind, sentinelSketch}, logFileName),
 				Catch::Matchers::StartsWith("ERROR: Number of sketches") );
 	}
-	SECTION("saveLogFile writes the accumulated log") {
+	SECTION("The log is flushed to file on destruction") {
 		const std::string slfLogName("../tests/saveLogTest.log");
 		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
-		BayesicSpace::GenoTableHash logHSH(inputBedName, sketchParameters, nThreads, slfLogName);
-		logHSH.saveLogFile();
+		{
+			BayesicSpace::GenoTableHash logHSH(inputBedName, sketchParameters, nThreads, slfLogName);
+		} // destructor flushes the accumulated log here
 		std::fstream logIn(slfLogName, std::ios::in);
 		REQUIRE( logIn.good() );
 		const std::string logContents( (std::istreambuf_iterator<char>(logIn)), std::istreambuf_iterator<char>() );
@@ -1263,6 +1276,15 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		std::remove( slfLogName.c_str() ); // NOLINT
 		// the constructor accumulates log messages, so the saved file must be non-empty
 		REQUIRE( !logContents.empty() );
+	}
+	SECTION("An empty log file name disables log writing") {
+		const std::string slfLogName("../tests/saveLogTestEmpty.log");
+		std::remove( slfLogName.c_str() ); // start from a clean slate // NOLINT
+		{
+			BayesicSpace::GenoTableHash logHSH(inputBedName, sketchParameters, nThreads, std::string());
+		} // destructor must not create a file
+		std::fstream logIn(slfLogName, std::ios::in);
+		REQUIRE( !logIn.good() );
 	}
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
@@ -1687,6 +1709,134 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				[](const float value) { return value >= 1.0F - FPREC; }
 			)
 		);
+	}
+}
+
+TEST_CASE("VashLog works", "[VashLog]") {
+	const std::string logName("../tests/testVashLog.log");
+	const std::string headerMsg("Test logging");
+
+	// slurp a whole text file into a string
+	auto slurp = [](const std::string &fileName) {
+		std::fstream inStream(fileName, std::ios::in);
+		std::stringstream buffer;
+		buffer << inStream.rdbuf();
+		return buffer.str();
+	};
+
+	SECTION("Header and entries are flushed on destruction") {
+		{
+			BayesicSpace::VashLog log( BayesicSpace::LogFileNameWithMessage{logName, headerMsg} );
+			log.add("first event");
+			log.add("second event");
+		} // destructor flushes here
+		const std::string contents{slurp(logName)};
+		std::remove( logName.c_str() ); // NOLINT
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring(headerMsg + " started on") );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("first event")  );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("second event") );
+	}
+
+	SECTION("Constructor truncates a pre-existing file") {
+		{
+			std::fstream stale(logName, std::ios::out | std::ios::trunc);
+			stale << "STALE GARBAGE\n";
+		}
+		{
+			BayesicSpace::VashLog log( BayesicSpace::LogFileNameWithMessage{logName, headerMsg} );
+			log.add("fresh");
+		}
+		const std::string contents{slurp(logName)};
+		std::remove( logName.c_str() ); // NOLINT
+		REQUIRE_THAT( contents, !Catch::Matchers::ContainsSubstring("STALE GARBAGE") );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("fresh") );
+	}
+
+	SECTION("Each entry carries an elapsed [m:ss] prefix and newline") {
+		{
+			BayesicSpace::VashLog log( BayesicSpace::LogFileNameWithMessage{logName, headerMsg} );
+			log.add("hello");
+		}
+		std::fstream inStream(logName, std::ios::in);
+		std::string line;
+		std::string lastLine;
+		while ( std::getline(inStream, line) ) {
+			lastLine = line; // the entry is the final line after the header
+		}
+		inStream.close();
+		std::remove( logName.c_str() ); // NOLINT
+		REQUIRE( lastLine.front() == '[' );                      // bracketed [m:ss] stamp
+		const auto colonPos       = lastLine.find(':');
+		const auto closeBracketPos = lastLine.find("] ");
+		REQUIRE( colonPos != std::string::npos );
+		REQUIRE( closeBracketPos != std::string::npos );
+		REQUIRE( colonPos > 1 );                                 // at least one minutes digit after '['
+		REQUIRE( colonPos < closeBracketPos );
+		// minutes digits sit between '[' and ':'
+		const bool minutesDigits = std::all_of(
+			std::next( lastLine.cbegin() ),
+			std::next( lastLine.cbegin(), static_cast<std::string::difference_type>(colonPos) ),
+			[](const char chr){ return std::isdigit( static_cast<unsigned char>(chr) ) != 0; }
+		);
+		REQUIRE( minutesDigits );
+		// seconds remainder is always padded to exactly two digits
+		REQUIRE( closeBracketPos - colonPos == 3 );              // ':' followed by two digits
+		const bool secondsDigits = std::all_of(
+			std::next( lastLine.cbegin(), static_cast<std::string::difference_type>(colonPos + 1) ),
+			std::next( lastLine.cbegin(), static_cast<std::string::difference_type>(closeBracketPos) ),
+			[](const char chr){ return std::isdigit( static_cast<unsigned char>(chr) ) != 0; }
+		);
+		REQUIRE( secondsDigits );
+		REQUIRE( lastLine.substr(closeBracketPos + 2) == "hello" ); // "] " then the message, no trailing junk
+	}
+
+	SECTION("Move construction transfers ownership; the log is written exactly once") {
+		{
+			BayesicSpace::VashLog src( BayesicSpace::LogFileNameWithMessage{logName, headerMsg} );
+			src.add("before move");
+			BayesicSpace::VashLog dst( std::move(src) );
+			dst.add("after move");
+		} // both destructors run; only dst (toSave_ == true) must write
+		const std::string contents{slurp(logName)};
+		std::remove( logName.c_str() ); // NOLINT
+		const auto firstHeader = contents.find("started on");
+		REQUIRE( firstHeader != std::string::npos );
+		// the moved-from object has toSave_ == false, so the header must not be duplicated
+		REQUIRE( contents.find("started on", firstHeader + 1) == std::string::npos );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("before move") );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("after move")  );
+	}
+
+	SECTION("Move assignment transfers ownership without double-writing") {
+		{
+			BayesicSpace::VashLog src( BayesicSpace::LogFileNameWithMessage{logName, headerMsg} );
+			src.add("alpha");
+			BayesicSpace::VashLog dst;        // default-constructed: toSave_ == false, no file
+			dst = std::move(src);             // dst takes over the file
+			dst.add("beta");
+		}
+		const std::string contents{slurp(logName)};
+		std::remove( logName.c_str() ); // NOLINT
+		const auto firstHeader = contents.find("started on");
+		REQUIRE( firstHeader != std::string::npos );
+		REQUIRE( contents.find("started on", firstHeader + 1) == std::string::npos );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("alpha") );
+		REQUIRE_THAT( contents, Catch::Matchers::ContainsSubstring("beta")  );
+	}
+
+	SECTION("Default-constructed log neither writes nor throws") {
+		REQUIRE_NOTHROW( [](){
+			BayesicSpace::VashLog log;        // toSave_ == false, no file opened
+			log.add("orphan entry");
+		}() );
+	}
+
+	SECTION("An unwritable path is handled without throwing") {
+		REQUIRE_NOTHROW( [](){
+			BayesicSpace::VashLog log(
+				BayesicSpace::LogFileNameWithMessage{"../tests/no_such_dir/cannot_open.log", "Test logging"} );
+			log.add("entry into the void");
+		}() );
 	}
 }
 

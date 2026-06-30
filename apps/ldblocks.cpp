@@ -33,128 +33,122 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
 
 namespace BayesicSpace {
-	/** \brief Full Jaccard estimates 
-	 *
-	 * Run the full Jaccard estimates after binary conversion.
-	 *
-	 * \param[in] stringVariables string-valued input flag variables
-	 * \param[in] intVariables integer-valued input flag variables
-	 * \param[in] bimFileName .bim file name
-	 *
-	 */
-	void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
-		const auto nIndiv{static_cast<uint32_t>( intVariables.at("n-individuals") )};
-		BayesicSpace::GenoTableBin allJaccard;
-		try {
-			if (intVariables.at("threads") < 1) {
-				allJaccard = BayesicSpace::GenoTableBin( stringVariables.at("input-bed"), nIndiv, stringVariables.at("log-file") );
-			} else {
-				const auto nThreads = static_cast<size_t>( intVariables.at("threads") );
-				allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, stringVariables.at("log-file"), nThreads);
-			}
-			if (stringVariables.at("add-locus-names") == "set") {
-				InOutFileNames bimAndLD{};
-				bimAndLD.inputFileName  = bimFileName;
-				bimAndLD.outputFileName = stringVariables.at("out-file");
-				allJaccard.allJaccardLD(bimAndLD);
-			} else {
-				InOutFileNames bimAndLD{};
-				bimAndLD.outputFileName = stringVariables.at("out-file");
-				allJaccard.allJaccardLD(bimAndLD);
-			}
-			if (stringVariables.at("log-file") != "none") {
-				allJaccard.saveLogFile();
-			}
-		} catch(std::string &problem) {
-			if (stringVariables.at("log-file") != "none") {
-				allJaccard.saveLogFile();
-			}
-			throw std::move(problem);
-		}
-	}
-	/** \brief Hash-based Jaccard estimates 
-	 *
-	 * Run the hash-based Jaccard estimates after binary conversion, possibly in groups.
-	 *
-	 * \param[in] stringVariables string-valued input flag variables
-	 * \param[in] intVariables integer-valued input flag variables
-	 * \param[in] floatVariables float-valued input flag variables
-	 * \param[in] bimFileName .bim file name
-	 *
-	 */
-	void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables,
-			const std::unordered_map<std::string, float> &floatVariables, const std::string &bimFileName) {
-		IndividualAndSketchCounts indivSketches{};
-
-		indivSketches.nIndividuals   = static_cast<uint32_t>( intVariables.at("n-individuals") );
-		indivSketches.kSketches      = static_cast<uint16_t>( intVariables.at("hash-size") );
-		const float similarityCutOff = floatVariables.at("min-similarity");
-		BayesicSpace::GenoTableHash groupLD;
-		try {
-			if (intVariables.at("threads") < 1) {
-				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), indivSketches, stringVariables.at("log-file") );
-			} else {
-				const auto nThreads{static_cast<size_t>( intVariables.at("threads") )};
-				groupLD = BayesicSpace::GenoTableHash( stringVariables.at("input-bed"), indivSketches, nThreads, stringVariables.at("log-file") );
-			}
-			if (intVariables.at("n-rows-per-band") == 0) {
+	// app-internal helpers; the anonymous namespace gives them internal linkage
+	namespace {
+		/** \brief Full Jaccard estimates
+		 *
+		 * Run the full Jaccard estimates after binary conversion.
+		 *
+		 * \param[in] stringVariables string-valued input flag variables
+		 * \param[in] intVariables integer-valued input flag variables
+		 * \param[in] bimFileName .bim file name
+		 *
+		 */
+		void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
+			const auto nIndiv{static_cast<uint32_t>( intVariables.at("n-individuals") )};
+			BayesicSpace::GenoTableBin allJaccard;
+			try {
+				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") ); 
+				if (intVariables.at("threads") < 1) {
+					allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName);
+				} else {
+					const auto nThreads = static_cast<size_t>( intVariables.at("threads") );
+					allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName, nThreads);
+				}
 				if (stringVariables.at("add-locus-names") == "set") {
 					InOutFileNames bimAndLD{};
 					bimAndLD.inputFileName  = bimFileName;
 					bimAndLD.outputFileName = stringVariables.at("out-file");
-					groupLD.allHashLD(similarityCutOff, bimAndLD);
+					allJaccard.allJaccardLD(bimAndLD);
 				} else {
-					BayesicSpace::InOutFileNames outFile{};
-					outFile.outputFileName = stringVariables.at("out-file");
-					outFile.inputFileName  = "";
-					groupLD.allHashLD(similarityCutOff, outFile);
+					InOutFileNames bimAndLD{};
+					bimAndLD.outputFileName = stringVariables.at("out-file");
+					allJaccard.allJaccardLD(bimAndLD);
 				}
-			} else {
-				const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
-				BayesicSpace::SparsityParameters sparsity{};
-				sparsity.nRowsPerBand     = rowsPB;
-				sparsity.similarityCutOff = similarityCutOff;
-				if (stringVariables.at("add-locus-names") == "set") {
-					if (stringVariables.at("only-groups") == "set") {
-						InOutFileNames bimAndLD{};
-						bimAndLD.inputFileName  = bimFileName;
-						bimAndLD.outputFileName = stringVariables.at("out-file");
-						groupLD.makeLDgroups(rowsPB, bimAndLD);
-					} else {
-						InOutFileNames bimAndLD{};
-						bimAndLD.inputFileName  = bimFileName;
-						bimAndLD.outputFileName = stringVariables.at("out-file");
-						groupLD.ldInGroups(sparsity, bimAndLD);
-					}
+			} catch(std::string &problem) {
+				throw std::move(problem);
+			}
+		}
+		/** \brief Hash-based Jaccard estimates 
+		 *
+		 * Run the hash-based Jaccard estimates after binary conversion, possibly in groups.
+		 *
+		 * \param[in] stringVariables string-valued input flag variables
+		 * \param[in] intVariables integer-valued input flag variables
+		 * \param[in] floatVariables float-valued input flag variables
+		 * \param[in] bimFileName .bim file name
+		 *
+		 */
+		void hashJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables,
+				const std::unordered_map<std::string, float> &floatVariables, const std::string &bimFileName) {
+			IndividualAndSketchCounts indivSketches{};
+
+			indivSketches.nIndividuals   = static_cast<uint32_t>( intVariables.at("n-individuals") );
+			indivSketches.kSketches      = static_cast<uint16_t>( intVariables.at("hash-size") );
+			const float similarityCutOff = floatVariables.at("min-similarity");
+			BayesicSpace::GenoTableHash groupLD;
+			try {
+				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") ); 
+				if (intVariables.at("threads") < 1) {
+					groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches, logFileName);
 				} else {
-					if (stringVariables.at("only-groups") == "set") {
+					const auto nThreads{static_cast<size_t>( intVariables.at("threads") )};
+					groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches, nThreads, logFileName);
+				}
+				if (intVariables.at("n-rows-per-band") == 0) {
+					if (stringVariables.at("add-locus-names") == "set") {
 						InOutFileNames bimAndLD{};
-						bimAndLD.inputFileName  = "";
+						bimAndLD.inputFileName  = bimFileName;
 						bimAndLD.outputFileName = stringVariables.at("out-file");
-						groupLD.makeLDgroups(rowsPB, bimAndLD);
+						groupLD.allHashLD(similarityCutOff, bimAndLD);
 					} else {
 						BayesicSpace::InOutFileNames outFile{};
 						outFile.outputFileName = stringVariables.at("out-file");
 						outFile.inputFileName  = "";
-						groupLD.ldInGroups(sparsity, outFile);
+						groupLD.allHashLD(similarityCutOff, outFile);
+					}
+				} else {
+					const auto rowsPB{static_cast<size_t>( intVariables.at("n-rows-per-band") )};
+					BayesicSpace::SparsityParameters sparsity{};
+					sparsity.nRowsPerBand     = rowsPB;
+					sparsity.similarityCutOff = similarityCutOff;
+					if (stringVariables.at("add-locus-names") == "set") {
+						if (stringVariables.at("only-groups") == "set") {
+							InOutFileNames bimAndLD{};
+							bimAndLD.inputFileName  = bimFileName;
+							bimAndLD.outputFileName = stringVariables.at("out-file");
+							groupLD.makeLDgroups(rowsPB, bimAndLD);
+						} else {
+							InOutFileNames bimAndLD{};
+							bimAndLD.inputFileName  = bimFileName;
+							bimAndLD.outputFileName = stringVariables.at("out-file");
+							groupLD.ldInGroups(sparsity, bimAndLD);
+						}
+					} else {
+						if (stringVariables.at("only-groups") == "set") {
+							InOutFileNames bimAndLD{};
+							bimAndLD.inputFileName  = "";
+							bimAndLD.outputFileName = stringVariables.at("out-file");
+							groupLD.makeLDgroups(rowsPB, bimAndLD);
+						} else {
+							BayesicSpace::InOutFileNames outFile{};
+							outFile.outputFileName = stringVariables.at("out-file");
+							outFile.inputFileName  = "";
+							groupLD.ldInGroups(sparsity, outFile);
+						}
 					}
 				}
+			} catch(std::string &problem) {
+				throw std::move(problem);
 			}
-			if (stringVariables.at("log-file") != "none") {
-				groupLD.saveLogFile();
-			}
-		} catch(std::string &problem) {
-			if (stringVariables.at("log-file") != "none") {
-				groupLD.saveLogFile();
-			}
-			throw std::move(problem);
 		}
-	}
+	} // anonymous namespace
 }
 
 

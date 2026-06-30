@@ -37,6 +37,7 @@
 #include <thread>
 
 #include "similarityMatrix.hpp"
+#include "vashLogging.hpp"
 
 namespace BayesicSpace {
 	struct LocationWithLength;
@@ -47,8 +48,8 @@ namespace BayesicSpace {
 	struct SparsityParameters;
 	struct HashGroup;
 	struct HashGroupItPairCount;
-	class GenoTableBin;
-	class GenoTableHash;
+	class  GenoTableBin;
+	class  GenoTableHash;
 
 	/** \brief Window location and extent
 	 *
@@ -164,10 +165,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] logFileName name of the log file
+		 * \param[in] logFileName name of the log file, log not saved if empty
 		 */
-		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName) : 
-						GenoTableBin( inputFileName, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName) : 
+						GenoTableBin( inputFileName, nIndividuals, logFileName, std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with input file name and thread count
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -177,12 +178,12 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] inputFileName input file name
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] logFileName name of the log file
+		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
 		 */
 		// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) maxLociPerChunk is an optional trailing seam; swap risk is low
-		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads, const size_t &maxLociPerChunk = 0);
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const size_t &maxLociPerChunk = 0);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -193,10 +194,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] logFileName name of the log file
+		 * \param[in] logFileName name of the log file, log not saved if empty
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, std::string logFileName) :
-						GenoTableBin( maCounts, nIndividuals, std::move(logFileName), std::thread::hardware_concurrency() ) {};
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName) :
+						GenoTableBin( maCounts, nIndividuals, logFileName, std::thread::hardware_concurrency() ) {};
 		/** \brief Constructor with count vector and thread count
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -208,10 +209,10 @@ namespace BayesicSpace {
 		 *
 		 * \param[in] maCounts vector of minor allele numbers
 		 * \param[in] nIndividuals number of genotyped individuals
-		 * \param[in] logFileName name of the log file
+		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, std::string logFileName, const size_t &nThreads);
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
@@ -250,11 +251,6 @@ namespace BayesicSpace {
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
 		void allJaccardLD( const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
-		/** \brief Save the log to a file
-		 *
-		 * Log file name provided at construction.
-		 */
-		void saveLogFile() const;
 	private:
 		/** \brief Binarized genotype table
 		 *
@@ -279,10 +275,8 @@ namespace BayesicSpace {
 		static const uint8_t bedGenoPerByte_;
 		/** \brief 64 bit word size in bytes */
 		static const uint8_t llWordSize_;
-		/** \brief Log messages */
-		mutable std::string logMessages_;
-		/** \brief Log file name */
-		std::string logFileName_;
+		/** \brief Log object */
+		mutable VashLog logMessages_;
 		/** \brief Binarize a range of loci from _.bed_ file input
 		 *
 		 * Binarizes a range of loci from a vector of input from a _.bed_ file.
@@ -350,7 +344,7 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file
 		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
 		 */
-		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName, const size_t &maxLociPerChunk = 0);
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const size_t &maxLociPerChunk = 0);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -365,8 +359,8 @@ namespace BayesicSpace {
 		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
-							GenoTableHash( inputFileName, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const std::string &logFileName) :
+							GenoTableHash(inputFileName, indivSketchCounts, std::thread::hardware_concurrency(), logFileName) {};
 		/** \brief Constructor with count vector and thread number
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -384,7 +378,7 @@ namespace BayesicSpace {
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, std::string logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -399,8 +393,8 @@ namespace BayesicSpace {
 		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] logFileName name of the log file
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, std::string logFileName) :
-				GenoTableHash( maCounts, indivSketchCounts, std::thread::hardware_concurrency(), std::move(logFileName) ) {};
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const std::string &logFileName) :
+				GenoTableHash(maCounts, indivSketchCounts, std::thread::hardware_concurrency(), logFileName) {};
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableHash(const GenoTableHash &toCopy) = delete;
@@ -471,11 +465,6 @@ namespace BayesicSpace {
 		 * \param[in] suggestNchunks force processing in chunks
 		 */
 		void ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks = static_cast<size_t>(1) ) const;
-		/** \brief Save the log to a file
-		 *
-		 * Log file name provided at construction.
-		 */
-		void saveLogFile() const;
 	private:
 		/** \brief Vector of sketches
 		 *
@@ -502,10 +491,8 @@ namespace BayesicSpace {
 		 * The index set must be the same across loci (although not necessarily the same number is actually used).
 		 */
 		uint64_t emptyBinIdxSeed_;
-		/** \brief Log messages */
-		mutable std::string logMessages_;
-		/** \brief Log file name */
-		std::string logFileName_;
+		/** \brief Log object */
+		mutable VashLog logMessages_;
 		/** \brief Leading bytes for _.bed_ files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
