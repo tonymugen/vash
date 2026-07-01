@@ -981,6 +981,79 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		REQUIRE( std::equal( colsFromFileFar.cbegin(),   colsFromFileFar.cend(),   correctFarMergeCol.cbegin() ) );
 		REQUIRE( std::equal( floatsFromFileFar.cbegin(), floatsFromFileFar.cend(), correctFarMergeValues.cbegin() ) );
 	}
+
+	SECTION("SimilarityMatrix unordered append and finalize") {
+		constexpr size_t nPerMatrix{5};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesA{3, 8, 14, 19, 28};
+		constexpr std::array<uint64_t, nPerMatrix> nIsectA{87, 77, 49, 122, 23};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesB{6, 9, 12, 17, 31};   // disjoint from A but interleaving its indexes
+		constexpr std::array<uint64_t, nPerMatrix> nIsectB{160, 176, 167, 206, 161};
+		constexpr uint64_t nUnionVal{254};
+		constexpr size_t nThreads{2};
+		const std::string appendFileName("../tests/appendMatrix.tsv");
+		const std::string refFileName("../tests/appendRefMatrix.tsv");
+
+		auto buildMatrix = [](const std::array<uint64_t, nPerMatrix> &indexes, const std::array<uint64_t, nPerMatrix> &isect, const uint64_t &nUnion) {
+			BayesicSpace::SimilarityMatrix mat;
+			for (size_t idx = 0; idx < indexes.size(); ++idx) {
+				BayesicSpace::RowColIdx rowCol{BayesicSpace::recoverRCindexes(indexes.at(idx))};
+				BayesicSpace::JaccardPair jPair{};
+				jPair.nUnion     = nUnion;
+				jPair.nIntersect = isect.at(idx);
+				mat.insert(rowCol, jPair);
+			}
+			return mat;
+		};
+		auto readMatrixFile = [](const std::string &fileName) {
+			std::vector<std::string> fileRows;
+			std::fstream inFile(fileName, std::ios::in);
+			std::string fileLine;
+			while ( std::getline(inFile, fileLine) ) {
+				fileRows.push_back(fileLine);
+			}
+			inFile.close();
+			return fileRows;
+		};
+
+		const BayesicSpace::SimilarityMatrix matrixA{buildMatrix(vecIndexesA, nIsectA, nUnionVal)};
+		const BayesicSpace::SimilarityMatrix matrixB{buildMatrix(vecIndexesB, nIsectB, nUnionVal)};
+
+		// unordered append then finalize matches merge of the same disjoint matrices
+		BayesicSpace::SimilarityMatrix appended{matrixA};
+		BayesicSpace::SimilarityMatrix bToAppend{matrixB};
+		appended.append(bToAppend);
+		REQUIRE( bToAppend.nElements() == 0 );                                     // the source is cleared
+		REQUIRE( appended.nElements() == vecIndexesA.size() + vecIndexesB.size() ); // no ordering/de-duplication yet
+		appended.sortAndDeduplicate();
+		appended.save(appendFileName, nThreads);
+
+		BayesicSpace::SimilarityMatrix reference{matrixA};
+		BayesicSpace::SimilarityMatrix bToMerge{matrixB};
+		reference.merge(bToMerge);
+		reference.save(refFileName, nThreads);
+
+		const std::vector<std::string> appendedLines{readMatrixFile(appendFileName)};
+		const std::vector<std::string> referenceLines{readMatrixFile(refFileName)};
+		std::remove( appendFileName.c_str() ); // NOLINT
+		std::remove( refFileName.c_str() );    // NOLINT
+		REQUIRE( appendedLines.size() == vecIndexesA.size() + vecIndexesB.size() ); // sorted, no spurious drops
+		REQUIRE( appendedLines == referenceLines );
+
+		// duplicate indexes (identical values) collapse to a single entry on finalize
+		BayesicSpace::SimilarityMatrix withDuplicates{matrixA};
+		BayesicSpace::SimilarityMatrix duplicateA{matrixA};
+		withDuplicates.append(duplicateA);
+		REQUIRE( withDuplicates.nElements() == 2 * vecIndexesA.size() );
+		withDuplicates.sortAndDeduplicate();
+		REQUIRE( withDuplicates.nElements() == vecIndexesA.size() );
+		withDuplicates.save(appendFileName, nThreads);
+		const std::vector<std::string> dedupLines{readMatrixFile(appendFileName)};
+		std::remove( appendFileName.c_str() ); // NOLINT
+		matrixA.save(refFileName, nThreads);
+		const std::vector<std::string> aloneLines{readMatrixFile(refFileName)};
+		std::remove( refFileName.c_str() ); // NOLINT
+		REQUIRE( dedupLines == aloneLines );
+	}
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {

@@ -432,8 +432,8 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 			std::string( ", the largest allowed value in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
 	const size_t nBedBytes{(indivSketchCounts.nIndividuals / bedGenoPerByte_) + static_cast<size_t>( (indivSketchCounts.nIndividuals % bedGenoPerByte_) > 0 )};
-	nThreads_     = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
-	nThreads_     = std::max(nThreads_, 1UL);
+	nThreads_ = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
+	nThreads_ = std::max(nThreads_, 1UL);
 	logMessages_.add( "Number of threads used: " + std::to_string(nThreads_) );
 	std::fstream inStream;
 	// Start by measuring file size
@@ -838,7 +838,12 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 		while (groupSimilarities.nElements() < eachCS) {
 			const size_t currentChunkSize = eachCS - groupSimilarities.nElements();
 			std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
-			const std::vector<size_t> threadSizes{makeChunkSizes( currentChunkSize, std::min(nThreads_, currentChunkSize) )};
+			// Over-decompose into more blocks than threads so parallelBuild's work-stealing can
+			// balance uneven group sizes: with one block per thread the heaviest block sets the
+			// wall time, but finer blocks let idle threads pick up the slack.
+			constexpr size_t blockOverDecomposition{4};
+			const size_t nBlocks{std::min(blockOverDecomposition * nThreads_, currentChunkSize)};
+			const std::vector<size_t> threadSizes{makeChunkSizes( currentChunkSize, nBlocks )};
 			groupRanges.reserve( threadSizes.size() );
 			for (const auto &eachThrSize : threadSizes) {
 				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
@@ -1158,7 +1163,10 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 	const size_t nPairs{blockRange.first.hgIterator->locusIndexes.size() * (blockRange.first.hgIterator->locusIndexes.size() - 1) / 2};
 	rowColumnPair.second = recoverRCindexes(nPairs);
 	SimilarityMatrix result{hashJacBlock_(rowColumnPair, blockRange.first.hgIterator->locusIndexes, similarityCutOff)};
-	// process complete groups
+	// Process complete groups, accumulating each group's (individually sorted) block by unordered
+	// append rather than merging it in place. A per-group merge is a full-vector set_union rebuild,
+	// so merging G groups one at a time is O(nElements * G); appending is O(1) amortized per group,
+	// with a single sortAndDeduplicate() below restoring the sorted, de-duplicated invariant.
 	std::for_each(
 		blockRange.first.hgIterator + 1,
 		blockRange.second.hgIterator,
@@ -1169,7 +1177,7 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 			const size_t locNpairs{eachGroup.locusIndexes.size() * (eachGroup.locusIndexes.size() - 1) / 2};
 			localRCPair.second = recoverRCindexes(locNpairs);
 			SimilarityMatrix tmp{hashJacBlock_(localRCPair, eachGroup.locusIndexes, similarityCutOff)};
-			result.merge(tmp);
+			result.append(tmp);
 		}
 	);
 	// last, possibly incomplete, group
@@ -1177,7 +1185,8 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<HashGroupItPairCou
 	rowColumnPair.first.jCol = 0;
 	rowColumnPair.second     = recoverRCindexes(blockRange.second.pairCount);
 	SimilarityMatrix tmp     = hashJacBlock_(rowColumnPair, blockRange.second.hgIterator->locusIndexes, similarityCutOff);
-	result.merge(tmp);
+	result.append(tmp);
+	result.sortAndDeduplicate();
 
 	return result;
 }

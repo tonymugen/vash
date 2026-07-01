@@ -98,16 +98,20 @@ SimilarityMatrix BayesicSpace::parallelBuild(const BlockMaxThreadCounts &nBlocks
 		const ThreadCeiling threadCeiling(nBlocksThreads.maxThreads);
 		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 	}
-	// Consolidate sequentially in block order: merges of ascending, disjoint index ranges are
-	// linear, and the order is deterministic regardless of how the blocks were scheduled.
+	// Consolidate by appending every shard and sorting once, rather than folding them with
+	// sequential merges. A merge is a full-vector set_union rebuild, so folding S shards is
+	// O(nElements * S) and grows with the block count; appending is O(1) amortized per shard,
+	// with a single sortAndDeduplicate() giving O(N log N) consolidation independent of S.
+	// This keeps consolidation flat as blocks are over-decomposed for load balancing.
 	SimilarityMatrix result;
 	std::for_each(
 		shards.begin(),
 		shards.end(),
 		[&result](SimilarityMatrix &eachShard) {
-			result.merge(eachShard);
+			result.append(eachShard);
 		}
 	);
+	result.sortAndDeduplicate();
 	return result;
 }
 
@@ -198,6 +202,25 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &ja
 	tmp.fullIdx         = newVecIndex;
 	tmp.quantSimilarity = quantSimilarity;
 	this->insert_(tmp);
+}
+
+void SimilarityMatrix::append(SimilarityMatrix &toAppend) {
+	chunkedAppend(toAppend.matrix_, matrix_);
+}
+
+void SimilarityMatrix::sortAndDeduplicate() {
+	// packed elements carry the vectorized index in the high bits, so a plain ascending
+	// sort orders them by index (ties broken by the quantized value, which is identical
+	// for a repeated index, so the choice std::unique makes below is immaterial)
+	std::sort( matrix_.begin(), matrix_.end() );
+	auto lastUniqueIt = std::unique(
+		matrix_.begin(),
+		matrix_.end(),
+		[](const uint64_t &packedIdx1, const uint64_t &packedIdx2) {
+			return (packedIdx1 >> valueSize_) == (packedIdx2 >> valueSize_);
+		}
+	);
+	matrix_.erase( lastUniqueIt, matrix_.end() );
 }
 
 void SimilarityMatrix::merge(SimilarityMatrix &toMerge) {

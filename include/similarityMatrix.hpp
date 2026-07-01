@@ -165,7 +165,24 @@ namespace BayesicSpace {
 		 * \param[in] jaccardCounts intersection and union counts for Jaccard similarity
 		 */
 		void insert(const RowColIdx &rowColPair, const JaccardPair &jaccardCounts);
-		/** \brief Merge two matrices 
+		/** \brief Append another matrix without ordering
+		 *
+		 * Moves the packed elements of `toAppend` onto the end of this matrix and clears `toAppend`,
+		 * without restoring the sorted, de-duplicated invariant. Use to accumulate many pre-sorted
+		 * blocks cheaply, avoiding the repeated full-vector rebuilds of `merge()`; the invariant must
+		 * then be restored with a single `sortAndDeduplicate()` call before any `merge()` or `save()`.
+		 *
+		 * \param[in,out] toAppend matrix whose elements are moved in and then cleared
+		 */
+		void append(SimilarityMatrix &toAppend);
+		/** \brief Restore the sorted, de-duplicated invariant
+		 *
+		 * Sorts the packed elements by vectorized index and drops duplicate indexes.
+		 * Needed only to finalize a sequence of `append()` calls; all other mutators
+		 * keep the invariant on their own.
+		 */
+		void sortAndDeduplicate();
+		/** \brief Merge two matrices
 		 *
 		 * Merge a matrix with the current object, destroying the donor object.
 		 * Duplicated indexes are discarded even if they differ in similarity values.

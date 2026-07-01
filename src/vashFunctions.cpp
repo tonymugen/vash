@@ -281,7 +281,7 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 			+ startHGPC.pairCount
 	};
 	const size_t chunkCutOff = std::min(startPairCount + chunkSize, groupVector.back().cumulativeNpairs);
-	const auto gvIterator = std::lower_bound(
+	const auto gvIterator    = std::lower_bound(
 		startHGPC.hgIterator,
 		groupVector.cend(),
 		chunkCutOff,
