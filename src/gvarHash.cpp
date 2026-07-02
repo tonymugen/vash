@@ -68,7 +68,7 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
-		lfMessage.initialMessage = "Genotype binarization from a .bed file ";
+		lfMessage.initialMessage = "Genotype binarization from the " + inputFileName + " .bed file";
 		logMessages_             = VashLog(lfMessage);
 	}
 	if (nIndividuals <= 1) {
@@ -151,7 +151,7 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
-		lfMessage.initialMessage = "Genotype binarization from minor allele count vector ";
+		lfMessage.initialMessage = "Genotype binarization from minor allele count vector";
 		logMessages_             = VashLog(lfMessage);
 	}
 	if ( ( maCounts.size() / static_cast<size_t>(nIndividuals) ) > std::numeric_limits<uint32_t>::max() ) {
@@ -407,7 +407,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
-		lfMessage.initialMessage = "Genotype hashing from a .bed file ";
+		lfMessage.initialMessage = "Genotype hashing from the " + inputFileName + " .bed file";
 		logMessages_             = VashLog(lfMessage);
 	}
 	if (indivSketchCounts.nIndividuals <= 1) {
@@ -525,7 +525,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
-		lfMessage.initialMessage = "Genotype hashing from a minor allele count vector ";
+		lfMessage.initialMessage = "Genotype hashing from a minor allele count vector";
 		logMessages_             = VashLog(lfMessage);
 	}
 	if (indivSketchCounts.nIndividuals <= 1) {
