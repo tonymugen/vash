@@ -27,7 +27,6 @@
  *
  */
 
-#include <cmath>
 #include <ctime>
 #include <cstring>
 #include <cassert>
@@ -53,6 +52,28 @@
 #include "similarityMatrix.hpp"
 
 using namespace BayesicSpace;
+
+namespace {
+	/** \brief Element budget for a streaming similarity-matrix sink
+	 *
+	 * Three quarters of half the currently-available RAM expressed in matrix elements: the sink splits
+	 * its reserved memory 3/4 matrix : 1/4 save-string scratch, and the other half of RAM is left for
+	 * the parallel block builders and other work. Never coarser than `nPairs / suggestNchunks`, so a
+	 * `suggestNchunks` hint still forces at least that many flushes.
+	 *
+	 * \param[in] nPairs upper bound on the number of pairs to be processed
+	 * \param[in] suggestNchunks minimum number of chunks (flushes) to force
+	 * \return element budget (at least one)
+	 */
+	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) both counts, but callers pass named locals
+	size_t sinkElementBudget(const size_t &nPairs, const size_t &suggestNchunks) {
+		// 3/4 of (getAvailableRAM()/2) bytes, in elements: 3 * availRAM / (8 * elementSize)
+		const size_t autoBudget     = (3UL * getAvailableRAM()) / ( 8UL * SimilarityMatrix::elementSize() );
+		const size_t clampedNchunks = std::max( suggestNchunks, static_cast<size_t>(1) );
+		const size_t forcedBudget   = (nPairs + clampedNchunks - 1UL) / clampedNchunks;      // ceil(nPairs / suggestNchunks)
+		return std::max( std::min(autoBudget, forcedBudget), static_cast<size_t>(1) );
+	}
+}
 
 // GenoTableBin methods
 constexpr size_t   GenoTableBin::nMagicBytes_    = 3;                // number of leading bytes for .bed files
@@ -233,31 +254,30 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 	}
 
-	const SimilarityMatrix emptyMatrix;
-	const size_t maxInRAM = getAvailableRAM() / ( static_cast<size_t>(2) * emptyMatrix.elementSize() );      // use half to leave resources for other operations
-	const size_t nPairs   = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
-	const size_t nChunks  = std::max(nPairs / maxInRAM, suggestNchunks);
-	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
+	const size_t nPairs      = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
+	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks);
 
-	logMessages_.add("Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) + "; " +
-						"calculating in " + std::to_string(nChunks) + " chunk(s)");
+	logMessages_.add("Maximum number of locus pairs held in RAM: " + std::to_string(maxElements));
 
 	// set up the header
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
+
+	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
 	size_t cumChunkIdx{0};
 	uint32_t base1chunkIdx{1};
-	for (const auto &eachChunkSize : chunkSizes) {
+	while (cumChunkIdx < nPairs) {
+		const size_t batchSize = std::min(maxElements, nPairs - cumChunkIdx);
 		LocationWithLength currStartAndSize{};
 		currStartAndSize.start  = cumChunkIdx;
-		currStartAndSize.length = eachChunkSize;
-		// makeChunkRanges limits the block count to eachChunkSize; save() clamps its own thread count,
+		currStartAndSize.length = batchSize;
+		// makeChunkRanges limits the block count to batchSize; save() clamps its own thread count,
 		// so nThreads_ can be passed straight through (the ThreadCeiling is an upper bound either way).
 		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads_)};
 
-		SimilarityMatrix result{
+		SimilarityMatrix block{
 			parallelBuild(
 				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
 				[this, &threadRanges](size_t blockIdx) {
@@ -266,11 +286,11 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 			)
 		};
 		logMessages_.add( "\testimated similarity matrix for chunk " + std::to_string(base1chunkIdx) );
-		result.save(bimAndLDnames.outputFileName, nThreads_);
-		logMessages_.add("\tsaved similarity chunk ");
-		cumChunkIdx += eachChunkSize;
+		sink.add(block);
+		cumChunkIdx += batchSize;
 		++base1chunkIdx;
 	}
+	sink.finalize();
 	logMessages_.add("Done calculating and saving all-pair LD");
 }
 
@@ -618,32 +638,29 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	std::vector<uint32_t> allLocusIndexes(nLoci_);
 	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
 
-	const SimilarityMatrix emptyMatrix;
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations
-	const size_t nPairs   = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
-	// The matrix merge uses sqrt(nElements) scratch space of uint64_t
-	const size_t matrixSize = nPairs + ( 3UL * static_cast<size_t>( std::sqrt( static_cast<float>(nPairs) ) ) );
-	const size_t nChunks    = std::max(matrixSize / maxInRAM, suggestNchunks);
-	std::vector<size_t> chunkSizes{makeChunkSizes(nPairs, nChunks)};
+	const size_t nPairs      = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
+	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks);
 
 	logMessages_.add("Calculating all pairwise LD");
-	logMessages_.add( "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) );
-	logMessages_.add("calculating in " + std::to_string(nChunks) + " chunk(s)");
+	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
 
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
+
+	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
 	size_t cumChunkIdx{0};
-	for (const auto &eachChunkSize : chunkSizes) {
+	while (cumChunkIdx < nPairs) {
+		const size_t batchSize = std::min(maxElements, nPairs - cumChunkIdx);
 		LocationWithLength currStartAndSize{};
 		currStartAndSize.start  = cumChunkIdx;
-		currStartAndSize.length = eachChunkSize;
+		currStartAndSize.length = batchSize;
 
-		// makeChunkRanges limits the block count to eachChunkSize; save() clamps its own thread count,
+		// makeChunkRanges limits the block count to batchSize; save() clamps its own thread count,
 		// so nThreads_ can be passed straight through (the ThreadCeiling is an upper bound either way).
 		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads_)};
-		SimilarityMatrix result{
+		SimilarityMatrix block{
 			parallelBuild(
 				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
 				[this, &threadRanges, &allLocusIndexes, &similarityCutOff](size_t blockIdx) {
@@ -651,10 +668,11 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 				}
 			)
 		};
-		result.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
+		sink.add(block);
 
-		cumChunkIdx += eachChunkSize;
+		cumChunkIdx += batchSize;
 	}
+	sink.finalize();
 	logMessages_.add("All pairwise LD calculated and saved");
 }
 
@@ -809,67 +827,53 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	logMessages_.add("Estimating LD in groups");
 	logMessages_.add( "number of pairs in the hash table: " + std::to_string(totalPairNumber) );
 
-	// The matrix merge uses nElements of scratch space
-	const size_t matrixSize = 2UL * totalPairNumber;
-
-	const SimilarityMatrix emptyMatrix;
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * emptyMatrix.elementSize() );      // use half to leave resources for other operations
-	const size_t nChunks  = std::max(matrixSize / maxInRAM, suggestNchunks);
-
-	logMessages_.add( "Maximum number of locus pairs that fit in RAM: " + std::to_string(maxInRAM) );
-	logMessages_.add("calculating in " + std::to_string(nChunks) + " chunk(s)");
+	const size_t maxElements = sinkElementBudget(totalPairNumber, suggestNchunks);
+	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
 
 	std::fstream output;
 	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	const std::vector<size_t> chunkSizes{makeChunkSizes( totalPairNumber, std::min(nChunks, totalPairNumber) )};
+	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
 	BayesicSpace::HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
 	const size_t lastPairNumber{ldGroups.back().locusIndexes.size() * (ldGroups.back().locusIndexes.size() - 1) / 2};
 	uint32_t base1chunkIdx{1};
-	for (const auto &eachCS : chunkSizes) {
-		SimilarityMatrix groupSimilarities;
-		// actual matrix sizes may be smaller than expected because of common pairs among groups
-		// so we keep adding until we run out of space to limit the number of saves and pair duplication
-		// that can result from not being able to de-duplicate pairs that are already saved
-		while (groupSimilarities.nElements() < eachCS) {
-			const size_t currentChunkSize = eachCS - groupSimilarities.nElements();
-			std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
-			// Over-decompose into more blocks than threads so parallelBuild's work-stealing can
-			// balance uneven group sizes: with one block per thread the heaviest block sets the
-			// wall time, but finer blocks let idle threads pick up the slack.
-			constexpr size_t blockOverDecomposition{4};
-			const size_t nBlocks{std::min(blockOverDecomposition * nThreads_, currentChunkSize)};
-			const std::vector<size_t> threadSizes{makeChunkSizes( currentChunkSize, nBlocks )};
-			groupRanges.reserve( threadSizes.size() );
-			for (const auto &eachThrSize : threadSizes) {
-				groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
-				startPair = groupRanges.back().second;
-			}
-			SimilarityMatrix tmp{
-				parallelBuild(
-					BlockMaxThreadCounts{groupRanges.size(), nThreads_},
-					[this, &groupRanges, &sparsityValues](size_t blockIdx) {
-						return hashJacBlock_(groupRanges[blockIdx], sparsityValues.similarityCutOff);
-					}
-				)
-			};
-			logMessages_.add( "\tfinished similarity matrix estimation for chunk " + std::to_string(base1chunkIdx) );
-			groupSimilarities.merge(tmp);
-			logMessages_.add("\tmerged with previous matrix");
-			if ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) ) {
-				groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
-				logMessages_.add("Finished calculating and saving LD in groups");
-				return;
-			}
+	// Consume the groups in pair-batches capped at the element budget, so each parallelBuild result
+	// fits the sink's reserved buffer. The sink accumulates batches and flushes as the budget fills;
+	// because saved pairs can no longer be de-duplicated, it flushes as late as possible to limit the
+	// cross-flush duplication that overlapping groups can introduce.
+	bool done{false};
+	while (!done) {
+		std::vector< std::pair<HashGroupItPairCount, HashGroupItPairCount> > groupRanges;
+		// Over-decompose into more blocks than threads so parallelBuild's work-stealing can
+		// balance uneven group sizes: with one block per thread the heaviest block sets the
+		// wall time, but finer blocks let idle threads pick up the slack.
+		constexpr size_t blockOverDecomposition{4};
+		const size_t nBlocks{std::min(blockOverDecomposition * nThreads_, maxElements)};
+		const std::vector<size_t> threadSizes{makeChunkSizes( maxElements, nBlocks )};
+		groupRanges.reserve( threadSizes.size() );
+		for (const auto &eachThrSize : threadSizes) {
+			groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
+			startPair = groupRanges.back().second;
 		}
-		groupSimilarities.save(bimAndLDnames.outputFileName, nThreads_, bimAndLDnames.inputFileName);
-		logMessages_.add( "\tsaved similarity matrix for chunk " + std::to_string(base1chunkIdx) );
+		SimilarityMatrix block{
+			parallelBuild(
+				BlockMaxThreadCounts{groupRanges.size(), nThreads_},
+				[this, &groupRanges, &sparsityValues](size_t blockIdx) {
+					return hashJacBlock_(groupRanges[blockIdx], sparsityValues.similarityCutOff);
+				}
+			)
+		};
+		logMessages_.add( "\tfinished similarity matrix estimation for chunk " + std::to_string(base1chunkIdx) );
+		sink.add(block);
 		++base1chunkIdx;
+		done = ( startPair.hgIterator == ldGroups.cend() )
+			|| ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) );
 	}
+	sink.finalize();
 	logMessages_.add("Finished calculating and saving LD in groups");
 }
 

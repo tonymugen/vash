@@ -1054,6 +1054,160 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( refFileName.c_str() ); // NOLINT
 		REQUIRE( dedupLines == aloneLines );
 	}
+	SECTION("SimilarityMatrixSink streams within a memory budget") {
+		constexpr size_t nPerMatrix{5};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesA{3, 8, 14, 19, 28};
+		constexpr std::array<uint64_t, nPerMatrix> nIsectA{87, 77, 49, 122, 23};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesB{6, 9, 12, 17, 31};   // disjoint from A but interleaving its indexes
+		constexpr std::array<uint64_t, nPerMatrix> nIsectB{160, 176, 167, 206, 161};
+		constexpr uint64_t nUnionVal{254};
+		constexpr size_t nThreads{2};
+		const std::string sinkFileName("../tests/sinkMatrix.tsv");
+		const std::string refFileName("../tests/sinkRefMatrix.tsv");
+
+		auto buildMatrix = [](const std::array<uint64_t, nPerMatrix> &indexes, const std::array<uint64_t, nPerMatrix> &isect, const uint64_t &nUnion) {
+			BayesicSpace::SimilarityMatrix mat;
+			for (size_t idx = 0; idx < indexes.size(); ++idx) {
+				BayesicSpace::RowColIdx rowCol{BayesicSpace::recoverRCindexes(indexes.at(idx))};
+				BayesicSpace::JaccardPair jPair{};
+				jPair.nUnion     = nUnion;
+				jPair.nIntersect = isect.at(idx);
+				mat.insert(rowCol, jPair);
+			}
+			return mat;
+		};
+		auto readMatrixFile = [](const std::string &fileName) {
+			std::vector<std::string> fileRows;
+			std::fstream inFile(fileName, std::ios::in);
+			std::string fileLine;
+			while ( std::getline(inFile, fileLine) ) {
+				fileRows.push_back(fileLine);
+			}
+			inFile.close();
+			return fileRows;
+		};
+
+		const BayesicSpace::SimilarityMatrix matrixA{buildMatrix(vecIndexesA, nIsectA, nUnionVal)};
+		const BayesicSpace::SimilarityMatrix matrixB{buildMatrix(vecIndexesB, nIsectB, nUnionVal)};
+
+		// the merge of A and B is the reference full result (globally sorted)
+		BayesicSpace::SimilarityMatrix reference{matrixA};
+		BayesicSpace::SimilarityMatrix bToMerge{matrixB};
+		reference.merge(bToMerge);
+		reference.save(refFileName, nThreads);
+		const std::vector<std::string> referenceLines{readMatrixFile(refFileName)};
+		std::remove( refFileName.c_str() ); // NOLINT
+
+		// a budget large enough to hold both blocks flushes only at finalize: file matches merge exactly
+		std::remove( sinkFileName.c_str() ); // NOLINT (save appends, so start clean)
+		{
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, 2 * nPerMatrix);
+			BayesicSpace::SimilarityMatrix blockA{matrixA};
+			BayesicSpace::SimilarityMatrix blockB{matrixB};
+			sink.add(blockA);
+			sink.add(blockB);
+			REQUIRE( blockA.nElements() == 0 );                       // added blocks are consumed
+			REQUIRE( blockB.nElements() == 0 );
+			REQUIRE( sink.bufferedElements() == 2 * nPerMatrix );     // nothing flushed yet
+			sink.finalize();
+			REQUIRE( sink.bufferedElements() == 0 );                  // buffer emptied on finalize
+		}
+		const std::vector<std::string> bufferedLines{readMatrixFile(sinkFileName)};
+		std::remove( sinkFileName.c_str() ); // NOLINT
+		REQUIRE( bufferedLines == referenceLines );
+
+		// a budget that holds one block but not two forces a flush between the adds; the streamed
+		// file holds every pair (each flush is internally sorted, so the file is a set-equal permutation)
+		std::remove( sinkFileName.c_str() ); // NOLINT
+		{
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, nPerMatrix);
+			BayesicSpace::SimilarityMatrix blockA{matrixA};
+			BayesicSpace::SimilarityMatrix blockB{matrixB};
+			sink.add(blockA);
+			sink.add(blockB);                                         // triggers a flush of A before appending B
+			REQUIRE( sink.bufferedElements() == nPerMatrix );        // only B remains buffered
+			sink.finalize();
+		}
+		std::vector<std::string> streamedLines{readMatrixFile(sinkFileName)};
+		std::remove( sinkFileName.c_str() ); // NOLINT
+		std::vector<std::string> sortedReference{referenceLines};
+		std::sort( streamedLines.begin(), streamedLines.end() );
+		std::sort( sortedReference.begin(), sortedReference.end() );
+		REQUIRE( streamedLines.size() == 2 * nPerMatrix );           // no pair dropped across the flush
+		REQUIRE( streamedLines == sortedReference );
+
+		// duplicate indexes within a single buffer collapse on flush
+		std::remove( sinkFileName.c_str() ); // NOLINT
+		{
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, 2 * nPerMatrix);
+			BayesicSpace::SimilarityMatrix blockA{matrixA};
+			BayesicSpace::SimilarityMatrix duplicateA{matrixA};
+			sink.add(blockA);
+			sink.add(duplicateA);
+			sink.finalize();
+		}
+		const std::vector<std::string> dedupLines{readMatrixFile(sinkFileName)};
+		std::remove( sinkFileName.c_str() ); // NOLINT
+		matrixA.save(refFileName, nThreads);
+		const std::vector<std::string> aloneLines{readMatrixFile(refFileName)};
+		std::remove( refFileName.c_str() ); // NOLINT
+		REQUIRE( dedupLines == aloneLines );
+	}
+	SECTION("Buffered save chunks within a byte budget") {
+		constexpr size_t nPerMatrix{5};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesA{3, 8, 14, 19, 28};
+		constexpr std::array<uint64_t, nPerMatrix> nIsectA{87, 77, 49, 122, 23};
+		constexpr std::array<uint64_t, nPerMatrix> vecIndexesB{6, 9, 12, 17, 31};
+		constexpr std::array<uint64_t, nPerMatrix> nIsectB{160, 176, 167, 206, 161};
+		constexpr uint64_t nUnionVal{254};
+		constexpr size_t nThreads{2};
+		const std::string bufFileName("../tests/bufSaveMatrix.tsv");
+		const std::string refFileName("../tests/bufSaveRefMatrix.tsv");
+
+		auto buildMatrix = [](const std::array<uint64_t, nPerMatrix> &indexes, const std::array<uint64_t, nPerMatrix> &isect, const uint64_t &nUnion) {
+			BayesicSpace::SimilarityMatrix mat;
+			for (size_t idx = 0; idx < indexes.size(); ++idx) {
+				BayesicSpace::RowColIdx rowCol{BayesicSpace::recoverRCindexes(indexes.at(idx))};
+				BayesicSpace::JaccardPair jPair{};
+				jPair.nUnion     = nUnion;
+				jPair.nIntersect = isect.at(idx);
+				mat.insert(rowCol, jPair);
+			}
+			return mat;
+		};
+		auto readMatrixFile = [](const std::string &fileName) {
+			std::vector<std::string> fileRows;
+			std::fstream inFile(fileName, std::ios::in);
+			std::string fileLine;
+			while ( std::getline(inFile, fileLine) ) {
+				fileRows.push_back(fileLine);
+			}
+			inFile.close();
+			return fileRows;
+		};
+
+		BayesicSpace::SimilarityMatrix matrix{buildMatrix(vecIndexesA, nIsectA, nUnionVal)};
+		BayesicSpace::SimilarityMatrix second{buildMatrix(vecIndexesB, nIsectB, nUnionVal)};
+		matrix.merge(second);   // ten elements, globally sorted
+
+		// reference: the RAM-sized public overload writes the whole matrix in one pass
+		std::remove( refFileName.c_str() ); // NOLINT
+		matrix.save(refFileName, nThreads);
+		const std::vector<std::string> referenceLines{readMatrixFile(refFileName)};
+		std::remove( refFileName.c_str() ); // NOLINT
+
+		// a tiny byte budget forces the buffered overload to write in many small chunks, reusing
+		// the two buffers; the output must be byte-for-byte identical to the single-pass reference
+		std::remove( bufFileName.c_str() ); // NOLINT
+		std::vector<std::string> reusableBuffers(nThreads);
+		constexpr size_t tinyBudget{20};    // fits roughly one line per buffer, so ~two elements per chunk
+		matrix.save(bufFileName, std::string(), reusableBuffers, tinyBudget);
+		const std::vector<std::string> bufferedLines{readMatrixFile(bufFileName)};
+		std::remove( bufFileName.c_str() ); // NOLINT
+
+		REQUIRE( bufferedLines.size() == vecIndexesA.size() + vecIndexesB.size() ); // every element written
+		REQUIRE( bufferedLines == referenceLines );                                // chunking preserves content and order
+	}
 }
 
 TEST_CASE("GenoTableBin methods work", "[gtBin]") {

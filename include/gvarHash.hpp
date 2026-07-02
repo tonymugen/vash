@@ -44,7 +44,6 @@ namespace BayesicSpace {
 	struct CountAndSize;
 	struct IndividualAndSketchCounts;
 	struct BedDataStats;
-	struct InOutFileNames;
 	struct SparsityParameters;
 	struct HashGroup;
 	struct HashGroupItPairCount;
@@ -101,16 +100,6 @@ namespace BayesicSpace {
 		size_t nLociToRead;
 		/** \brief Number of chunks needed to fit data into RAM */
 		size_t nMemChunks;
-	};
-	/** \brief Input and output file names
-	 *
-	 * Groups input and output file names.
-	 */
-	struct InOutFileNames {
-		/** \brief Input file name */
-		std::string inputFileName;
-		/** \brief Output file name */
-		std::string outputFileName;
 	};
 	/** \brief LD matrix sparsity parameters
 	 *

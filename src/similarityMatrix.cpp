@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.1
+ * \version 0.2
  *
  * Method implementation for a compact representation of a (possibly sparse) similarity matrix.
  *
@@ -74,7 +74,7 @@ RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 }
 
 SimilarityMatrix BayesicSpace::parallelBuild(const BlockMaxThreadCounts &nBlocksThreads, const std::function<SimilarityMatrix(size_t)> &blockToMatrix) {
-	 /*
+	/*
 	 * Each block is produced into its own private shard, so the `blockToMatrix` callable never
 	 * touches shared state: thread safety is a property of this orchestration rather than of
 	 * `SimilarityMatrix::insert`, and the per-block hot path keeps the lock-free sorted-append
@@ -253,86 +253,107 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	if ( matrix_.empty() ) {
 		return;
 	}
-	// determine how many line strings can fit in RAM
-	// using the last entry because it will lave longest indexes
-	const RowColIdx lastIdxPair{recoverRCindexes( matrix_.back() >> valueSize_ )};
+	// Self-managed variant: allocate per-thread scratch and budget it from currently-available RAM
+	// (~half, as before), then defer to the reusable-buffer overload.
+	std::vector<std::string> reusableBuffers( std::max( nThreads, static_cast<size_t>(1) ) );
+	const size_t maxStringBytes{ getAvailableRAM() / 2UL };
+	save(outFileName, locusNameFile, reusableBuffers, maxStringBytes);
+}
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) file names, distinguished by the empty-vs-set locus name convention
+void SimilarityMatrix::save(const std::string &outFileName, const std::string &locusNameFile,
+							std::vector<std::string> &reusableBuffers, const size_t &maxStringBytes) const {
+	if ( matrix_.empty() || reusableBuffers.empty() ) {
+		return;
+	}
+	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
+	// six characters. The last (largest-index) element gives the widest base-1 index; with locus
+	// names, the longest name bounds a field. Chunk sizes are derived from this so a chunk's
+	// stringified output cannot exceed the reserved buffers.
+	const RowColIdx lastIdxPair{recoverRCindexes( matrix_.back() >> valueSize_ )};
 	std::vector<std::string> locusNames;
+	size_t widestField{ std::to_string(lastIdxPair.iRow + 1).size() };
 	if ( !locusNameFile.empty() ) {
 		locusNames = getLocusNames(locusNameFile);
 		// testing only the row index, since the column index must be smaller
 		if ( lastIdxPair.iRow >= locusNames.size() ) {
 			throw std::string("ERROR: number of rows exceeds locus name count in the ") + locusNameFile + std::string(" file in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 		}
+		widestField = std::max_element(
+			locusNames.cbegin(),
+			locusNames.cend(),
+			[](const std::string &lhs, const std::string &rhs) { return lhs.size() < rhs.size(); }
+		)->size();
 	}
+	constexpr size_t perLineOverhead{ 2UL + 6UL + 1UL };            // two tabs, a fixed-width value, a newline
+	const size_t worstLine{ (2UL * widestField) + perLineOverhead };
 
-	const std::string lastEntry{std::to_string(lastIdxPair.iRow + 1) + "\t" + std::to_string(lastIdxPair.jCol + 1) + "\t" + stringLookUp_[0] + "\n"};
-	const size_t maxInRAM = getAvailableRAM() / ( 2UL * lastEntry.size() );      // use half to leave resources for other operations
-	const size_t nChunks  = std::max(matrix_.size() / maxInRAM, 1UL);
-	std::vector<size_t> chunkSizes{makeChunkSizes(matrix_.size(), nChunks)};
+	// Give each thread its own share of the byte budget, and size chunks so every thread stringifies
+	// at most perBufferEntries entries into its buffer: worst-case that is perBufferBytes, so a buffer
+	// reserved to perBufferBytes never reallocates.
+	const size_t nBuffers{ reusableBuffers.size() };
+	const size_t perBufferBytes{ std::max( maxStringBytes / nBuffers, worstLine ) };
+	const size_t perBufferEntries{ std::max( perBufferBytes / worstLine, static_cast<size_t>(1) ) };
+	const size_t chunkElements{ perBufferEntries * nBuffers };
+	for (auto &eachBuffer : reusableBuffers) {
+		eachBuffer.reserve(perBufferBytes);                        // idempotent if the caller pre-reserved
+	}
 
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
-	// Cap concurrency to nThreads for every parallel region below (a no-op without a TBB backend);
-	// constructed in the outermost scope that owns the user-requested thread count.
-	const ThreadCeiling threadCeiling(nThreads);
-	std::vector<uint32_t>::difference_type cumChunkSize{0};
-	for (const auto &eachChunkSize : chunkSizes) {
-		const size_t actualNthreads = std::min(eachChunkSize, nThreads);
-		std::vector<size_t> threadChunkSizes{makeChunkSizes(eachChunkSize, actualNthreads)};
-		std::vector< std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> > threadPairs;
-		std::vector<uint32_t>::difference_type cumThreadChunkSize{cumChunkSize};
-		std::for_each(
-			threadChunkSizes.cbegin(),
-			threadChunkSizes.cend(),
-			[&threadPairs, &cumThreadChunkSize, this](const size_t &chunkSize) {
-				std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> tmpPair{
-					matrix_.cbegin() + cumThreadChunkSize,
-					matrix_.cbegin() + cumThreadChunkSize + static_cast<std::vector<uint32_t>::difference_type>(chunkSize)
-				};
-				threadPairs.emplace_back(tmpPair);
-				cumThreadChunkSize += static_cast<std::vector<uint32_t>::difference_type>(chunkSize);
-			}
-		);
-		std::vector<std::string> outStrings(actualNthreads);
-		// Each thread range covers a disjoint slice of matrix_ and produces one output string;
-		// transform writes each into its own slot positionally, so the conversion is data-parallel.
-		// stringify_ is static and reads only its own range plus the shared read-only locusNames.
-		std::transform(
-			parallelPolicy,
-			threadPairs.cbegin(),
-			threadPairs.cend(),
-			outStrings.begin(),
-			[&locusNames](const std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> &pairIt) {
-				return stringify_(pairIt.first, pairIt.second, locusNames);
-			}
-		);
-
-		for (const auto &eachString : outStrings) {
-			outStream.write( eachString.c_str(), static_cast<std::streamsize>( eachString.size() ) );
+	// Cap concurrency to the buffer (thread) count for the stringify below.
+	const ThreadCeiling threadCeiling(nBuffers);
+	size_t chunkStart{0};
+	while (chunkStart < matrix_.size()) {
+		const size_t thisChunk{ std::min(chunkElements, matrix_.size() - chunkStart) };
+		const size_t usedBuffers{ std::min(thisChunk, nBuffers) };
+		// NOLINTNEXTLINE(readability-suspicious-call-argument) thisChunk is the element count, usedBuffers the chunk count
+		const std::vector<size_t> sliceSizes{ makeChunkSizes(thisChunk, usedBuffers) };
+		std::vector< std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> > sliceRanges;
+		sliceRanges.reserve(usedBuffers);
+		size_t sliceOffset{chunkStart};
+		for (const auto &eachSlice : sliceSizes) {
+			sliceRanges.emplace_back(
+				matrix_.cbegin() + static_cast<std::vector<uint64_t>::difference_type>(sliceOffset),
+				matrix_.cbegin() + static_cast<std::vector<uint64_t>::difference_type>(sliceOffset + eachSlice)
+			);
+			sliceOffset += eachSlice;
 		}
-		cumChunkSize += static_cast<std::vector<uint32_t>::difference_type>(eachChunkSize);
+		// Each slice is disjoint and stringifies into its own buffer, so the conversion is data-parallel.
+		std::vector<size_t> bufferIndexes(usedBuffers);
+		std::iota(bufferIndexes.begin(), bufferIndexes.end(), static_cast<size_t>(0));
+		std::for_each(
+			parallelPolicy,
+			bufferIndexes.cbegin(),
+			bufferIndexes.cend(),
+			[&sliceRanges, &locusNames, &reusableBuffers](const size_t &iBuffer) {
+				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, reusableBuffers[iBuffer]);
+			}
+		);
+		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
+			outStream.write( reusableBuffers[iBuffer].c_str(), static_cast<std::streamsize>( reusableBuffers[iBuffer].size() ) );
+		}
+		chunkStart += thisChunk;
 	}
 	outStream.close();
 }
 
-std::string SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
-								const std::vector<std::string> &locusNames) {
-	std::string outString;
+void SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+								const std::vector<std::string> &locusNames, std::string &target) {
+	target.clear();   // retains capacity, enabling buffer reuse across chunks
 	if ( locusNames.empty() ) {
 		for (auto matIt = start; matIt != end; ++matIt) {
 			const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
 			const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
-			outString += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
+			target += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
 		}
-		return outString;
+		return;
 	}
 	for (auto matIt = start; matIt != end; ++matIt) {
 		const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
 		const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
-		outString += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
+		target += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
 	}
-	return outString;
 }
 
 void SimilarityMatrix::insert_(const FullIdxValue &indexWithSimilarity) {
@@ -362,4 +383,43 @@ void SimilarityMatrix::insert_(const FullIdxValue &indexWithSimilarity) {
 	if ( indexWithSimilarity.fullIdx != (*lowerBoundIt >> valueSize_) ) {
 		matrix_.insert(lowerBoundIt, packedElement);
 	}
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) nThreads and maxElements are distinct counts
+SimilarityMatrixSink::SimilarityMatrixSink(const InOutFileNames &fileNames, size_t nThreads, size_t maxElements) :
+			saveBuffers_( std::max( nThreads, static_cast<size_t>(1) ) ),
+			outFileName_{fileNames.outputFileName}, locusNameFile_{fileNames.inputFileName},
+			maxElements_{maxElements},
+			stringBudgetBytes_{ (maxElements * SimilarityMatrix::elementSize()) / 3UL } {
+	// Split the reserved memory 3/4 matrix : 1/4 string scratch and claim both now, while memory is
+	// still available. maxElements_ is already the 3/4 share (see sinkElementBudget), so its bytes
+	// divided by three is the remaining 1/4 for the string scratch. Reserving up front means neither
+	// the matrix buffer nor the string buffers reallocate later; clear() retains capacity across flushes.
+	buffer_.reserve(maxElements_);
+	const size_t perBufferBytes{ std::max( stringBudgetBytes_ / saveBuffers_.size(), static_cast<size_t>(1) ) };
+	for (auto &eachBuffer : saveBuffers_) {
+		eachBuffer.reserve(perBufferBytes);
+	}
+}
+
+void SimilarityMatrixSink::add(SimilarityMatrix &block) {
+	// Flush before appending (not after) so the reserved capacity is never exceeded: after a flush
+	// the buffer is empty, and each block is required to hold at most maxElements_ elements.
+	if (buffer_.nElements() + block.nElements() > maxElements_) {
+		buffer_.sortAndDeduplicate();                            // collapsing duplicates may make room
+		if (buffer_.nElements() + block.nElements() > maxElements_) {
+			flush_();
+		}
+	}
+	buffer_.append(block);
+}
+
+void SimilarityMatrixSink::finalize() {
+	flush_();
+}
+
+void SimilarityMatrixSink::flush_() {
+	buffer_.sortAndDeduplicate();
+	buffer_.save(outFileName_, locusNameFile_, saveBuffers_, stringBudgetBytes_);   // no-op on an empty buffer
+	buffer_.clear();                                                                // retains reserved capacity
 }

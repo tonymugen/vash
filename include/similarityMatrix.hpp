@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.1
+ * \version 0.2
  *
  * Definitions and interface documentation for a compact representation of a (possibly sparse) similarity matrix.
  *
@@ -42,7 +42,9 @@ namespace BayesicSpace {
 	struct JaccardPair;
 	struct DiffElementPair;
 	struct FullIdxTrio;
+	struct InOutFileNames;
 	class SimilarityMatrix;
+	class SimilarityMatrixSink;
 
 	/** \brief Row and column index pair */
 	struct RowColIdx {
@@ -66,10 +68,21 @@ namespace BayesicSpace {
 		uint64_t nUnion;
 	};
 
-	/** \brief Block and maximal thread count */	
+	/** \brief Block and maximal thread count */
 	struct BlockMaxThreadCounts {
 		size_t nBlocks;
 		size_t maxThreads;
+	};
+
+	/** \brief Input and output file names
+	 *
+	 * Groups input and output file names.
+	 */
+	struct InOutFileNames {
+		/** \brief Input file name */
+		std::string inputFileName;
+		/** \brief Output file name */
+		std::string outputFileName;
 	};
 
 	/** \brief Append one vector to another by chunks
@@ -154,7 +167,22 @@ namespace BayesicSpace {
 		 * \return number of elements
 		 */
 		[[nodiscard]] size_t nElements() const noexcept { return matrix_.size(); };
-		/** \brief Insert a value (updating the index) 
+		/** \brief Reserve element capacity
+		 *
+		 * Pre-allocates storage for at least `nElements` matrix elements so that subsequent
+		 * insertions up to that count do not reallocate. Used to claim a memory budget up front,
+		 * before other allocations reduce the available contiguous space.
+		 *
+		 * \param[in] nElements number of elements to reserve capacity for
+		 */
+		void reserve(const size_t &nElements) { matrix_.reserve(nElements); };
+		/** \brief Remove all elements
+		 *
+		 * Drops every stored element but retains the allocated capacity, so a reserved buffer
+		 * can be refilled without reallocating.
+		 */
+		void clear() noexcept { matrix_.clear(); };
+		/** \brief Insert a value (updating the index)
 		 *
 		 * Inserts a new value into the matrix. Addresses the lower triangle of the similarity matrix,
 		 * therefore the row index must be larger than the column index. If not, the values are swapped.
@@ -179,7 +207,7 @@ namespace BayesicSpace {
 		 *
 		 * Sorts the packed elements by vectorized index and drops duplicate indexes.
 		 * Needed only to finalize a sequence of `append()` calls; all other mutators
-		 * keep the invariant on their own.
+		 * keep the invariant.
 		 */
 		void sortAndDeduplicate();
 		/** \brief Merge two matrices
@@ -194,12 +222,30 @@ namespace BayesicSpace {
 		 *
 		 * Uses multi-threaded data prep to speed up saving.
 		 * If the output file already exists, appends to it.
+		 * Sizes its string scratch from currently-available RAM; prefer the reusable-buffer overload
+		 * when the memory budget is managed externally.
 		 *
 		 * \param[in] outFileName output file name
 		 * \param[in] nThreads number of threads
 		 * \param[in] locusNameFile name of the file with locus names (empty by default)
 		 */
 		void save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile = "") const;
+		/** \brief Save to file with caller-provided string buffers
+		 *
+		 * Streams the matrix to file, appending if it already exists. Stringification is spread across
+		 * `reusableBuffers.size()` threads, each writing into its own buffer; the buffers are reused
+		 * (cleared, capacity retained) across output chunks. The matrix is processed in chunks small
+		 * enough that the combined stringified output of a chunk stays within `maxStringBytes`, so no
+		 * RAM re-measurement is needed and a caller that reserved the buffers to `maxStringBytes /
+		 * reusableBuffers.size()` each never reallocates.
+		 *
+		 * \param[in] outFileName output file name
+		 * \param[in] locusNameFile name of the file with locus names (empty to emit base-1 indexes)
+		 * \param[in,out] reusableBuffers per-thread string scratch buffers (one per save thread)
+		 * \param[in] maxStringBytes combined byte budget for the string scratch
+		 */
+		void save(const std::string &outFileName, const std::string &locusNameFile,
+				std::vector<std::string> &reusableBuffers, const size_t &maxStringBytes) const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -241,13 +287,15 @@ namespace BayesicSpace {
 		 * Add locus names if the `locusNames` vector is not empty.
 		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
 		 *
+		 * The `target` string is cleared first (its capacity is retained, enabling buffer reuse).
+		 *
 		 * \param[in] start start iterator for the matrix
 		 * \param[in] end end iterator for the matrix
 		 * \param[in] locusNames locus name vector
-		 *  \return output string
+		 * \param[out] target string the output is written into
 		 */
-		[[nodiscard]] static std::string stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
-								const std::vector<std::string> &locusNames);
+		static void stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+								const std::vector<std::string> &locusNames, std::string &target);
 		/** \brief Insert a value (updating the index) 
 		 *
 		 * Inserts a new value into the matrix according to the full vectorized matrix index.
@@ -255,5 +303,88 @@ namespace BayesicSpace {
 		 * \param[in] indexWithSimilarity full index and the corresponding quantized similarity
 		 */
 		void insert_(const FullIdxValue &indexWithSimilarity);
+	};
+
+	/** \brief Memory-bounded sink for similarity matrices
+	 *
+	 * Accumulates `SimilarityMatrix` blocks into an internal buffer and streams them to a file,
+	 * keeping resident memory below a fixed element budget set at construction. The buffer's
+	 * capacity is reserved up front, so the budget is claimed while memory is still available
+	 * and the buffer never reallocates while filling. When adding a block would exceed the
+	 * budget, the buffer is de-duplicated and, if still over budget, saved to file and cleared.
+	 *
+	 * Because saved elements leave memory, duplicate index pairs that recur in blocks added
+	 * after a flush cannot be de-duplicated against the already-saved contents. Blocks are
+	 * therefore flushed as late as possible (only when genuinely over budget) to minimize such
+	 * cross-flush duplication in the output file.
+	 */
+	class SimilarityMatrixSink {
+	public:
+		/** \brief Default constructor (deleted) */
+		SimilarityMatrixSink() = delete;
+		/** \brief Constructor
+		 *
+		 * Reserves capacity for `maxElements` matrix elements immediately. Each block passed to
+		 * `add()` must contain no more than `maxElements` elements so the reserved buffer is never
+		 * exceeded.
+		 *
+		 * \param[in] fileNames output file name and (optional) locus-name input file name
+		 * \param[in] nThreads number of threads for saving
+		 * \param[in] maxElements element budget; also the reserved buffer capacity
+		 */
+		// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) nThreads and maxElements are distinct counts
+		SimilarityMatrixSink(const InOutFileNames &fileNames, size_t nThreads, size_t maxElements);
+		/** \brief Copy constructor (deleted) */
+		SimilarityMatrixSink(const SimilarityMatrixSink &toCopy) = delete;
+		/** \brief Copy assignment operator (deleted) */
+		SimilarityMatrixSink& operator=(const SimilarityMatrixSink &toCopy) = delete;
+		/** \brief Move constructor
+		 *
+		 * \param[in] toMove object to move
+		 */
+		SimilarityMatrixSink(SimilarityMatrixSink &&toMove) noexcept = default;
+		/** \brief Move assignment operator
+		 *
+		 * \param[in] toMove object to move
+		 * \return `SimilarityMatrixSink` object
+		 */
+		SimilarityMatrixSink& operator=(SimilarityMatrixSink &&toMove) noexcept = default;
+		/** \brief Destructor */
+		~SimilarityMatrixSink() = default;
+
+		/** \brief Add a block
+		 *
+		 * Appends the elements of `block` to the buffer, first flushing to file if the combined
+		 * size would exceed the budget. Clears `block`.
+		 *
+		 * \param[in,out] block matrix whose elements are moved in and then cleared
+		 */
+		void add(SimilarityMatrix &block);
+		/** \brief Flush remaining buffered elements
+		 *
+		 * De-duplicates and saves whatever remains in the buffer, then clears it. Call once after
+		 * the last `add()`.
+		 */
+		void finalize();
+		/** \brief Number of buffered elements
+		 *
+		 * \return element count currently held in the buffer (may include not-yet-de-duplicated pairs)
+		 */
+		[[nodiscard]] size_t bufferedElements() const noexcept { return buffer_.nElements(); };
+	private:
+		/** \brief Accumulation buffer (holds the matrix data, reserved to 3/4 of the memory budget) */
+		SimilarityMatrix buffer_;
+		/** \brief Per-thread string scratch for saving (together reserved to 1/4 of the memory budget) */
+		std::vector<std::string> saveBuffers_;
+		/** \brief Output file name */
+		std::string outFileName_;
+		/** \brief Locus-name input file name (empty if unused) */
+		std::string locusNameFile_;
+		/** \brief Element budget and reserved matrix-buffer capacity (3/4 of the memory budget) */
+		size_t maxElements_;
+		/** \brief Combined byte budget and reserved capacity of the save string buffers (1/4 of the memory budget) */
+		size_t stringBudgetBytes_;
+		/** \brief De-duplicate and save the buffer, then clear it (capacity retained) */
+		void flush_();
 	};
 }
