@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.2
+ * \version 0.3
  *
  * Definitions and interface documentation for a compact representation of a (possibly sparse) similarity matrix.
  *
@@ -68,10 +68,19 @@ namespace BayesicSpace {
 		uint64_t nUnion;
 	};
 
-	/** \brief Block and maximal thread count */
-	struct BlockMaxThreadCounts {
-		size_t nBlocks;
-		size_t maxThreads;
+	/** \brief Counts parametrizing a parallel or memory-bounded operation
+	 *
+	 * Groups a driving count with an associated upper bound, so the two are passed together and
+	 * cannot be transposed at a call site. The meaning of each field is operation-specific: e.g.
+	 * `parallelBuild` reads `count` as the number of blocks and `ceiling` as the thread cap, while
+	 * `SimilarityMatrixSink` reads `count` as the number of save threads and `ceiling` as the
+	 * element budget.
+	 */
+	struct WorkloadLimits {
+		/** \brief Driving count (e.g. number of blocks or threads) */
+		size_t count;
+		/** \brief Associated upper bound (e.g. thread ceiling or element budget) */
+		size_t ceiling;
 	};
 
 	/** \brief Input and output file names
@@ -106,13 +115,13 @@ namespace BayesicSpace {
 
 	/** \brief Build a similarity matrix from independent blocks in parallel
 	 *
-	 * Computes `nBlocks` matrix blocks concurrently and consolidates them into a single object.
+	 * Computes `blockCounts.count` matrix blocks concurrently and consolidates them into a single object.
 	 *
-	 * \param[in] nBlocksThreads block and thread ceiling counts
+	 * \param[in] blockCounts block count (`count`) and thread ceiling (`ceiling`)
 	 * \param[in] blockToMatrix callable mapping a block index to its `SimilarityMatrix`
 	 * \return consolidated `SimilarityMatrix`
 	 */
-	[[nodiscard]] SimilarityMatrix parallelBuild(const BlockMaxThreadCounts &nBlocksThreads, const std::function<SimilarityMatrix(size_t)> &blockToMatrix);
+	[[nodiscard]] SimilarityMatrix parallelBuild(const WorkloadLimits &blockCounts, const std::function<SimilarityMatrix(size_t)> &blockToMatrix);
 
 	/** \brief Similarity matrix
 	 *
@@ -124,7 +133,7 @@ namespace BayesicSpace {
 	class SimilarityMatrix {
 	public:
 		/** \brief Default constructor */
-		SimilarityMatrix() noexcept  = default;
+		SimilarityMatrix() noexcept = default;
 		/** \brief Copy constructor
 		 *
 		 * \param[in] toCopy object to copy
@@ -159,8 +168,12 @@ namespace BayesicSpace {
 		 *
 		 * \return object size in bytes
 		 */
-		[[nodiscard]] size_t objectSize() const noexcept { 
-			return	elementSize() * matrix_.size();
+		[[nodiscard]] size_t objectSize() const noexcept {
+			size_t stringBytes{0};
+			for (const auto &eachBuffer : saveBuffers_) {
+				stringBytes += eachBuffer.capacity();
+			}
+			return	( elementSize() * matrix_.size() ) + stringBytes;
 		};
 		/** \brief Number of elements in the matrix
 		 *
@@ -171,11 +184,13 @@ namespace BayesicSpace {
 		 *
 		 * Pre-allocates storage for at least `nElements` matrix elements so that subsequent
 		 * insertions up to that count do not reallocate. Used to claim a memory budget up front,
-		 * before other allocations reduce the available contiguous space.
+		 * before other allocations reduce the available contiguous space. `nElements` is the 3/4
+		 * (matrix) share of the memory split; the derived string-scratch budget for `save()` (the
+		 * remaining 1/4) is set here as well.
 		 *
-		 * \param[in] nElements number of elements to reserve capacity for
+		 * \param[in] nElements number of matrix elements to reserve capacity for
 		 */
-		void reserve(const size_t &nElements) { matrix_.reserve(nElements); };
+		void reserve(const size_t &nElements);
 		/** \brief Remove all elements
 		 *
 		 * Drops every stored element but retains the allocated capacity, so a reserved buffer
@@ -230,22 +245,6 @@ namespace BayesicSpace {
 		 * \param[in] locusNameFile name of the file with locus names (empty by default)
 		 */
 		void save(const std::string &outFileName, const size_t &nThreads, const std::string &locusNameFile = "") const;
-		/** \brief Save to file with caller-provided string buffers
-		 *
-		 * Streams the matrix to file, appending if it already exists. Stringification is spread across
-		 * `reusableBuffers.size()` threads, each writing into its own buffer; the buffers are reused
-		 * (cleared, capacity retained) across output chunks. The matrix is processed in chunks small
-		 * enough that the combined stringified output of a chunk stays within `maxStringBytes`, so no
-		 * RAM re-measurement is needed and a caller that reserved the buffers to `maxStringBytes /
-		 * reusableBuffers.size()` each never reallocates.
-		 *
-		 * \param[in] outFileName output file name
-		 * \param[in] locusNameFile name of the file with locus names (empty to emit base-1 indexes)
-		 * \param[in,out] reusableBuffers per-thread string scratch buffers (one per save thread)
-		 * \param[in] maxStringBytes combined byte budget for the string scratch
-		 */
-		void save(const std::string &outFileName, const std::string &locusNameFile,
-				std::vector<std::string> &reusableBuffers, const size_t &maxStringBytes) const;
 	private:
 		/** \brief Vectorized data representation 
 		 *
@@ -254,6 +253,13 @@ namespace BayesicSpace {
 		 * The rest encode the vectorized index of the element.
 		 */
 		std::vector<uint64_t> matrix_;
+		/** \brief Per-thread string scratch buffers for saving to file (reused across chunks)
+		 *
+		 * Scratch state for the logically-const `save()`, hence `mutable`.
+		 */
+		mutable std::vector<std::string> saveBuffers_;
+		/** \brief Combined byte budget for the save string buffers (0 until `reserve()` is called) */
+		size_t saveBufferBudget_{0};
 
 		// static members
 		/** \brief Floating point look-up table
@@ -324,16 +330,14 @@ namespace BayesicSpace {
 		SimilarityMatrixSink() = delete;
 		/** \brief Constructor
 		 *
-		 * Reserves capacity for `maxElements` matrix elements immediately. Each block passed to
-		 * `add()` must contain no more than `maxElements` elements so the reserved buffer is never
-		 * exceeded.
+		 * Reserves capacity for `saveLimits.ceiling` matrix elements immediately. Each block passed to
+		 * `add()` must contain no more than that many elements so the reserved buffer is never exceeded.
 		 *
 		 * \param[in] fileNames output file name and (optional) locus-name input file name
-		 * \param[in] nThreads number of threads for saving
-		 * \param[in] maxElements element budget; also the reserved buffer capacity
+		 * \param[in] saveLimits number of save threads (`count`) and element budget (`ceiling`); the
+		 *            budget is also the reserved buffer capacity
 		 */
-		// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) nThreads and maxElements are distinct counts
-		SimilarityMatrixSink(const InOutFileNames &fileNames, size_t nThreads, size_t maxElements);
+		SimilarityMatrixSink(const InOutFileNames &fileNames, const WorkloadLimits &saveLimits);
 		/** \brief Copy constructor (deleted) */
 		SimilarityMatrixSink(const SimilarityMatrixSink &toCopy) = delete;
 		/** \brief Copy assignment operator (deleted) */
@@ -372,18 +376,20 @@ namespace BayesicSpace {
 		 */
 		[[nodiscard]] size_t bufferedElements() const noexcept { return buffer_.nElements(); };
 	private:
-		/** \brief Accumulation buffer (holds the matrix data, reserved to 3/4 of the memory budget) */
+		/** \brief Accumulation buffer
+		 *
+		 * Holds the matrix data (reserved to the 3/4 matrix share of the memory budget) and owns the
+		 * per-thread save string scratch (the remaining 1/4, sized inside `SimilarityMatrix::reserve`).
+		 */
 		SimilarityMatrix buffer_;
-		/** \brief Per-thread string scratch for saving (together reserved to 1/4 of the memory budget) */
-		std::vector<std::string> saveBuffers_;
 		/** \brief Output file name */
 		std::string outFileName_;
 		/** \brief Locus-name input file name (empty if unused) */
 		std::string locusNameFile_;
+		/** \brief Number of threads passed to the buffer's `save()` */
+		size_t nThreads_;
 		/** \brief Element budget and reserved matrix-buffer capacity (3/4 of the memory budget) */
 		size_t maxElements_;
-		/** \brief Combined byte budget and reserved capacity of the save string buffers (1/4 of the memory budget) */
-		size_t stringBudgetBytes_;
 		/** \brief De-duplicate and save the buffer, then clear it (capacity retained) */
 		void flush_();
 	};

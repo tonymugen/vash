@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2021 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Implementation of classes that take binary variant files and generate lossy summaries with hashing.
  *
@@ -56,19 +56,21 @@ using namespace BayesicSpace;
 namespace {
 	/** \brief Element budget for a streaming similarity-matrix sink
 	 *
-	 * Three quarters of half the currently-available RAM expressed in matrix elements: the sink splits
-	 * its reserved memory 3/4 matrix : 1/4 save-string scratch, and the other half of RAM is left for
-	 * the parallel block builders and other work. Never coarser than `nPairs / suggestNchunks`, so a
+	 * Three quarters of half the residual RAM budget (the memory left after the resident genotype
+	 * table, established at construction) expressed in matrix elements: the sink splits its reserved
+	 * memory 3/4 matrix : 1/4 save-string scratch, and the other half of the residual is left for the
+	 * parallel block builders and other work. Never coarser than `nPairs / suggestNchunks`, so a
 	 * `suggestNchunks` hint still forces at least that many flushes.
 	 *
 	 * \param[in] nPairs upper bound on the number of pairs to be processed
 	 * \param[in] suggestNchunks minimum number of chunks (flushes) to force
+	 * \param[in] workingRAMbytes residual RAM budget (bytes) available for the similarity computation
 	 * \return element budget (at least one)
 	 */
-	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) both counts, but callers pass named locals
-	size_t sinkElementBudget(const size_t &nPairs, const size_t &suggestNchunks) {
-		// 3/4 of (getAvailableRAM()/2) bytes, in elements: 3 * availRAM / (8 * elementSize)
-		const size_t autoBudget     = (3UL * getAvailableRAM()) / ( 8UL * SimilarityMatrix::elementSize() );
+	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) counts and a byte budget, but callers pass named locals
+	size_t sinkElementBudget(const size_t &nPairs, const size_t &suggestNchunks, const size_t &workingRAMbytes) {
+		// 3/4 of (workingRAMbytes/2) bytes, in elements: 3 * workingRAMbytes / (8 * elementSize)
+		const size_t autoBudget     = (3UL * workingRAMbytes) / ( 8UL * SimilarityMatrix::elementSize() );
 		const size_t clampedNchunks = std::max( suggestNchunks, static_cast<size_t>(1) );
 		const size_t forcedBudget   = (nPairs + clampedNchunks - 1UL) / clampedNchunks;      // ceil(nPairs / suggestNchunks)
 		return std::max( std::min(autoBudget, forcedBudget), static_cast<size_t>(1) );
@@ -83,9 +85,8 @@ constexpr uint8_t  GenoTableBin::bedGenoPerByte_ = 4;                // Number o
 constexpr uint8_t  GenoTableBin::llWordSize_     = 8;                // 64 bit word size in bytes
 
 // Constructors
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) maxLociPerChunk is an optional trailing seam; swap risk is low
-GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const size_t &maxLociPerChunk)
-															: nIndividuals_{nIndividuals}, nThreads_{nThreads} {
+GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams)
+															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, workingRAMbytes_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
@@ -133,12 +134,25 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 	testBedMagicBytes(magicBuf);
 	// Generate the binary genotype table while reading the .bed file
 	binLocusSize_ = (nIndividuals_ / byteSize_) + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
+	// Establish the memory budget before allocating the table (so the measurement includes the table).
+	// The resident table is subtracted from the budget; the remainder bounds the .bed read buffer here
+	// and the SimilarityMatrix work during LD. If the table alone does not fit, all-by-all similarity is
+	// impossible, so fail fast.
+	const size_t tableBytes = static_cast<size_t>(nLoci_) * binLocusSize_;
+	const size_t ramBudget  = memParams.maxRAMbytes > 0 ? memParams.maxRAMbytes : (3UL * getAvailableRAM()) / 4UL;
+	if (ramBudget <= tableBytes) {
+		logMessages_.add("ERROR: the genotype table (" + std::to_string(tableBytes) + " bytes) does not fit the memory budget (" + std::to_string(ramBudget) + " bytes); aborting");
+		throw std::string("ERROR: the genotype table does not fit within the memory budget; raise the limit or reduce the data, in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	workingRAMbytes_ = ramBudget - tableBytes;
+	logMessages_.add("Memory budget: "     + std::to_string(ramBudget)        + " bytes");
+	logMessages_.add("Genotype table: "     + std::to_string(tableBytes)       + " bytes");
+	logMessages_.add("RAM for reading/similarity: " + std::to_string(workingRAMbytes_) + " bytes");
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 	BedDataStats locusGroupAttributes{};
-	const size_t ramSize                = getAvailableRAM() / 2UL;                                                 // measuring here, after all the major allocations; use half to leave resources for other operations
-	locusGroupAttributes.nLociToRead    = std::min( ramSize / nBedBytesPerLocus, static_cast<size_t>(nLoci_) );    // number of .bed loci to read at a time
-	if (maxLociPerChunk > 0) {                                                                                     // optional cap (bounds memory; lets tests force multi-chunk reads)
-		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, maxLociPerChunk);
+	locusGroupAttributes.nLociToRead    = std::max( std::min( workingRAMbytes_ / nBedBytesPerLocus, static_cast<size_t>(nLoci_) ), 1UL );   // number of .bed loci to read at a time
+	if (memParams.maxLociPerChunk > 0) {                                                                          // optional cap (bounds memory; lets tests force multi-chunk reads)
+		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, memParams.maxLociPerChunk);
 	}
 	locusGroupAttributes.nMemChunks     = nLoci_ / locusGroupAttributes.nLociToRead;
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
@@ -147,7 +161,6 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 													static_cast<size_t>( std::numeric_limits<std::streamsize>::max() ) );
 	locusGroupAttributes.nLociPerThread = std::max(locusGroupAttributes.nLociToRead / nThreads_, 1UL);
 	locusGroupAttributes.nBytesPerLocus = (nIndividuals_ / bedGenoPerByte_) + static_cast<size_t>(nIndividuals_ % bedGenoPerByte_ > 0);
-	logMessages_.add("RAM available for reading the .bed file: " + std::to_string(ramSize) + " bytes");
 	logMessages_.add(".bed file will be read in " + std::to_string(locusGroupAttributes.nMemChunks) + " chunk(s)");
 	assert( ( remainingBytes < std::numeric_limits<std::streamsize>::max() ) //NOLINT
 			&& "ERROR: remainingBytes larger than maximum streamsize in GenoTableBin constructor");
@@ -167,8 +180,8 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 	logMessages_.add("Genotype binarization completed");
 }
 
-GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads)
-							: nIndividuals_{nIndividuals}, nLoci_{static_cast<uint32_t>( maCounts.size() / static_cast<size_t>(nIndividuals) )}, nThreads_{nThreads} {
+GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams)
+							: nIndividuals_{nIndividuals}, nLoci_{static_cast<uint32_t>( maCounts.size() / static_cast<size_t>(nIndividuals) )}, nThreads_{nThreads}, workingRAMbytes_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
@@ -201,6 +214,16 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	logMessages_.add( "Number of threads: "     + std::to_string(nThreads_) );
 
 	binLocusSize_ = (nIndividuals_ / byteSize_) + static_cast<size_t>( (nIndividuals_ % byteSize_) > 0 );
+	// Enforce the memory budget: the resident table must fit within it, leaving room for the
+	// SimilarityMatrix work. The count vector is caller-owned and not counted here.
+	const size_t tableBytes = static_cast<size_t>(nLoci_) * binLocusSize_;
+	const size_t ramBudget  = memParams.maxRAMbytes > 0 ? memParams.maxRAMbytes : (3UL * getAvailableRAM()) / 4UL;
+	if (ramBudget <= tableBytes) {
+		logMessages_.add("ERROR: the genotype table (" + std::to_string(tableBytes) + " bytes) does not fit the memory budget (" + std::to_string(ramBudget) + " bytes); aborting");
+		throw std::string("ERROR: the genotype table does not fit within the memory budget; raise the limit or reduce the data, in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	workingRAMbytes_ = ramBudget - tableBytes;
+	logMessages_.add("Memory budget: " + std::to_string(ramBudget) + " bytes; genotype table: " + std::to_string(tableBytes) + " bytes; RAM for similarity: " + std::to_string(workingRAMbytes_) + " bytes");
 	binGenotypes_.resize(nLoci_ * binLocusSize_, 0);
 
 	// Each locus binarizes into a disjoint slice of binGenotypes_, so the loop is
@@ -255,7 +278,7 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 	}
 
 	const size_t nPairs      = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
-	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks);
+	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks, workingRAMbytes_);
 
 	logMessages_.add("Maximum number of locus pairs held in RAM: " + std::to_string(maxElements));
 
@@ -265,7 +288,7 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
+	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
 	size_t cumChunkIdx{0};
 	uint32_t base1chunkIdx{1};
 	while (cumChunkIdx < nPairs) {
@@ -279,7 +302,7 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 
 		SimilarityMatrix block{
 			parallelBuild(
-				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
+				WorkloadLimits{threadRanges.size(), nThreads_},
 				[this, &threadRanges](size_t blockIdx) {
 					return jaccardBlock_(threadRanges[blockIdx]);
 				}
@@ -380,11 +403,21 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 			}
 			++iRow;
 		}
+		for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) { // last, possibly incomplete, row (starts at column 0)
+			RowColIdx localRC{};
+			localRC.iRow = iRow;
+			localRC.jCol = jColRem;
+			JaccardPair localJP{makeJaccardPair_(localRC)};
+			result.insert(localRC, localJP);
+		}
+		return result;
 	}
-	for (uint32_t jColRem = 0; jColRem < blockRange.second.jCol; ++jColRem) { // last, possibly incomplete, row
+	// Range confined to a single row: process only [first.jCol, second.jCol); starting at column 0 here
+	// would re-emit pairs owned by earlier ranges and duplicate them across sink flushes.
+	for (uint32_t jCol = blockRange.first.jCol; jCol < blockRange.second.jCol; ++jCol) {
 		RowColIdx localRC{};
 		localRC.iRow = iRow;
-		localRC.jCol = jColRem;
+		localRC.jCol = jCol;
 		JaccardPair localJP{makeJaccardPair_(localRC)};
 		result.insert(localRC, localJP);
 	}
@@ -419,10 +452,11 @@ constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                         
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const size_t &maxLociPerChunk) :
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams) :
 					kSketches_{indivSketchCounts.kSketches},
 					nLoci_{0},
 					nThreads_{nThreads},
+					workingRAMbytes_{0},
 					emptyBinIdxSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
@@ -485,6 +519,19 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	emptyBinIdxSeed_ = prng.ranInt();
 	locusSize_       = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
 	nFullWordBytes_  = (nIndividuals_ - 1) / byteSize_;
+	// Establish the memory budget before allocating the sketch table (so the measurement includes it).
+	// The resident table is subtracted; the remainder bounds the .bed read buffer here and the
+	// SimilarityMatrix work during LD. If the table alone does not fit, fail fast.
+	const size_t tableBytes = static_cast<size_t>(kSketches_) * nLoci_ * sizeof(uint16_t);
+	const size_t ramBudget  = memParams.maxRAMbytes > 0 ? memParams.maxRAMbytes : (3UL * getAvailableRAM()) / 4UL;
+	if (ramBudget <= tableBytes) {
+		logMessages_.add("ERROR: the genotype table (" + std::to_string(tableBytes) + " bytes) does not fit the memory budget (" + std::to_string(ramBudget) + " bytes); aborting");
+		throw std::string("ERROR: the genotype table does not fit within the memory budget; raise the limit or reduce the data, in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	workingRAMbytes_ = ramBudget - tableBytes;
+	logMessages_.add("Memory budget: "     + std::to_string(ramBudget)        + " bytes");
+	logMessages_.add("Genotype table: "     + std::to_string(tableBytes)       + " bytes");
+	logMessages_.add("RAM for reading/similarity: " + std::to_string(workingRAMbytes_) + " bytes");
 	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
 	inStream.open(inputFileName, std::ios::in | std::ios::binary);
 	std::array<char, nMagicBytes_> magicBuf{0};
@@ -493,10 +540,9 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	// Generate the binary genotype table while reading the .bed file
 	BedDataStats locusGroupAttributes{};
 	locusGroupAttributes.nBytesPerLocus = (indivSketchCounts.nIndividuals / bedGenoPerByte_) + static_cast<size_t>(indivSketchCounts.nIndividuals % bedGenoPerByte_ > 0);
-	const size_t ramSize                = getAvailableRAM() / 2UL;                                    // measuring here, after all the major allocations; use half to leave resources for other operations
-	locusGroupAttributes.nLociToRead    = std::min( ramSize / locusGroupAttributes.nBytesPerLocus, static_cast<size_t>(nLoci_) );       // number of .bed loci to read at a time
-	if (maxLociPerChunk > 0) {                                                                                                          // optional cap (bounds memory; lets tests force multi-chunk reads)
-		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, maxLociPerChunk);
+	locusGroupAttributes.nLociToRead    = std::max( std::min( workingRAMbytes_ / locusGroupAttributes.nBytesPerLocus, static_cast<size_t>(nLoci_) ), 1UL );   // number of .bed loci to read at a time
+	if (memParams.maxLociPerChunk > 0) {                                                                                                          // optional cap (bounds memory; lets tests force multi-chunk reads)
+		locusGroupAttributes.nLociToRead = std::min(locusGroupAttributes.nLociToRead, memParams.maxLociPerChunk);
 	}
 	const size_t remainingLoci          = nLoci_ % locusGroupAttributes.nLociToRead;
 	const size_t remainingBytes         = remainingLoci * locusGroupAttributes.nBytesPerLocus;
@@ -505,8 +551,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 													static_cast<size_t>( std::numeric_limits<std::streamsize>::max() ) );
 	locusGroupAttributes.nLociPerThread = locusGroupAttributes.nLociToRead / nThreads_;
 
-	logMessages_.add("RAM available for reading the .bed file: " + std::to_string(ramSize)                         + " bytes");
-	logMessages_.add(".bed file will be read in "                + std::to_string(locusGroupAttributes.nMemChunks) + " chunk(s)");
+	logMessages_.add(".bed file will be read in " + std::to_string(locusGroupAttributes.nMemChunks) + " chunk(s)");
 
 	// Sample with replacement additional individuals to pad out the total
 	std::vector< std::pair<size_t, size_t> > addIndv;
@@ -536,11 +581,12 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	logMessages_.add("Genotype hashing completed");
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName) :
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams) :
 								nIndividuals_{indivSketchCounts.nIndividuals},
 								kSketches_{indivSketchCounts.kSketches},
 								nLoci_{static_cast<uint32_t>(maCounts.size() / indivSketchCounts.nIndividuals)},
 								nThreads_{nThreads},
+								workingRAMbytes_{0},
 								emptyBinIdxSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
@@ -600,6 +646,16 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 	}
 	locusSize_      = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;   // round up to the nearest multiple of 8
 	nFullWordBytes_ = (nIndividuals_ - 1) / byteSize_;
+	// Enforce the memory budget: the resident sketch table must fit within it, leaving room for the
+	// SimilarityMatrix work. The count vector is caller-owned and not counted here.
+	const size_t tableBytes = static_cast<size_t>(kSketches_) * nLoci_ * sizeof(uint16_t);
+	const size_t ramBudget  = memParams.maxRAMbytes > 0 ? memParams.maxRAMbytes : (3UL * getAvailableRAM()) / 4UL;
+	if (ramBudget <= tableBytes) {
+		logMessages_.add("ERROR: the genotype table (" + std::to_string(tableBytes) + " bytes) does not fit the memory budget (" + std::to_string(ramBudget) + " bytes); aborting");
+		throw std::string("ERROR: the genotype table does not fit within the memory budget; raise the limit or reduce the data, in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
+	}
+	workingRAMbytes_ = ramBudget - tableBytes;
+	logMessages_.add("Memory budget: " + std::to_string(ramBudget) + " bytes; genotype table: " + std::to_string(tableBytes) + " bytes; RAM for similarity: " + std::to_string(workingRAMbytes_) + " bytes");
 	sketches_.resize(static_cast<size_t>(kSketches_) * nLoci_, emptyBinToken_);
 	// generate the sequence of random integers; each column must be permuted the same
 	std::vector<size_t> ranInts{prng.fyIndexesUp(nIndividuals_)};
@@ -639,7 +695,7 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	std::iota(allLocusIndexes.begin(), allLocusIndexes.end(), 0);
 
 	const size_t nPairs      = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
-	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks);
+	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks, workingRAMbytes_);
 
 	logMessages_.add("Calculating all pairwise LD");
 	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
@@ -649,7 +705,7 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
+	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
 	size_t cumChunkIdx{0};
 	while (cumChunkIdx < nPairs) {
 		const size_t batchSize = std::min(maxElements, nPairs - cumChunkIdx);
@@ -662,7 +718,7 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 		std::vector< std::pair<RowColIdx, RowColIdx> > threadRanges{makeChunkRanges(currStartAndSize, nThreads_)};
 		SimilarityMatrix block{
 			parallelBuild(
-				BlockMaxThreadCounts{threadRanges.size(), nThreads_},
+				WorkloadLimits{threadRanges.size(), nThreads_},
 				[this, &threadRanges, &allLocusIndexes, &similarityCutOff](size_t blockIdx) {
 					return hashJacBlock_(threadRanges[blockIdx], allLocusIndexes, similarityCutOff);
 				}
@@ -827,7 +883,7 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	logMessages_.add("Estimating LD in groups");
 	logMessages_.add( "number of pairs in the hash table: " + std::to_string(totalPairNumber) );
 
-	const size_t maxElements = sinkElementBudget(totalPairNumber, suggestNchunks);
+	const size_t maxElements = sinkElementBudget(totalPairNumber, suggestNchunks, workingRAMbytes_);
 	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
 
 	std::fstream output;
@@ -835,7 +891,7 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, nThreads_, maxElements);
+	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
 	BayesicSpace::HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
@@ -861,7 +917,7 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 		}
 		SimilarityMatrix block{
 			parallelBuild(
-				BlockMaxThreadCounts{groupRanges.size(), nThreads_},
+				WorkloadLimits{groupRanges.size(), nThreads_},
 				[this, &groupRanges, &sparsityValues](size_t blockIdx) {
 					return hashJacBlock_(groupRanges[blockIdx], sparsityValues.similarityCutOff);
 				}

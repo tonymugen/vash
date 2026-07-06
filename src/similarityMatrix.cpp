@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.2
+ * \version 0.3
  *
  * Method implementation for a compact representation of a (possibly sparse) similarity matrix.
  *
@@ -73,7 +73,7 @@ RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	return result;
 }
 
-SimilarityMatrix BayesicSpace::parallelBuild(const BlockMaxThreadCounts &nBlocksThreads, const std::function<SimilarityMatrix(size_t)> &blockToMatrix) {
+SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, const std::function<SimilarityMatrix(size_t)> &blockToMatrix) {
 	/*
 	 * Each block is produced into its own private shard, so the `blockToMatrix` callable never
 	 * touches shared state: thread safety is a property of this orchestration rather than of
@@ -81,21 +81,21 @@ SimilarityMatrix BayesicSpace::parallelBuild(const BlockMaxThreadCounts &nBlocks
 	 * behavior of a single-threaded build. The shards are merged in block-index order once all of
 	 * them are ready, which is cheap when the block index ranges are disjoint and ascending (the usual case).
 	 *
-	 * The blocks are computed under a `ThreadCeiling`, so concurrency is capped at `maxThreads`
+	 * The blocks are computed under a `ThreadCeiling`, so concurrency is capped at `ceiling`
 	 * (a no-op without a TBB backend, where the work runs serially). `blockToMatrix` is invoked once
-	 * per block index in `[0, nBlocks)`, must be safe to call concurrently on distinct indexes, and
+	 * per block index in `[0, count)`, must be safe to call concurrently on distinct indexes, and
 	 * must return the `SimilarityMatrix` for the block index it is given.
 	 */
-	if (nBlocksThreads.nBlocks == 0) {
+	if (blockCounts.count == 0) {
 		return SimilarityMatrix{};
 	}
 	// Each block lands in its own shard, so the parallel writes target disjoint slots and
 	// blockToMatrix needs no synchronization of its own.
-	std::vector<size_t> blockIndexes(nBlocksThreads.nBlocks);
+	std::vector<size_t> blockIndexes(blockCounts.count);
 	std::iota(blockIndexes.begin(), blockIndexes.end(), static_cast<size_t>(0));
-	std::vector<SimilarityMatrix> shards(nBlocksThreads.nBlocks);
+	std::vector<SimilarityMatrix> shards(blockCounts.count);
 	{
-		const ThreadCeiling threadCeiling(nBlocksThreads.maxThreads);
+		const ThreadCeiling threadCeiling(blockCounts.ceiling);
 		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 	}
 	// Consolidate by appending every shard and sorting once, rather than folding them with
@@ -175,6 +175,15 @@ constexpr uint64_t SimilarityMatrix::valueMask_{0x00000000000000FF};
 constexpr uint64_t SimilarityMatrix::valueSize_{8};
 constexpr uint64_t SimilarityMatrix::maxValueIdx_{0x00000000000000FF};
 
+void SimilarityMatrix::reserve(const size_t &nElements) {
+	// nElements is the 3/4 (matrix) share of the memory split. The save string scratch is the
+	// remaining 1/4: since matrix bytes = nElements * elementSize is three parts, one part is
+	// nElements * elementSize / 3 bytes (string element size is 1, so bytes == char count).
+	constexpr size_t stringShareDenominator{3};
+	saveBufferBudget_ = (nElements * this->elementSize()) / stringShareDenominator;
+	matrix_.reserve(nElements);
+}
+
 void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &jaccardCounts) {
 	if (rowColPair.iRow == rowColPair.jCol) {
 		throw std::string("ERROR: row and column indexes must be different in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -253,19 +262,13 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	if ( matrix_.empty() ) {
 		return;
 	}
-	// Self-managed variant: allocate per-thread scratch and budget it from currently-available RAM
-	// (~half, as before), then defer to the reusable-buffer overload.
-	std::vector<std::string> reusableBuffers( std::max( nThreads, static_cast<size_t>(1) ) );
-	const size_t maxStringBytes{ getAvailableRAM() / 2UL };
-	save(outFileName, locusNameFile, reusableBuffers, maxStringBytes);
-}
-
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) file names, distinguished by the empty-vs-set locus name convention
-void SimilarityMatrix::save(const std::string &outFileName, const std::string &locusNameFile,
-							std::vector<std::string> &reusableBuffers, const size_t &maxStringBytes) const {
-	if ( matrix_.empty() || reusableBuffers.empty() ) {
-		return;
-	}
+	// The per-thread string scratch lives on the object and is cleared+reused by stringify_(), so
+	// re-saving never reallocates it. Its byte budget comes from reserve() when set (the sink path);
+	// standalone callers have no budget, so fall back to ~half of currently-available RAM.
+	const size_t actualThreadCount{std::max( nThreads, static_cast<size_t>(1) )};
+	const ThreadCeiling threadCeiling(actualThreadCount);
+	saveBuffers_.resize(actualThreadCount);
+	const size_t stringBudget{ saveBufferBudget_ > 0 ? saveBufferBudget_ : getAvailableRAM() / 2UL };
 	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
 	// six characters. The last (largest-index) element gives the widest base-1 index; with locus
 	// names, the longest name bounds a field. Chunk sizes are derived from this so a chunk's
@@ -280,6 +283,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const std::string &l
 			throw std::string("ERROR: number of rows exceeds locus name count in the ") + locusNameFile + std::string(" file in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 		}
 		widestField = std::max_element(
+			parallelPolicy,
 			locusNames.cbegin(),
 			locusNames.cend(),
 			[](const std::string &lhs, const std::string &rhs) { return lhs.size() < rhs.size(); }
@@ -291,22 +295,20 @@ void SimilarityMatrix::save(const std::string &outFileName, const std::string &l
 	// Give each thread its own share of the byte budget, and size chunks so every thread stringifies
 	// at most perBufferEntries entries into its buffer: worst-case that is perBufferBytes, so a buffer
 	// reserved to perBufferBytes never reallocates.
-	const size_t nBuffers{ reusableBuffers.size() };
-	const size_t perBufferBytes{ std::max( maxStringBytes / nBuffers, worstLine ) };
+	const size_t perBufferBytes{ std::max( stringBudget / saveBuffers_.size(), worstLine ) };
 	const size_t perBufferEntries{ std::max( perBufferBytes / worstLine, static_cast<size_t>(1) ) };
-	const size_t chunkElements{ perBufferEntries * nBuffers };
-	for (auto &eachBuffer : reusableBuffers) {
+	const size_t chunkElements{perBufferEntries * saveBuffers_.size()};
+	for (auto &eachBuffer : saveBuffers_) {
 		eachBuffer.reserve(perBufferBytes);                        // idempotent if the caller pre-reserved
 	}
 
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
 	// Cap concurrency to the buffer (thread) count for the stringify below.
-	const ThreadCeiling threadCeiling(nBuffers);
 	size_t chunkStart{0};
 	while (chunkStart < matrix_.size()) {
 		const size_t thisChunk{ std::min(chunkElements, matrix_.size() - chunkStart) };
-		const size_t usedBuffers{ std::min(thisChunk, nBuffers) };
+		const size_t usedBuffers{ std::min( thisChunk, saveBuffers_.size() ) };
 		// NOLINTNEXTLINE(readability-suspicious-call-argument) thisChunk is the element count, usedBuffers the chunk count
 		const std::vector<size_t> sliceSizes{ makeChunkSizes(thisChunk, usedBuffers) };
 		std::vector< std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> > sliceRanges;
@@ -326,12 +328,12 @@ void SimilarityMatrix::save(const std::string &outFileName, const std::string &l
 			parallelPolicy,
 			bufferIndexes.cbegin(),
 			bufferIndexes.cend(),
-			[&sliceRanges, &locusNames, &reusableBuffers](const size_t &iBuffer) {
-				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, reusableBuffers[iBuffer]);
+			[this, &sliceRanges, &locusNames](const size_t &iBuffer) {
+				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, saveBuffers_[iBuffer]);
 			}
 		);
 		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
-			outStream.write( reusableBuffers[iBuffer].c_str(), static_cast<std::streamsize>( reusableBuffers[iBuffer].size() ) );
+			outStream.write( saveBuffers_[iBuffer].c_str(), static_cast<std::streamsize>( saveBuffers_[iBuffer].size() ) );
 		}
 		chunkStart += thisChunk;
 	}
@@ -385,21 +387,15 @@ void SimilarityMatrix::insert_(const FullIdxValue &indexWithSimilarity) {
 	}
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) nThreads and maxElements are distinct counts
-SimilarityMatrixSink::SimilarityMatrixSink(const InOutFileNames &fileNames, size_t nThreads, size_t maxElements) :
-			saveBuffers_( std::max( nThreads, static_cast<size_t>(1) ) ),
+SimilarityMatrixSink::SimilarityMatrixSink(const InOutFileNames &fileNames, const WorkloadLimits &saveLimits) :
 			outFileName_{fileNames.outputFileName}, locusNameFile_{fileNames.inputFileName},
-			maxElements_{maxElements},
-			stringBudgetBytes_{ (maxElements * SimilarityMatrix::elementSize()) / 3UL } {
-	// Split the reserved memory 3/4 matrix : 1/4 string scratch and claim both now, while memory is
-	// still available. maxElements_ is already the 3/4 share (see sinkElementBudget), so its bytes
-	// divided by three is the remaining 1/4 for the string scratch. Reserving up front means neither
-	// the matrix buffer nor the string buffers reallocate later; clear() retains capacity across flushes.
+			nThreads_{ std::max( saveLimits.count, static_cast<size_t>(1) ) },
+			maxElements_{saveLimits.ceiling} {
+	// Reserve the matrix budget up front, while memory is still available. maxElements_ is the 3/4
+	// share (see sinkElementBudget); reserve() also sets the buffer's derived 1/4 string-scratch
+	// budget, which its save() claims on the first flush and reuses thereafter. clear() retains
+	// capacity across flushes, so nothing reallocates during the run.
 	buffer_.reserve(maxElements_);
-	const size_t perBufferBytes{ std::max( stringBudgetBytes_ / saveBuffers_.size(), static_cast<size_t>(1) ) };
-	for (auto &eachBuffer : saveBuffers_) {
-		eachBuffer.reserve(perBufferBytes);
-	}
 }
 
 void SimilarityMatrixSink::add(SimilarityMatrix &block) {
@@ -420,6 +416,6 @@ void SimilarityMatrixSink::finalize() {
 
 void SimilarityMatrixSink::flush_() {
 	buffer_.sortAndDeduplicate();
-	buffer_.save(outFileName_, locusNameFile_, saveBuffers_, stringBudgetBytes_);   // no-op on an empty buffer
-	buffer_.clear();                                                                // retains reserved capacity
+	buffer_.save(outFileName_, nThreads_, locusNameFile_);   // no-op on an empty buffer
+	buffer_.clear();                                          // retains reserved capacity
 }

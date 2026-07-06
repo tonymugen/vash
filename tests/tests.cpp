@@ -12,6 +12,7 @@
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
+#include <set>
 #include <popcntintrin.h>
 
 #include "gvarHash.hpp"
@@ -1101,7 +1102,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		// a budget large enough to hold both blocks flushes only at finalize: file matches merge exactly
 		std::remove( sinkFileName.c_str() ); // NOLINT (save appends, so start clean)
 		{
-			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, 2 * nPerMatrix);
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, BayesicSpace::WorkloadLimits{nThreads, 2 * nPerMatrix});
 			BayesicSpace::SimilarityMatrix blockA{matrixA};
 			BayesicSpace::SimilarityMatrix blockB{matrixB};
 			sink.add(blockA);
@@ -1120,7 +1121,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		// file holds every pair (each flush is internally sorted, so the file is a set-equal permutation)
 		std::remove( sinkFileName.c_str() ); // NOLINT
 		{
-			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, nPerMatrix);
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, BayesicSpace::WorkloadLimits{nThreads, nPerMatrix});
 			BayesicSpace::SimilarityMatrix blockA{matrixA};
 			BayesicSpace::SimilarityMatrix blockB{matrixB};
 			sink.add(blockA);
@@ -1139,7 +1140,7 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		// duplicate indexes within a single buffer collapse on flush
 		std::remove( sinkFileName.c_str() ); // NOLINT
 		{
-			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, nThreads, 2 * nPerMatrix);
+			BayesicSpace::SimilarityMatrixSink sink(BayesicSpace::InOutFileNames{std::string(), sinkFileName}, BayesicSpace::WorkloadLimits{nThreads, 2 * nPerMatrix});
 			BayesicSpace::SimilarityMatrix blockA{matrixA};
 			BayesicSpace::SimilarityMatrix duplicateA{matrixA};
 			sink.add(blockA);
@@ -1196,12 +1197,11 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		const std::vector<std::string> referenceLines{readMatrixFile(refFileName)};
 		std::remove( refFileName.c_str() ); // NOLINT
 
-		// a tiny byte budget forces the buffered overload to write in many small chunks, reusing
-		// the two buffers; the output must be byte-for-byte identical to the single-pass reference
+		// a tiny reserved string budget forces save() to write in many small chunks, reusing the
+		// buffers; the output must be byte-for-byte identical to the single-pass reference
 		std::remove( bufFileName.c_str() ); // NOLINT
-		std::vector<std::string> reusableBuffers(nThreads);
-		constexpr size_t tinyBudget{20};    // fits roughly one line per buffer, so ~two elements per chunk
-		matrix.save(bufFileName, std::string(), reusableBuffers, tinyBudget);
+		matrix.reserve(1);                  // string budget rounds down to a few bytes, ~one line per buffer
+		matrix.save(bufFileName, nThreads);
 		const std::vector<std::string> bufferedLines{readMatrixFile(bufFileName)};
 		std::remove( bufFileName.c_str() ); // NOLINT
 
@@ -1228,6 +1228,8 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: no genotype records in file") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(wrongMagicBytes, nIndividuals, logFileName, nThreads),
 				Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{1}),
+				Catch::Matchers::StartsWith("ERROR: the genotype table does not fit within the memory budget") );
 		const std::vector<int> smallMACvec(13, 0);
 		const std::vector<int> emptyMACvec{};
 		constexpr size_t undivNind{5};
@@ -1402,7 +1404,7 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		writeHetFreeBed(chunkBedName, chunkNind, chunkNloci, false);
 
 		BayesicSpace::GenoTableBin singleChunk(chunkBedName, chunkNind, logFileName, nThreads);
-		BayesicSpace::GenoTableBin multiChunk(chunkBedName, chunkNind, logFileName, nThreads, maxLociPerChunk);
+		BayesicSpace::GenoTableBin multiChunk(chunkBedName, chunkNind, logFileName, nThreads, BayesicSpace::MemoryParameters{0, maxLociPerChunk});
 		const std::string singleFile("../tests/tmpSingleChunk.bin");
 		const std::string multiFile("../tests/tmpMultiChunk.bin");
 		singleChunk.saveGenoBinary(singleFile);
@@ -1421,6 +1423,37 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		const size_t binLocusSize{(static_cast<size_t>(chunkNind) / 8) + static_cast<size_t>( (chunkNind % 8) > 0 )};
 		REQUIRE( singleBytes.size() == chunkNloci * binLocusSize );
 		REQUIRE( singleBytes == multiBytes );
+	}
+	SECTION("allJaccardLD emits every pair exactly once under a tight budget") {
+		// A small RAM budget forces many small sink flushes; combined with several threads this drives
+		// jaccardBlock_ ranges that lie within a single row. Each unordered pair must still appear
+		// exactly once in the output (no duplicates across flush boundaries, none dropped).
+		constexpr uint32_t nLoci{397};                                   // ../tests/ind197_397.bed
+		constexpr size_t expectedPairs{ static_cast<size_t>(nLoci) * (nLoci - 1) / 2 };
+		constexpr size_t tightBudget{12000};                            // just above the ~9925-byte table -> tiny residual
+		BayesicSpace::GenoTableBin tightGTB(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{tightBudget});
+		const std::string ldFileName("../tests/tmpTightLD.tsv");
+		BayesicSpace::InOutFileNames outAndBim{};
+		outAndBim.outputFileName = ldFileName;
+		tightGTB.allJaccardLD(outAndBim);
+
+		std::fstream ldIn(ldFileName, std::ios::in);
+		std::string ldLine;
+		std::getline(ldIn, ldLine);                                     // header
+		size_t totalLines{0};
+		std::set< std::pair<uint32_t, uint32_t> > uniquePairs;
+		while ( std::getline(ldIn, ldLine) ) {
+			std::stringstream lineStream(ldLine);
+			uint32_t row{0};
+			uint32_t col{0};
+			lineStream >> row >> col;
+			uniquePairs.emplace(row, col);
+			++totalLines;
+		}
+		ldIn.close();
+		std::remove( ldFileName.c_str() ); // NOLINT
+		REQUIRE( totalLines == expectedPairs );          // no duplicated lines
+		REQUIRE( uniquePairs.size() == expectedPairs );  // and every pair present
 	}
 }
 
@@ -1466,6 +1499,8 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 				Catch::Matchers::StartsWith("ERROR: no genotype records in file") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(wrongMagicBytes, sketchParameters, nThreads, logFileName),
 				Catch::Matchers::StartsWith("ERROR: first magic byte in input .bed file") );
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{1}),
+				Catch::Matchers::StartsWith("ERROR: the genotype table does not fit within the memory budget") );
 		const std::vector<int> smallMACvec(13, 0);
 		const std::vector<int> emptyMACvec{};
 		constexpr size_t undivNind{5};
@@ -1903,7 +1938,7 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		writeHetFreeBed(chunkBedName, chunkNind, chunkNloci, true);   // every locus identical
 		constexpr BayesicSpace::IndividualAndSketchCounts chunkParams{chunkNind, chunkSketches};
 
-		BayesicSpace::GenoTableHash multiChunkHash(chunkBedName, chunkParams, nThreads, logFileName, maxLociPerChunk);
+		BayesicSpace::GenoTableHash multiChunkHash(chunkBedName, chunkParams, nThreads, logFileName, BayesicSpace::MemoryParameters{0, maxLociPerChunk});
 		const std::string tmpJacFile("../tests/tmpChunkedHashJac.tsv");
 		BayesicSpace::InOutFileNames outNames{};
 		outNames.outputFileName = tmpJacFile;

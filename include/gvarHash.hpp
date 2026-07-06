@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2021 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Definitions and interface documentation for classes that take binary variant files and generate lossy summaries with hashing.
  *
@@ -43,6 +43,7 @@ namespace BayesicSpace {
 	struct LocationWithLength;
 	struct CountAndSize;
 	struct IndividualAndSketchCounts;
+	struct MemoryParameters;
 	struct BedDataStats;
 	struct SparsityParameters;
 	struct HashGroup;
@@ -81,6 +82,19 @@ namespace BayesicSpace {
 		uint32_t nIndividuals;
 		/** \brief Number of sketches */
 		uint16_t kSketches;
+	};
+
+	/** \brief Memory-use parameters
+	 *
+	 * Caps on the RAM a `GenoTableBin`/`GenoTableHash` operation may use. The resident genotype table
+	 * is counted against `maxRAMbytes`; the remainder bounds the _.bed_ read buffer and the
+	 * `SimilarityMatrix` work.
+	 */
+	struct MemoryParameters {
+		/** \brief Total memory budget in bytes; 0 means auto (three quarters of available RAM, table included) */
+		size_t maxRAMbytes{0};
+		/** \brief Cap on the number of _.bed_ loci read per memory chunk; 0 means derive from the residual budget */
+		size_t maxLociPerChunk{0};
 	};
 
 	/** \brief Attributes of _.bed_ format loci
@@ -145,7 +159,7 @@ namespace BayesicSpace {
 	class GenoTableBin {
 	public:
 		/** \brief Default constructor */
-		GenoTableBin() : nIndividuals_{0}, nLoci_{0}, binLocusSize_{0}, nThreads_{1} {};
+		GenoTableBin() : nIndividuals_{0}, nLoci_{0}, binLocusSize_{0}, nThreads_{1}, workingRAMbytes_{0} {};
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -169,10 +183,9 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
-		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
+		 * \param[in] memParams memory-use caps (total RAM budget and _.bed_ chunk size; defaults mean auto)
 		 */
-		// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) maxLociPerChunk is an optional trailing seam; swap risk is low
-		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const size_t &maxLociPerChunk = 0);
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams = MemoryParameters{});
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -200,8 +213,9 @@ namespace BayesicSpace {
 		 * \param[in] nIndividuals number of genotyped individuals
 		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
+		 * \param[in] memParams memory-use caps (total RAM budget; the _.bed_ chunk cap is unused for count-vector input)
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads);
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams = MemoryParameters{});
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
@@ -254,6 +268,12 @@ namespace BayesicSpace {
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
+		/** \brief RAM budget remaining after the resident genotype table
+		 *
+		 * Total memory budget minus `binGenotypes_`; bounds the _.bed_ read buffer during construction
+		 * and the `SimilarityMatrix` work during LD calculations.
+		 */
+		size_t workingRAMbytes_;
 		/** \brief Leading bytes for _.bed_ files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
@@ -316,7 +336,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, emptyBinIdxSeed_{0} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, workingRAMbytes_{0}, emptyBinIdxSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -331,9 +351,9 @@ namespace BayesicSpace {
 		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
-		 * \param[in] maxLociPerChunk cap on the number of loci read per memory chunk (0 = derive from available RAM); used to bound memory and to exercise the chunked-reading path in tests
+		 * \param[in] memParams memory-use caps (total RAM budget and _.bed_ chunk size; defaults mean auto)
 		 */
-		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const size_t &maxLociPerChunk = 0);
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams = MemoryParameters{});
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -366,8 +386,9 @@ namespace BayesicSpace {
 		 * \param[in] indivSketchCounts number of individuals and sketches
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
+		 * \param[in] memParams memory-use caps (total RAM budget; the _.bed_ chunk cap is unused for count-vector input)
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName);
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams = MemoryParameters{});
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -474,7 +495,13 @@ namespace BayesicSpace {
 		size_t nFullWordBytes_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief Random index progression seed 
+		/** \brief RAM budget remaining after the resident genotype table
+		 *
+		 * Total memory budget minus `sketches_`; bounds the _.bed_ read buffer during construction
+		 * and the `SimilarityMatrix` work during LD calculations.
+		 */
+		size_t workingRAMbytes_;
+		/** \brief Random index progression seed
 		 *
 		 * Seeds the random index progression used to fill empty bins in OPH sketches.
 		 * The index set must be the same across loci (although not necessarily the same number is actually used).

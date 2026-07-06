@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Definitions of class-external functions needed by hashing classes.
  *

@@ -22,7 +22,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2022 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Uses the variant hashing library to build local LD blocks from _plink_ .bed files.
  *
@@ -34,6 +34,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <thread>
 
 #include "gvarHash.hpp"
 #include "vashFunctions.hpp"
@@ -41,26 +42,51 @@
 namespace BayesicSpace {
 	// app-internal helpers; the anonymous namespace gives them internal linkage
 	namespace {
+		/** \brief Memory parameters from the command line
+		 *
+		 * Converts the `--max-mem` flag (gigabytes) into a `MemoryParameters` byte budget; a
+		 * non-positive value means auto (three quarters of available RAM).
+		 *
+		 * \param[in] floatVariables float-valued input flag variables
+		 * \return memory-use parameters
+		 */
+		MemoryParameters memoryParamsFromCL(const std::unordered_map<std::string, float> &floatVariables) {
+			constexpr double bytesPerGB{1073741824.0};                       // 2^30
+			const auto maxMemGB{static_cast<double>( floatVariables.at("max-mem") )};
+			MemoryParameters memParams{};
+			memParams.maxRAMbytes = maxMemGB > 0.0 ? static_cast<size_t>(maxMemGB * bytesPerGB) : 0UL;
+			return memParams;
+		}
+		/** \brief Thread count from the command line
+		 *
+		 * A non-positive `--threads` value means auto (the hardware maximum, clamped by the constructors).
+		 *
+		 * \param[in] intVariables integer-valued input flag variables
+		 * \return maximal number of threads to use
+		 */
+		size_t threadCountFromCL(const std::unordered_map<std::string, int> &intVariables) {
+			return intVariables.at("threads") < 1
+				? static_cast<size_t>( std::thread::hardware_concurrency() )
+				: static_cast<size_t>( intVariables.at("threads") );
+		}
 		/** \brief Full Jaccard estimates
 		 *
 		 * Run the full Jaccard estimates after binary conversion.
 		 *
 		 * \param[in] stringVariables string-valued input flag variables
 		 * \param[in] intVariables integer-valued input flag variables
+		 * \param[in] floatVariables float-valued input flag variables
 		 * \param[in] bimFileName .bim file name
 		 *
 		 */
-		void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables, const std::string &bimFileName) {
+		void fullJaccard(const std::unordered_map<std::string, std::string> &stringVariables, const std::unordered_map<std::string, int> &intVariables,
+				const std::unordered_map<std::string, float> &floatVariables, const std::string &bimFileName) {
 			const auto nIndiv{static_cast<uint32_t>( intVariables.at("n-individuals") )};
 			BayesicSpace::GenoTableBin allJaccard;
 			try {
-				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") ); 
-				if (intVariables.at("threads") < 1) {
-					allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName);
-				} else {
-					const auto nThreads = static_cast<size_t>( intVariables.at("threads") );
-					allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName, nThreads);
-				}
+				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") );
+				allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName,
+														threadCountFromCL(intVariables), memoryParamsFromCL(floatVariables));
 				if (stringVariables.at("add-locus-names") == "set") {
 					InOutFileNames bimAndLD{};
 					bimAndLD.inputFileName  = bimFileName;
@@ -94,13 +120,9 @@ namespace BayesicSpace {
 			const float similarityCutOff = floatVariables.at("min-similarity");
 			BayesicSpace::GenoTableHash groupLD;
 			try {
-				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") ); 
-				if (intVariables.at("threads") < 1) {
-					groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches, logFileName);
-				} else {
-					const auto nThreads{static_cast<size_t>( intVariables.at("threads") )};
-					groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches, nThreads, logFileName);
-				}
+				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") );
+				groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches,
+														threadCountFromCL(intVariables), logFileName, memoryParamsFromCL(floatVariables));
 				if (intVariables.at("n-rows-per-band") == 0) {
 					if (stringVariables.at("add-locus-names") == "set") {
 						InOutFileNames bimAndLD{};
@@ -164,6 +186,7 @@ int main(int argc, char *argv[]) {
 		"  --hash-size        hash_size; must be smaller than the number of individuals.\n"
 		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 or omit to obtain precise Jaccard similarity estimates.\n"
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
+		"  --max-mem          memory_budget_in_gigabytes (caps total RAM use; 0, negative, or absent = auto, three quarters of available RAM).\n"
 		"  --min-similarity   minimal similarity value for pairs to be saved.\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"
@@ -183,7 +206,7 @@ int main(int argc, char *argv[]) {
 		std::string bimFileName(stringVariables.at("input-bed"), 0, dotPos);
 		bimFileName += ".bim";
 		if (intVariables.at("hash-size") == 0) {
-			BayesicSpace::fullJaccard(stringVariables, intVariables, bimFileName);
+			BayesicSpace::fullJaccard(stringVariables, intVariables, floatVariables, bimFileName);
 		} else {
 			BayesicSpace::hashJaccard(stringVariables, intVariables, floatVariables, bimFileName);
 		}

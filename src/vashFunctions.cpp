@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2023 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Implementation of class-external functions needed by hashing classes.
  *
@@ -515,10 +515,10 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 	const std::array<std::string, 4> optionalStringVariables{"log-file", "out-file", "only-groups", "add-locus-names"};
 	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
 	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
-	const std::array<std::string, 1> optionalFloatVariables{"min-similarity"};
+	const std::array<std::string, 2> optionalFloatVariables{"min-similarity", "max-mem"};
 
 	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
-	const std::unordered_map<std::string, float>       defaultFloatValues{ {"min-similarity", 0.0F} };
+	const std::unordered_map<std::string, float>       defaultFloatValues{ {"min-similarity", 0.0F}, {"max-mem", 0.0F} };
 	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
 																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };
 

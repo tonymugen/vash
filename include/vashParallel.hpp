@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2026 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Single point of control for the parallel STL backend. `VASH_HAVE_TBB` is
  * defined by CMake when `std::execution::par` is implemented with Intel [Threading Building Blocks (TBB)](https://www.intel.com/content/www/us/en/developer/tools/oneapi/onetbb.html),

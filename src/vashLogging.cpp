@@ -21,7 +21,7 @@
 /** \file
  * \author Anthony J. Greenberg
  * \copyright Copyright (c) 2026 Anthony J. Greenberg
- * \version 0.5
+ * \version 0.6
  *
  * Message logging class implementation.
  *
