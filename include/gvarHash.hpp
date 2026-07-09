@@ -88,7 +88,7 @@ namespace BayesicSpace {
 	 *
 	 * Caps on the RAM a `GenoTableBin`/`GenoTableHash` operation may use. The resident genotype table
 	 * is counted against `maxRAMbytes`; the remainder bounds the _.bed_ read buffer and the
-	 * `SimilarityMatrix` work.
+	 * `SimilarityMatrix` (LD among loci) size.
 	 */
 	struct MemoryParameters {
 		/** \brief Total memory budget in bytes; 0 means auto (three quarters of available RAM, table included) */
@@ -119,7 +119,7 @@ namespace BayesicSpace {
 	 *
 	 * The number of rows per band and similarity value cut-off control
 	 * sparsity of the similarity matrix. Greater values for either result
-	 * in fewer elements included in the matrix.
+	 * in fewer (and higher average similarity) elements included in the matrix.
 	 */
 	struct SparsityParameters{
 		/** \brief Number of rows in a band of a banded hash */
@@ -268,10 +268,10 @@ namespace BayesicSpace {
 		size_t binLocusSize_;
 		/** \brief Maximal number of threads to use */
 		size_t nThreads_;
-		/** \brief RAM budget remaining after the resident genotype table
+		/** \brief RAM budget remaining after the resident genotype table is allocated
 		 *
 		 * Total memory budget minus `binGenotypes_`; bounds the _.bed_ read buffer during construction
-		 * and the `SimilarityMatrix` work during LD calculations.
+		 * and the `SimilarityMatrix` work for LD calculations.
 		 */
 		size_t workingRAMbytes_;
 		/** \brief Leading bytes for _.bed_ files */
@@ -327,11 +327,12 @@ namespace BayesicSpace {
 		 */
 		[[nodiscard]] JaccardPair makeJaccardPair_(const RowColIdx &rowColumn) const;
 	};
-	/** \brief Class to store compressed genotype tables
+	/** \brief Class to store hashed genotype tables
 	 *
-	 * Provides facilities to store and manipulate compressed genotype tables.
-	 * Genotypes are stored in a one-bit format: bit set for the minor allele, unset for the major.
+	 * Provides facilities to store and manipulate hashed genotype tables.
+	 * Genotypes are converted to a one-bit format: bit set for the minor allele, unset for the major.
 	 * Bits corresponding to missing data are unset (this is the same as mean imputation), heterozygotes are set with a 50% probability.
+	 * The binary genotypes are the hashed using a one-permutation hash and the result maintained in RAM.
 	 */
 	class GenoTableHash {
 	public:
@@ -571,9 +572,7 @@ namespace BayesicSpace {
 		 */
 		size_t bed2ophThreaded_(const std::vector<char> &bedData, const std::vector< std::pair<size_t, size_t> > &threadRanges, const LocationWithLength &bedLocusSpan,
 							const std::vector<size_t> &permutation, const std::vector< std::pair<size_t, size_t> > &padIndiv);
-		/** \brief Wraps _.bed_ file to binarization 
-		 *
-		 * Wraps _.bed_ format hashing.
+		/** \brief Wraps _.bed_ file binarization and hashing 
 		 *
 		 * \param[in] locusGroupStats _.bed_ locus group attributes
 		 * \param[in,out] bedStream _.bed_ file to be converted
