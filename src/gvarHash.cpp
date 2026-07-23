@@ -50,6 +50,7 @@
 #include "vashLogging.hpp"
 #include "random.hpp"
 #include "similarityMatrix.hpp"
+#include "vashBenchmark.hpp"    // phase timers; no-ops unless VASH_BENCHMARK is defined
 
 using namespace BayesicSpace;
 
@@ -751,6 +752,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	const auto sketchSeed = static_cast<uint32_t>( prng.ranInt() );
 	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                           // the hash table
 
+	VASH_BENCH_TP(vashBenchLDgroups);
 	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
 		size_t iSketch = 0;
 		for (uint16_t iBand = 0; iBand < static_cast<uint16_t>(nBands); ++iBand) {
@@ -770,6 +772,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			iSketch += nRowsPerBand;
 		}
 	}
+	VASH_BENCH_LAP("makeLDgroups: banding + hash-table build", vashBenchLDgroups);
 	std::vector< std::vector<uint32_t> > groups;
 	for (auto &[hash, members] : ldGroups) {
 		// remove groups with one locus
@@ -788,6 +791,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
 		}
 	);
+	VASH_BENCH_LAP("makeLDgroups: filter singletons + sort", vashBenchLDgroups);
 	// de-duplicate the groups
 	logMessages_.add( "Number of groups before de-duplication: " + std::to_string( groups.size() ) );
 	auto lastUniqueIt = std::unique(
@@ -799,6 +803,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	);
 	groups.erase( lastUniqueIt, groups.end() );
 	groups.shrink_to_fit();
+	VASH_BENCH_LAP("makeLDgroups: de-duplicate groups", vashBenchLDgroups);
 
 	logMessages_.add( "Number of groups after de-duplication: " + std::to_string( groups.size() ) );
 
@@ -831,6 +836,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			eachGroup.clear();
 		}
 	);
+	VASH_BENCH_LAP("makeLDgroups: merge groups sharing a first locus", vashBenchLDgroups);
 
 	logMessages_.add( "Number of groups after merger: " + std::to_string( indexedGroups.size() ) );
 
@@ -879,8 +885,10 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 }
 
 void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
+	VASH_BENCH_TP(vashLDinGroups);
 	std::vector<HashGroup> ldGroups{this->makeLDgroups(sparsityValues.nRowsPerBand)};
-	
+	VASH_BENCH_LAP("ldInGroups: makeLDgroups (serial grouping)", vashLDinGroups);
+
 	const size_t totalPairNumber{ldGroups.back().cumulativeNpairs};    // total number of pairs
 	logMessages_.add("Estimating LD in groups");
 	logMessages_.add( "number of pairs in the hash table: " + std::to_string(totalPairNumber) );
@@ -917,6 +925,11 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 			groupRanges.emplace_back( makeGroupRanges(ldGroups, startPair, eachThrSize) );
 			startPair = groupRanges.back().second;
 		}
+#ifdef VASH_BENCHMARK
+		std::cerr << "[vash-bench] ldInGroups: chunk " << base1chunkIdx << " over " << groupRanges.size()
+			<< " blocks (cap " << nThreads_ << " threads)\n";
+#endif
+		VASH_BENCH_TP(vashChunk);
 		SimilarityMatrix block{
 			parallelBuild(
 				WorkloadLimits{groupRanges.size(), nThreads_},
@@ -925,13 +938,17 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 				}
 			)
 		};
+		VASH_BENCH_LAP("ldInGroups: chunk parallelBuild (parallel estimate + serial consolidate)", vashChunk);
 		logMessages_.add( "\tfinished similarity matrix estimation for chunk " + std::to_string(base1chunkIdx) );
 		sink.add(block);
+		VASH_BENCH_LAP("ldInGroups: chunk sink.add (serial merge, may flush)", vashChunk);
 		++base1chunkIdx;
 		done = ( startPair.hgIterator == ldGroups.cend() )
 			|| ( ( startPair.hgIterator == std::prev( ldGroups.cend() ) ) && (startPair.pairCount == lastPairNumber) );
 	}
+	VASH_BENCH_TP(vashFinalize);
 	sink.finalize();
+	VASH_BENCH_LAP("ldInGroups: sink.finalize (final flush + save)", vashFinalize);
 	logMessages_.add("Finished calculating and saving LD in groups");
 }
 

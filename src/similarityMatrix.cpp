@@ -44,6 +44,7 @@
 #include "similarityMatrix.hpp"
 #include "vashFunctions.hpp"
 #include "vashParallel.hpp"
+#include "vashBenchmark.hpp"    // phase timers; no-ops unless VASH_BENCHMARK is defined
 
 using namespace BayesicSpace;
 
@@ -94,10 +95,49 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 	std::vector<size_t> blockIndexes(blockCounts.count);
 	std::iota(blockIndexes.begin(), blockIndexes.end(), static_cast<size_t>(0));
 	std::vector<SimilarityMatrix> shards(blockCounts.count);
+#ifdef VASH_BENCHMARK
+	// Record each block's wall time in its own slot (disjoint indexes -> no synchronization) so the
+	// per-block spread below exposes load imbalance across the over-decomposed blocks.
+	std::vector<double> vashBlockMillis(blockCounts.count, 0.0);
+	const std::function<SimilarityMatrix(size_t)> vashTimedBlock =
+		[&blockToMatrix, &vashBlockMillis](size_t blockIdx) {
+			const auto vashB0 = std::chrono::steady_clock::now();
+			SimilarityMatrix out{blockToMatrix(blockIdx)};
+			vashBlockMillis[blockIdx] =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - vashB0).count();
+			return out;
+		};
+#endif
+	VASH_BENCH_TP(vashParPhase);
 	{
 		const ThreadCeiling threadCeiling(blockCounts.ceiling);
+#ifdef VASH_BENCHMARK
+		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), vashTimedBlock);
+#else
 		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
+#endif
 	}
+	VASH_BENCH_LAP("  parallelBuild: parallel block compute (wall)", vashParPhase);
+#ifdef VASH_BENCHMARK
+	if (!vashBlockMillis.empty()) {
+		const auto vashMinIt  = std::min_element(vashBlockMillis.cbegin(), vashBlockMillis.cend());
+		const auto vashMaxIt  = std::max_element(vashBlockMillis.cbegin(), vashBlockMillis.cend());
+		const double vashSum  = std::accumulate(vashBlockMillis.cbegin(), vashBlockMillis.cend(), 0.0);
+		const double vashMean = vashSum / static_cast<double>(vashBlockMillis.size());
+		const double vashMax  = *vashMaxIt;
+		// Ideal wall time with perfect balance is the busy-sum spread over the thread cap; the ratio of
+		// the slowest block to that ideal is how badly one straggler stretches the parallel section.
+		const double vashIdeal    = vashSum / static_cast<double>(std::max<size_t>(blockCounts.ceiling, 1));
+		const double vashImbal    = vashMax / std::max(vashMean, 1e-9);
+		const double vashStraggle = vashMax / std::max(vashIdeal, 1e-9);
+		std::cerr << "[vash-bench]   parallelBuild block spread: "
+			<< blockCounts.count << " blocks, busy-sum " << vashSum << " ms"
+			<< ", min " << *vashMinIt << " ms, mean " << vashMean << " ms"
+			<< ", max " << vashMax << " ms (block " << (vashMaxIt - vashBlockMillis.cbegin()) << ")"
+			<< ", max/mean " << vashImbal << ", max/ideal " << vashStraggle << "\n";
+	}
+#endif
+	VASH_BENCH_TP(vashConsPhase);
 	// Consolidate by appending every shard and sorting once, rather than folding them with
 	// sequential merges. A merge is a full-vector set_union rebuild, so folding S shards is
 	// O(nElements * S) and grows with the block count; appending is O(1) amortized per shard,
@@ -112,6 +152,7 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 		}
 	);
 	result.sortAndDeduplicate();
+	VASH_BENCH_LAP("  parallelBuild: serial consolidation (append + sortAndDeduplicate)", vashConsPhase);
 	return result;
 }
 

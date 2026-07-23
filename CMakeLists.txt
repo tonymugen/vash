@@ -99,6 +99,15 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 endif()
 
 #
+# Benchmarks (benchmarking branch only): standalone timing harnesses. Enabling this defines
+# VASH_BENCHMARK on the vash library so the in-source [vash-bench] phase markers become active.
+#
+option(BUILD_BENCHMARKS
+	"Build benchmark harnesses and activate in-source phase timers (VASH_BENCHMARK)"
+	OFF
+)
+
+#
 # Documentation
 #
 option(BUILD_DOCS
@@ -301,6 +310,12 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS AND SANITIZER_LIST)
 		PRIVATE ${SANITIZER_COMPILE_FLAGS}
 	)
 endif()
+# Activate the in-source [vash-bench] phase timers when building benchmarks.
+if(BUILD_BENCHMARKS)
+	target_compile_definitions(vash
+		PRIVATE VASH_BENCHMARK
+	)
+endif()
 # no install for now
 
 # tests
@@ -332,4 +347,24 @@ if(PROJECT_IS_TOP_LEVEL AND BUILD_TESTS)
 	include(CTest)
 	include(Catch)
 	catch_discover_tests(tests)
+endif()
+
+# benchmark harnesses (opt-in; activates VASH_BENCHMARK on the library above)
+if(PROJECT_IS_TOP_LEVEL AND BUILD_BENCHMARKS)
+	add_executable(ldGroupBench
+		${CMAKE_CURRENT_LIST_DIR}/benchmarks/ldGroupBench.cpp
+	)
+	target_include_directories(ldGroupBench
+		PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include
+		PRIVATE ${brutilities_SOURCE_DIR}/include
+	)
+	target_link_libraries(ldGroupBench
+		PRIVATE vash
+	)
+	target_compile_options(ldGroupBench
+		PRIVATE ${PROJECT_WARNINGS_CXX}
+	)
+	set_target_properties(ldGroupBench PROPERTIES
+		CXX_STANDARD_REQUIRED ON
+	)
 endif()
