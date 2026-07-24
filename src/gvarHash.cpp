@@ -894,7 +894,7 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	output.close();
 
 	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
-	BayesicSpace::HashGroupItPairCount startPair{};
+	HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
 	const size_t lastPairNumber{ldGroups.back().locusIndexes.size() * (ldGroups.back().locusIndexes.size() - 1) / 2};

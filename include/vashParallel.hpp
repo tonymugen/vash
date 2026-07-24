@@ -42,6 +42,9 @@
 #include <optional>
 #include <thread>
 #include <tbb/global_control.h>
+#include <tbb/parallel_sort.h>
+#else
+#include <algorithm>   // std::sort fallback for parallelSort
 #endif
 
 namespace BayesicSpace {
@@ -97,4 +100,24 @@ namespace BayesicSpace {
 		explicit ThreadCeiling(size_t /* maxThreads */) noexcept {}
 	};
 #endif
+
+	/** \brief Sort a random-access range in parallel
+	 *
+	 * Uses `tbb::parallel_sort` when a TBB backend is present and falls back to a serial `std::sort`
+	 * otherwise. Unlike libstdc++'s parallel `std::sort`, `tbb::parallel_sort` sorts in place (no
+	 * O(N) temporary), so it does not perturb an externally reserved memory budget. Concurrency is
+	 * bounded by any `ThreadCeiling` active in the calling scope. Ordering is by `operator<`, matching
+	 * a plain `std::sort(first, last)`.
+	 *
+	 * \param[in] first range begin
+	 * \param[in] last range end
+	 */
+	template <typename RandomIt>
+	inline void parallelSort(RandomIt first, RandomIt last) {
+#if defined(VASH_HAVE_TBB)
+		tbb::parallel_sort(first, last);
+#else
+		std::sort(first, last);
+#endif
+	}
 } // namespace BayesicSpace

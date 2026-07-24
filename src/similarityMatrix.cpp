@@ -48,17 +48,14 @@
 using namespace BayesicSpace;
 
 void BayesicSpace::chunkedAppend(std::vector<uint64_t> &source, std::vector<uint64_t> &target) {
-	const auto sqrtNelementsToMove = static_cast<std::vector<uint64_t>::difference_type>( std::sqrt( static_cast<float>( source.size() ) ) );
-	std::vector<uint64_t>::difference_type iBlock{0};
-	while (iBlock < sqrtNelementsToMove) {
-		const auto endChunkIt = std::next(source.begin(), sqrtNelementsToMove);
-		std::copy( source.begin(), endChunkIt, std::back_inserter(target) );
-		// erasing from the front seems to be reasonably fast
-		// reversing the vector and erasing from the end is not worth it: ~52X slower
-		source.erase(source.begin(), endChunkIt);
-		++iBlock;
-	}
-	std::copy( source.cbegin(), source.cend(), std::back_inserter(target) );
+	// A single range-insert appends `source` in order with one geometric growth of `target`
+	// (amortized O(N) even when called repeatedly on a growing target, as in the shard
+	// consolidation loop); when `target` is pre-reserved to hold the result -- the SimilarityMatrixSink
+	// path -- it is a pure copy into reserved space with no reallocation. The previous implementation
+	// copied in sqrt(N) chunks and erased each chunk from the front of `source`; the front-erase
+	// shifted the whole remainder of `source` on every step, making the append O(N^1.5), and did not
+	// reclaim any memory (vector::erase does not shrink the allocation), so it cost time for no benefit.
+	target.insert( target.cend(), source.cbegin(), source.cend() );
 	source.clear();
 }
 
@@ -94,10 +91,10 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 	std::vector<size_t> blockIndexes(blockCounts.count);
 	std::iota(blockIndexes.begin(), blockIndexes.end(), static_cast<size_t>(0));
 	std::vector<SimilarityMatrix> shards(blockCounts.count);
-	{
-		const ThreadCeiling threadCeiling(blockCounts.ceiling);
-		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
-	}
+	// The ceiling spans both the parallel block compute and the consolidation, so the parallel sort
+	// inside sortAndDeduplicate() is capped to the same worker count as the block transform.
+	const ThreadCeiling threadCeiling(blockCounts.ceiling);
+	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 	// Consolidate by appending every shard and sorting once, rather than folding them with
 	// sequential merges. A merge is a full-vector set_union rebuild, so folding S shards is
 	// O(nElements * S) and grows with the block count; appending is O(1) amortized per shard,
@@ -220,8 +217,11 @@ void SimilarityMatrix::append(SimilarityMatrix &toAppend) {
 void SimilarityMatrix::sortAndDeduplicate() {
 	// packed elements carry the vectorized index in the high bits, so a plain ascending
 	// sort orders them by index (ties broken by the quantized value, which is identical
-	// for a repeated index, so the choice std::unique makes below is immaterial)
-	std::sort( matrix_.begin(), matrix_.end() );
+	// for a repeated index, so the choice std::unique makes below is immaterial).
+	// parallelSort is an in-place tbb::parallel_sort under a TBB backend (no O(N) scratch, so the
+	// reserved memory budget is preserved) and a serial std::sort otherwise; it honors any
+	// ThreadCeiling active in the caller's scope.
+	parallelSort( matrix_.begin(), matrix_.end() );
 	auto lastUniqueIt = std::unique(
 		matrix_.begin(),
 		matrix_.end(),
@@ -399,6 +399,8 @@ SimilarityMatrixSink::SimilarityMatrixSink(const InOutFileNames &fileNames, cons
 }
 
 void SimilarityMatrixSink::add(SimilarityMatrix &block) {
+	// Cap the parallel sort inside sortAndDeduplicate() (and the nested flush_) to the sink's thread count.
+	const ThreadCeiling threadCeiling(nThreads_);
 	// Flush before appending (not after) so the reserved capacity is never exceeded: after a flush
 	// the buffer is empty, and each block is required to hold at most maxElements_ elements.
 	if (buffer_.nElements() + block.nElements() > maxElements_) {
@@ -415,6 +417,9 @@ void SimilarityMatrixSink::finalize() {
 }
 
 void SimilarityMatrixSink::flush_() {
+	// Cap the parallel sort to the sink's thread count (save() installs its own equal ceiling).
+	// Harmless when nested under add()'s ceiling: global_control stacks and the value is identical.
+	const ThreadCeiling threadCeiling(nThreads_);
 	buffer_.sortAndDeduplicate();
 	buffer_.save(outFileName_, nThreads_, locusNameFile_);   // no-op on an empty buffer
 	buffer_.clear();                                          // retains reserved capacity
