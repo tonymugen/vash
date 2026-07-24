@@ -1055,6 +1055,80 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( refFileName.c_str() ); // NOLINT
 		REQUIRE( dedupLines == aloneLines );
 	}
+	SECTION("SimilarityMatrix k-way merge of pre-sorted runs") {
+		constexpr uint64_t nUnionVal{254};
+		constexpr size_t nThreads{2};
+		const std::string mergeFileName("../tests/kwayMergeMatrix.tsv");
+		const std::string refFileName("../tests/kwayRefMatrix.tsv");
+
+		auto buildRun = [](const std::vector<uint64_t> &indexes, const std::vector<uint64_t> &isect, const uint64_t &nUnion) {
+			BayesicSpace::SimilarityMatrix mat;
+			for (size_t idx = 0; idx < indexes.size(); ++idx) {
+				BayesicSpace::RowColIdx rowCol{BayesicSpace::recoverRCindexes(indexes.at(idx))};
+				BayesicSpace::JaccardPair jPair{};
+				jPair.nUnion     = nUnion;
+				jPair.nIntersect = isect.at(idx);
+				mat.insert(rowCol, jPair);
+			}
+			return mat;
+		};
+		auto readMatrixFile = [](const std::string &fileName) {
+			std::vector<std::string> fileRows;
+			std::fstream inFile(fileName, std::ios::in);
+			std::string fileLine;
+			while ( std::getline(inFile, fileLine) ) {
+				fileRows.push_back(fileLine);
+			}
+			inFile.close();
+			return fileRows;
+		};
+
+		// three individually sorted runs; index 8 is shared by runA and runC, index 12 by runB and runC,
+		// each duplicate carrying the same value it has in the other run (as the production paths do)
+		const std::vector<uint64_t> idxA{3, 8, 14, 19, 28};
+		const std::vector<uint64_t> isA {87, 77, 49, 122, 23};
+		const std::vector<uint64_t> idxB{6, 9, 12, 17, 31};
+		const std::vector<uint64_t> isB {160, 176, 167, 206, 161};
+		const std::vector<uint64_t> idxC{8, 12, 20};
+		const std::vector<uint64_t> isC {77, 167, 51};                             // 8 and 12 match runA/runB values
+
+		auto makeRuns = [&]() {
+			std::vector<BayesicSpace::SimilarityMatrix> runs;
+			runs.emplace_back(buildRun(idxA, isA, nUnionVal));
+			runs.emplace_back(buildRun(idxB, isB, nUnionVal));
+			runs.emplace_back(buildRun(idxC, isC, nUnionVal));
+			return runs;
+		};
+
+		std::vector<BayesicSpace::SimilarityMatrix> runs{makeRuns()};
+		BayesicSpace::SimilarityMatrix merged{BayesicSpace::SimilarityMatrix::mergeSortedRuns(runs)};
+		for (const auto &eachRun : runs) {
+			REQUIRE( eachRun.nElements() == 0 );                                   // every run is cleared
+		}
+		REQUIRE( merged.nElements() == 11 );                                       // (5 + 5 + 3) - 2 shared
+		merged.save(mergeFileName, nThreads);
+
+		// reference: append all runs then finalize (the established path mergeSortedRuns replaces)
+		std::vector<BayesicSpace::SimilarityMatrix> refRuns{makeRuns()};
+		BayesicSpace::SimilarityMatrix reference;
+		for (auto &eachRun : refRuns) {
+			reference.append(eachRun);
+		}
+		reference.sortAndDeduplicate();
+		reference.save(refFileName, nThreads);
+
+		const std::vector<std::string> mergedLines{readMatrixFile(mergeFileName)};
+		const std::vector<std::string> referenceLines{readMatrixFile(refFileName)};
+		std::remove( mergeFileName.c_str() ); // NOLINT
+		std::remove( refFileName.c_str() );   // NOLINT
+		REQUIRE( mergedLines.size() == 11 );
+		REQUIRE( mergedLines == referenceLines );
+
+		std::vector<BayesicSpace::SimilarityMatrix> noRuns;
+		REQUIRE( BayesicSpace::SimilarityMatrix::mergeSortedRuns(noRuns).nElements() == 0 ); // no runs
+		std::vector<BayesicSpace::SimilarityMatrix> emptyRuns(3);
+		REQUIRE( BayesicSpace::SimilarityMatrix::mergeSortedRuns(emptyRuns).nElements() == 0 ); // all empty
+	}
 	SECTION("SimilarityMatrixSink streams within a memory budget") {
 		constexpr size_t nPerMatrix{5};
 		constexpr std::array<uint64_t, nPerMatrix> vecIndexesA{3, 8, 14, 19, 28};
