@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cassert>
 #include <algorithm>
+#include <thread>
 #include <fstream>
 
 #include "similarityMatrix.hpp"
@@ -48,17 +49,194 @@
 
 using namespace BayesicSpace;
 
-void BayesicSpace::chunkedAppend(std::vector<uint64_t> &source, std::vector<uint64_t> &target) {
-	// A single range-insert appends `source` in order with one geometric growth of `target`
-	// (amortized O(N) even when called repeatedly on a growing target, as in the shard
-	// consolidation loop); when `target` is pre-reserved to hold the result -- the SimilarityMatrixSink
-	// path -- it is a pure copy into reserved space with no reallocation. The previous implementation
-	// copied in sqrt(N) chunks and erased each chunk from the front of `source`; the front-erase
-	// shifted the whole remainder of `source` on every step, making the append O(N^1.5), and did not
-	// reclaim any memory (vector::erase does not shrink the allocation), so it cost time for no benefit.
-	target.insert( target.cend(), source.cbegin(), source.cend() );
-	source.clear();
-}
+namespace {
+	/** \brief A half-open span [current, end) of one sorted, de-duplicated run */
+	struct RunSpan {
+		const uint64_t *current;
+		const uint64_t *end;
+	};
+
+	/** \brief Key-range merge parameters
+	 *
+	 * Groups the two scalars that drive `mergeRangePartitioned`, so they are passed together and cannot
+	 * be transposed at the call site.
+	 */
+	struct RangeMergeParams {
+		/** \brief Number of count-balanced key ranges (> 1) */
+		size_t nPartitions;
+		/** \brief Packed value-field width; `element >> keyShift` is the vectorized-index key */
+		uint64_t keyShift;
+	};
+
+	/** \brief k-way merge of sorted, de-duplicated spans
+	 *
+	 * Merges the `spans` (each sorted ascending by vectorized index, individually de-duplicated) into
+	 * `target`, which the caller reserves; an index shared across spans is written once, matching the
+	 * `std::unique` in `SimilarityMatrix::sortAndDeduplicate`. A min-heap of span slots makes this
+	 * \f$ O(M \log s) \f$ in the total span length \f$ M \f$ and span count \f$ s \f$. `spans` is taken
+	 * by value so concurrent calls on disjoint spans share no state.
+	 *
+	 * \param[in] spans sorted, de-duplicated run spans to merge
+	 * \param[out] target reserved vector the merged, de-duplicated elements are appended to
+	 * \param[in] keyShift packed value-field width; `element >> keyShift` is the vectorized-index key
+	 */
+	void kWayMerge(std::vector<RunSpan> spans, std::vector<uint64_t> &target, const uint64_t keyShift) {
+		// Min-heap of span slots keyed by each span's current vectorized index (the high bits of the
+		// packed element); storing slot indexes keeps the heap payload to one size_t per live span.
+		std::vector<size_t> heap;
+		heap.reserve( spans.size() );
+		for (size_t iSpan = 0; iSpan < spans.size(); ++iSpan) {
+			if (spans[iSpan].current != spans[iSpan].end) {
+				heap.push_back(iSpan);
+			}
+		}
+		const auto greaterByIndex = [&spans, keyShift](const size_t slotA, const size_t slotB) {
+			return (*spans[slotA].current >> keyShift) > (*spans[slotB].current >> keyShift);
+		};
+		std::make_heap(heap.begin(), heap.end(), greaterByIndex);
+		bool haveLast{false};
+		uint64_t lastIndex{0};
+		while ( !heap.empty() ) {
+			std::pop_heap(heap.begin(), heap.end(), greaterByIndex);
+			const size_t slot{ heap.back() };
+			const uint64_t packedElement{ *spans[slot].current };
+			const uint64_t elementIndex{ packedElement >> keyShift };
+			// Spans may share an index (a locus pair can fall into more than one LD group); keep the
+			// first occurrence, matching the std::unique in sortAndDeduplicate (repeats carry identical values).
+			if ( !haveLast || (elementIndex != lastIndex) ) {
+				target.push_back(packedElement);
+				lastIndex = elementIndex;
+				haveLast  = true;
+			}
+			++spans[slot].current;
+			if (spans[slot].current == spans[slot].end) {
+				heap.pop_back();                               // span exhausted: drop its slot
+			} else {
+				std::push_heap(heap.begin(), heap.end(), greaterByIndex);
+			}
+		}
+	}
+
+	/** \brief Parallel count-balanced key-range merge
+	 *
+	 * Splits the vectorized-index space into `nPartitions` ascending, count-balanced, half-open key
+	 * ranges (splitter keys located by binary search on the cross-run rank), merges and de-duplicates
+	 * each range independently via `kWayMerge`, then concatenates the ranges in ascending order. All
+	 * copies of an index fall in one range, so de-duplication stays local to a partition. The source
+	 * `runData` is freed once consumed, holding peak memory at ~2x the pre-dedup total.
+	 *
+	 * \param[in] runSpans one span per run, spanning that run's whole vector
+	 * \param[in,out] runData the source packed vectors (matching `runSpans`), freed once merged
+	 * \param[in] params number of key ranges and the vectorized-index key shift
+	 * \return merged, sorted, de-duplicated packed vector
+	 */
+	std::vector<uint64_t> mergeRangePartitioned(const std::vector<RunSpan> &runSpans, std::vector<std::vector<uint64_t>> &runData,
+									const RangeMergeParams &params) {
+		const size_t nPartitions{params.nPartitions};
+		const uint64_t keyShift{params.keyShift};
+		const auto lessByKey = [keyShift](const uint64_t packed, const uint64_t key) { return (packed >> keyShift) < key; };
+
+		// Splitter keys partition the vectorized-index space into nPartitions ascending, half-open ranges
+		// of roughly equal element count. countBelow(key) is the number of elements with a smaller index
+		// across all runs (each run is sorted by index); it is monotonic in key, so a binary search over
+		// the key space locates the splitter whose cross-run rank matches a target fraction of the total.
+		uint64_t maxKey{0};
+		size_t totalElements{0};
+		for (const auto &span : runSpans) {
+			maxKey = std::max( maxKey, *(span.end - 1) >> keyShift );
+			totalElements += static_cast<size_t>(span.end - span.current);
+		}
+		const auto countBelow = [&runSpans, &lessByKey](const uint64_t key) {
+			size_t count{0};
+			for (const auto &span : runSpans) {
+				const uint64_t *lowerIt{ std::lower_bound(span.current, span.end, key, lessByKey) };
+				count += static_cast<size_t>(lowerIt - span.current);
+			}
+			return count;
+		};
+		std::vector<uint64_t> boundaryKeys(nPartitions + 1);
+		boundaryKeys.front() = 0;
+		boundaryKeys.back()  = maxKey + 1UL;                   // exclusive upper bound (keys are 56-bit, so no overflow)
+		std::vector<size_t> innerSplitters(nPartitions - 1);
+		std::iota( innerSplitters.begin(), innerSplitters.end(), static_cast<size_t>(1) );
+		std::for_each(
+			parallelPolicy,
+			innerSplitters.cbegin(),
+			innerSplitters.cend(),
+			[&boundaryKeys, &countBelow, totalElements, nPartitions, maxKey](const size_t splitIndex) {
+				const size_t targetRank{ (splitIndex * totalElements) / nPartitions };
+				uint64_t low{0};
+				uint64_t high{maxKey + 1UL};
+				while (low < high) {
+					const uint64_t mid{ low + ((high - low) >> 1U) };
+					if (countBelow(mid) < targetRank) {
+						low = mid + 1UL;
+					} else {
+						high = mid;
+					}
+				}
+				boundaryKeys[splitIndex] = low;
+			}
+		);
+
+		// Merge each key range independently: for range [boundaryKeys[p], boundaryKeys[p + 1]) the span of
+		// a run is the contiguous run of indexes in that half-open interval, found by two binary searches.
+		std::vector<std::vector<uint64_t>> partitionOut(nPartitions);
+		std::vector<size_t> partitionIdx(nPartitions);
+		std::iota( partitionIdx.begin(), partitionIdx.end(), static_cast<size_t>(0) );
+		std::for_each(
+			parallelPolicy,
+			partitionIdx.cbegin(),
+			partitionIdx.cend(),
+			[&partitionOut, &boundaryKeys, &runSpans, &lessByKey, keyShift](const size_t partition) {
+				const uint64_t lowKey{ boundaryKeys[partition] };
+				const uint64_t highKey{ boundaryKeys[partition + 1] };
+				if (lowKey >= highKey) {
+					return;                                    // empty key range
+				}
+				std::vector<RunSpan> spans;
+				spans.reserve( runSpans.size() );
+				size_t preDedup{0};
+				for (const auto &span : runSpans) {
+					const uint64_t *spanBegin{ std::lower_bound(span.current, span.end, lowKey, lessByKey) };
+					const uint64_t *spanEnd{ std::lower_bound(spanBegin, span.end, highKey, lessByKey) };
+					if (spanBegin != spanEnd) {
+						spans.push_back( RunSpan{ spanBegin, spanEnd } );
+						preDedup += static_cast<size_t>(spanEnd - spanBegin);
+					}
+				}
+				partitionOut[partition].reserve(preDedup);
+				kWayMerge(spans, partitionOut[partition], keyShift);
+			}
+		);
+
+		// The runs are fully consumed into the partition buffers; free them before allocating the result
+		// so peak memory stays at ~2x the pre-dedup total (runs + partitions, then partitions + result).
+		runData.clear();
+
+		// Partitions are in ascending key order, so concatenating them in order gives a globally sorted,
+		// de-duplicated result. Prefix offsets let each partition copy into a disjoint region in parallel.
+		std::vector<size_t> offsets(nPartitions + 1, 0);
+		for (size_t partition = 0; partition < nPartitions; ++partition) {
+			offsets[partition + 1] = offsets[partition] + partitionOut[partition].size();
+		}
+		std::vector<uint64_t> result( offsets.back() );
+		std::for_each(
+			parallelPolicy,
+			partitionIdx.cbegin(),
+			partitionIdx.cend(),
+			[&result, &partitionOut, &offsets](const size_t partition) {
+				std::copy(
+					partitionOut[partition].cbegin(),
+					partitionOut[partition].cend(),
+					result.begin() + static_cast<std::vector<uint64_t>::difference_type>(offsets[partition])
+				);
+				std::vector<uint64_t>().swap(partitionOut[partition]);   // release each buffer as it is copied
+			}
+		);
+		return result;
+	}
+} // anonymous namespace
 
 RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	constexpr double tfiCoeff{8.0};
@@ -138,15 +316,15 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 	// The ceiling spans both the parallel block compute and the consolidation, so the parallel sort
 	// inside sortAndDeduplicate() is capped to the same worker count as the block transform.
 	VASH_BENCH_LAP("  parallelBuild: serial consolidation (append + sortAndDeduplicate)", vashConsPhase);
-	// The ceiling caps the parallel block compute below; the k-way merge that consolidates the shards
-	// is serial.
+	// The ceiling caps both the parallel block compute below and the parallel key-range merge that
+	// consolidates the shards.
 	const ThreadCeiling threadCeiling(blockCounts.ceiling);
 	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 	// Each shard is an individually sorted, de-duplicated run (every block is built through insert()),
-	// so consolidate with a k-way merge rather than appending all shards and re-sorting the union:
-	// O(N log k) in the surviving-pair count N and block count k, versus O(N log N) for a full sort,
-	// and no per-shard set_union rebuild. Consolidation stays flat as blocks are over-decomposed.
-	return SimilarityMatrix::mergeSortedRuns(shards);
+	// so consolidate with a parallel key-range k-way merge rather than appending all shards and
+	// re-sorting the union: O(N log k) in the surviving-pair count N and block count k, versus
+	// O(N log N) for a full sort, and no per-shard set_union rebuild.
+	return SimilarityMatrix::mergeSortedRuns(shards, blockCounts.ceiling);
 }
 
 constexpr std::array<float, 256> SimilarityMatrix::floatLookUp_{
@@ -248,7 +426,12 @@ void SimilarityMatrix::insert(const RowColIdx &rowColPair, const JaccardPair &ja
 }
 
 void SimilarityMatrix::append(SimilarityMatrix &toAppend) {
-	chunkedAppend(toAppend.matrix_, matrix_);
+	// A single range-insert appends the source in order with one geometric growth of `matrix_`
+	// (amortized O(N) even when called repeatedly on a growing target, as in the shard
+	// consolidation loop); when `matrix_` is pre-reserved to hold the result -- the
+	// SimilarityMatrixSink path -- it is a pure copy into reserved space with no reallocation.
+	matrix_.insert( matrix_.cend(), toAppend.matrix_.cbegin(), toAppend.matrix_.cend() );
+	toAppend.matrix_.clear();
 }
 
 void SimilarityMatrix::sortAndDeduplicate() {
@@ -269,63 +452,55 @@ void SimilarityMatrix::sortAndDeduplicate() {
 	matrix_.erase( lastUniqueIt, matrix_.end() );
 }
 
-SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix> &runs) {
-	SimilarityMatrix result;
-	// A cursor tracks the next unread element of one run and its end; only non-empty runs get one.
-	struct RunCursor {
-		const uint64_t *current;
-		const uint64_t *end;
-	};
-	std::vector<RunCursor> cursors;
-	cursors.reserve( runs.size() );
+SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix> &runs, size_t maxThreads) {
+	/*
+	 * The index space is split into `maxThreads`-scaled, count-balanced, half-open key ranges;
+	 * because all occurrences of an index (across every run) fall in one range, each range is merged
+	 * and de-duplicated independently in parallel, then the ranges are concatenated in ascending
+	 * order. Small inputs and single runs take a serial k-way merge, where the partitioning would
+	 * not pay for itself. Concurrency honors any `ThreadCeiling` active in the caller's scope and is
+	 * additionally capped by `maxThreads` when it is non-zero. Every run is freed once consumed, so
+	 * peak memory stays at ~2x the pre-dedup total.
+	 */
+
+	// Move each run's packed data into a locally-owned working set; the source runs are left empty and
+	// freed, so the free-function merge helpers below never touch SimilarityMatrix internals. Only the
+	// non-empty runs contribute a span, paired one-to-one with runData.
+	std::vector<std::vector<uint64_t>> runData;
+	runData.reserve( runs.size() );
 	size_t totalElements{0};
 	for (auto &eachRun : runs) {
 		totalElements += eachRun.matrix_.size();
 		if ( !eachRun.matrix_.empty() ) {
-			cursors.push_back( RunCursor{ eachRun.matrix_.data(), eachRun.matrix_.data() + eachRun.matrix_.size() } );
+			runData.emplace_back( std::move(eachRun.matrix_) );
 		}
+		eachRun.matrix_ = std::vector<uint64_t>{};           // guarantee the moved-from run is empty and released
 	}
 	if (totalElements == 0) {
+		return SimilarityMatrix{};
+	}
+	std::vector<RunSpan> runSpans;
+	runSpans.reserve( runData.size() );
+	for (const auto &eachRun : runData) {
+		runSpans.push_back( RunSpan{ eachRun.data(), eachRun.data() + eachRun.size() } );
+	}
+
+	// Choose the number of count-balanced key-range partitions. A single partition (a small input or one
+	// run) takes the serial merge, where the partitioning bookkeeping would not pay for itself.
+	const auto autoThreads = static_cast<size_t>( std::max(std::thread::hardware_concurrency(), 1U) );
+	const size_t requestedThreads{ maxThreads > 0 ? maxThreads : autoThreads };
+	constexpr size_t minElementsPerPartition{ 1UL << 16U };
+	const size_t partitionCeiling{ std::max( totalElements / minElementsPerPartition, static_cast<size_t>(1) ) };
+	const size_t nPartitions{ std::min( requestedThreads * 4UL, partitionCeiling ) };
+
+	SimilarityMatrix result;
+	if (nPartitions <= 1) {
+		result.matrix_.reserve(totalElements);               // pre-dedup total; the result never exceeds it
+		kWayMerge(runSpans, result.matrix_, valueSize_);
+		runData.clear();
 		return result;
 	}
-	// One allocation sized to the pre-dedup total; the merged, de-duplicated result never exceeds it.
-	result.matrix_.reserve(totalElements);
-
-	// Min-heap of cursor slots keyed by each cursor's current vectorized index (the high bits of the
-	// packed element); storing slot indexes keeps the heap payload to one size_t per live run. The
-	// comparator reads the live cursors, so advancing a slot and re-heapifying it reflects its new head.
-	std::vector<size_t> heap( cursors.size() );
-	std::iota( heap.begin(), heap.end(), static_cast<size_t>(0) );
-	const auto greaterByIndex = [&cursors](const size_t slotA, const size_t slotB) {
-		return (*cursors[slotA].current >> valueSize_) > (*cursors[slotB].current >> valueSize_);
-	};
-	std::make_heap(heap.begin(), heap.end(), greaterByIndex);
-
-	bool haveLast{false};
-	uint64_t lastIndex{0};
-	while ( !heap.empty() ) {
-		std::pop_heap(heap.begin(), heap.end(), greaterByIndex);
-		const size_t slot{ heap.back() };
-		const uint64_t packedElement{ *cursors[slot].current };
-		const uint64_t elementIndex{ packedElement >> valueSize_ };
-		// Runs may share an index (a locus pair can fall into more than one LD group); keep the first
-		// occurrence, matching the std::unique in sortAndDeduplicate (repeats carry identical values).
-		if ( !haveLast || (elementIndex != lastIndex) ) {
-			result.matrix_.push_back(packedElement);
-			lastIndex = elementIndex;
-			haveLast  = true;
-		}
-		++cursors[slot].current;
-		if (cursors[slot].current == cursors[slot].end) {
-			heap.pop_back();                                   // run exhausted: drop its slot
-		} else {
-			std::push_heap(heap.begin(), heap.end(), greaterByIndex);
-		}
-	}
-
-	for (auto &eachRun : runs) {
-		eachRun.matrix_.clear();
-	}
+	result.matrix_ = mergeRangePartitioned(runSpans, runData, RangeMergeParams{nPartitions, valueSize_});
 	return result;
 }
 
