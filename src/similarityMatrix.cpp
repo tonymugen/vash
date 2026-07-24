@@ -137,24 +137,16 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 	VASH_BENCH_TP(vashConsPhase);
 	// The ceiling spans both the parallel block compute and the consolidation, so the parallel sort
 	// inside sortAndDeduplicate() is capped to the same worker count as the block transform.
+	VASH_BENCH_LAP("  parallelBuild: serial consolidation (append + sortAndDeduplicate)", vashConsPhase);
+	// The ceiling caps the parallel block compute below; the k-way merge that consolidates the shards
+	// is serial.
 	const ThreadCeiling threadCeiling(blockCounts.ceiling);
 	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
-	// Consolidate by appending every shard and sorting once, rather than folding them with
-	// sequential merges. A merge is a full-vector set_union rebuild, so folding S shards is
-	// O(nElements * S) and grows with the block count; appending is O(1) amortized per shard,
-	// with a single sortAndDeduplicate() giving O(N log N) consolidation independent of S.
-	// This keeps consolidation flat as blocks are over-decomposed for load balancing.
-	SimilarityMatrix result;
-	std::for_each(
-		shards.begin(),
-		shards.end(),
-		[&result](SimilarityMatrix &eachShard) {
-			result.append(eachShard);
-		}
-	);
-	result.sortAndDeduplicate();
-	VASH_BENCH_LAP("  parallelBuild: serial consolidation (append + sortAndDeduplicate)", vashConsPhase);
-	return result;
+	// Each shard is an individually sorted, de-duplicated run (every block is built through insert()),
+	// so consolidate with a k-way merge rather than appending all shards and re-sorting the union:
+	// O(N log k) in the surviving-pair count N and block count k, versus O(N log N) for a full sort,
+	// and no per-shard set_union rebuild. Consolidation stays flat as blocks are over-decomposed.
+	return SimilarityMatrix::mergeSortedRuns(shards);
 }
 
 constexpr std::array<float, 256> SimilarityMatrix::floatLookUp_{
@@ -275,6 +267,66 @@ void SimilarityMatrix::sortAndDeduplicate() {
 		}
 	);
 	matrix_.erase( lastUniqueIt, matrix_.end() );
+}
+
+SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix> &runs) {
+	SimilarityMatrix result;
+	// A cursor tracks the next unread element of one run and its end; only non-empty runs get one.
+	struct RunCursor {
+		const uint64_t *current;
+		const uint64_t *end;
+	};
+	std::vector<RunCursor> cursors;
+	cursors.reserve( runs.size() );
+	size_t totalElements{0};
+	for (auto &eachRun : runs) {
+		totalElements += eachRun.matrix_.size();
+		if ( !eachRun.matrix_.empty() ) {
+			cursors.push_back( RunCursor{ eachRun.matrix_.data(), eachRun.matrix_.data() + eachRun.matrix_.size() } );
+		}
+	}
+	if (totalElements == 0) {
+		return result;
+	}
+	// One allocation sized to the pre-dedup total; the merged, de-duplicated result never exceeds it.
+	result.matrix_.reserve(totalElements);
+
+	// Min-heap of cursor slots keyed by each cursor's current vectorized index (the high bits of the
+	// packed element); storing slot indexes keeps the heap payload to one size_t per live run. The
+	// comparator reads the live cursors, so advancing a slot and re-heapifying it reflects its new head.
+	std::vector<size_t> heap( cursors.size() );
+	std::iota( heap.begin(), heap.end(), static_cast<size_t>(0) );
+	const auto greaterByIndex = [&cursors](const size_t slotA, const size_t slotB) {
+		return (*cursors[slotA].current >> valueSize_) > (*cursors[slotB].current >> valueSize_);
+	};
+	std::make_heap(heap.begin(), heap.end(), greaterByIndex);
+
+	bool haveLast{false};
+	uint64_t lastIndex{0};
+	while ( !heap.empty() ) {
+		std::pop_heap(heap.begin(), heap.end(), greaterByIndex);
+		const size_t slot{ heap.back() };
+		const uint64_t packedElement{ *cursors[slot].current };
+		const uint64_t elementIndex{ packedElement >> valueSize_ };
+		// Runs may share an index (a locus pair can fall into more than one LD group); keep the first
+		// occurrence, matching the std::unique in sortAndDeduplicate (repeats carry identical values).
+		if ( !haveLast || (elementIndex != lastIndex) ) {
+			result.matrix_.push_back(packedElement);
+			lastIndex = elementIndex;
+			haveLast  = true;
+		}
+		++cursors[slot].current;
+		if (cursors[slot].current == cursors[slot].end) {
+			heap.pop_back();                                   // run exhausted: drop its slot
+		} else {
+			std::push_heap(heap.begin(), heap.end(), greaterByIndex);
+		}
+	}
+
+	for (auto &eachRun : runs) {
+		eachRun.matrix_.clear();
+	}
+	return result;
 }
 
 void SimilarityMatrix::merge(SimilarityMatrix &toMerge) {

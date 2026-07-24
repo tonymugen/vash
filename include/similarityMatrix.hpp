@@ -225,6 +225,18 @@ namespace BayesicSpace {
 		 * keep the invariant.
 		 */
 		void sortAndDeduplicate();
+		/** \brief Merge pre-sorted, de-duplicated runs into one matrix
+		 *
+		 * Performs a k-way merge of `runs`, each already sorted and , de-duplicated
+		 * (every block built through `insert()` is). The result is a single
+		 * sorted, de-duplicated matrix; an index shared across runs is collapsed to one element.
+		 * There is no full re-sort: the cost is \f$ O(N \log k) \f$ in the total element count \f$ N \f$
+		 * and run count \f$ k \f$. Every run is cleared. Peak memory is the reserved result plus the still-live runs.
+		 *
+		 * \param[in,out] runs individually sorted, de-duplicated matrices; all are cleared
+		 * \return merged sorted, de-duplicated matrix
+		 */
+		[[nodiscard]] static SimilarityMatrix mergeSortedRuns(std::vector<SimilarityMatrix> &runs);
 		/** \brief Merge two matrices
 		 *
 		 * Merge a matrix with the current object, destroying the donor object.
