@@ -94,17 +94,7 @@ namespace BayesicSpace {
 		std::string outputFileName;
 	};
 
-	/** \brief Append one vector to another by chunks
-	 * 
-	 * Moves the contents of the source vector to the end of the target vector.
-	 * Uses \f$ \sqrt{N} \f$, where \f$ N \f$ is the size of the source vector,
-	 * extra memory. The source vector is cleared.
-	 *
-	 * \param[in] source the source vector, is cleared as a result
-	 * \param[in,out] target the vector accepting the data from `source`
-	 */
-	void chunkedAppend(std::vector<uint64_t> &source, std::vector<uint64_t> &target);
-	/** \brief Recover row and column indexes 
+	/** \brief Recover row and column indexes
 	 *
 	 * Recovers the row and column indexes from the matrix element.
 	 *
@@ -227,16 +217,16 @@ namespace BayesicSpace {
 		void sortAndDeduplicate();
 		/** \brief Merge pre-sorted, de-duplicated runs into one matrix
 		 *
-		 * Performs a k-way merge of `runs`, each already sorted and , de-duplicated
-		 * (every block built through `insert()` is). The result is a single
-		 * sorted, de-duplicated matrix; an index shared across runs is collapsed to one element.
-		 * There is no full re-sort: the cost is \f$ O(N \log k) \f$ in the total element count \f$ N \f$
-		 * and run count \f$ k \f$. Every run is cleared. Peak memory is the reserved result plus the still-live runs.
+		 * Merges `runs`, each already sorted and de-duplicated (every block built through `insert()`
+		 * is), into a single sorted, de-duplicated matrix; an index shared across runs is collapsed to
+		 * one element. There is no full re-sort: the merge cost is \f$ O(N \log k) \f$ in the total
+		 * element count \f$ N \f$ and run count \f$ k \f$, versus \f$ O(N \log N) \f$ for a re-sort.
 		 *
-		 * \param[in,out] runs individually sorted, de-duplicated matrices; all are cleared
+		 * \param[in,out] runs individually sorted, de-duplicated matrices; all are cleared and freed
+		 * \param[in] maxThreads worker-thread cap used to size the partitioning; 0 uses the hardware concurrency
 		 * \return merged sorted, de-duplicated matrix
 		 */
-		[[nodiscard]] static SimilarityMatrix mergeSortedRuns(std::vector<SimilarityMatrix> &runs);
+		[[nodiscard]] static SimilarityMatrix mergeSortedRuns(std::vector<SimilarityMatrix> &runs, size_t maxThreads = 0);
 		/** \brief Merge two matrices
 		 *
 		 * Merge a matrix with the current object, destroying the donor object.
@@ -303,8 +293,7 @@ namespace BayesicSpace {
 		 *
 		 * Construct a string from a portion of the matrix for saving.
 		 * Add locus names if the `locusNames` vector is not empty.
-		 * Enables multi-threaded saving to file, since conversion to string is the bottleneck for `fstream`.
-		 *
+		 * Enables multi-threaded saving to file.
 		 * The `target` string is cleared first (its capacity is retained, enabling buffer reuse).
 		 *
 		 * \param[in] start start iterator for the matrix

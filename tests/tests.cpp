@@ -464,27 +464,6 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes( vecIdxArray.at(0) )};
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
 		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
-
-		// chunked append tests
-		constexpr size_t appendTargetSize{23};
-		constexpr size_t appendSourceSize{43};
-		std::vector<uint64_t> target(appendTargetSize);
-		std::vector<uint64_t> source(appendSourceSize);
-		std::vector<uint64_t> appendedVec(appendSourceSize + appendTargetSize);
-		std::iota(target.begin(), target.end(), 0);
-		std::iota(source.begin(), source.end(), 2);
-		std::iota(appendedVec.begin(), std::next( appendedVec.begin(), std::distance( target.cbegin(), target.cend() ) ), 0);
-		std::iota(std::next( appendedVec.begin(), std::distance( target.cbegin(), target.cend() ) ), appendedVec.end(), 2);
-		BayesicSpace::chunkedAppend(source, target);
-		REQUIRE( source.empty() );
-		REQUIRE( target.size() == appendedVec.size() );
-		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
-		// empty vector tests
-		BayesicSpace::chunkedAppend(source, target);
-		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
-		std::swap(target, source);
-		BayesicSpace::chunkedAppend(source, target);
-		REQUIRE( std::equal( target.cbegin(), target.cend(), appendedVec.cbegin() ) );
 	}
 	SECTION("SimilarityMatrix methods") {
 		std::array<BayesicSpace::RowColIdx, rowIndexes.size()> idxPairs{};
@@ -1123,6 +1102,61 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( refFileName.c_str() );   // NOLINT
 		REQUIRE( mergedLines.size() == 11 );
 		REQUIRE( mergedLines == referenceLines );
+
+		// Parallel key-range path: a large multi-run input (past the serial/parallel threshold) with
+		// cross-run duplicates, checked against the append + sortAndDeduplicate reference.
+		constexpr size_t nBigRuns{5};
+		constexpr size_t perRun{80000};
+		constexpr uint64_t hotBase{1000000};                                       // shared "hot" indexes, above the strided range
+		constexpr size_t overlapN{500};
+		constexpr size_t forceParallelThreads{8};                                  // 5 * 80500 elements over 65536 -> parallel path
+		constexpr uint64_t valueModulus{200};                                      // <= nUnionVal, keeps quantized values in range
+		auto valueFor = [](const uint64_t vecIdx) { return vecIdx % valueModulus; };   // identical for a shared index
+		auto buildBigRun = [&](const size_t runIndex) {
+			std::vector<uint64_t> indexes;
+			indexes.reserve(perRun + overlapN);
+			for (size_t elem = 0; elem < perRun; ++elem) {
+				indexes.push_back( static_cast<uint64_t>( (elem * nBigRuns) + runIndex ) );   // strided, disjoint across runs
+			}
+			for (size_t hot = 0; hot < overlapN; ++hot) {
+				indexes.push_back( hotBase + hot );                                // shared by every run -> duplicates
+			}
+			std::vector<uint64_t> isect( indexes.size() );
+			std::transform( indexes.cbegin(), indexes.cend(), isect.begin(), valueFor );
+			return buildRun(indexes, isect, nUnionVal);                            // ascending indexes -> fast push_back path
+		};
+		auto makeBigRuns = [&]() {
+			std::vector<BayesicSpace::SimilarityMatrix> bigRuns;
+			bigRuns.reserve(nBigRuns);
+			for (size_t run = 0; run < nBigRuns; ++run) {
+				bigRuns.emplace_back( buildBigRun(run) );
+			}
+			return bigRuns;
+		};
+
+		std::vector<BayesicSpace::SimilarityMatrix> bigRuns{makeBigRuns()};
+		BayesicSpace::SimilarityMatrix bigMerged{BayesicSpace::SimilarityMatrix::mergeSortedRuns(bigRuns, forceParallelThreads)};
+		for (const auto &eachRun : bigRuns) {
+			REQUIRE( eachRun.nElements() == 0 );                                   // every run is freed
+		}
+		REQUIRE( bigMerged.nElements() == (nBigRuns * perRun) + overlapN );        // strided all distinct, hot collapsed to one each
+
+		const std::string bigMergeFile("../tests/kwayBigMerge.tsv");
+		const std::string bigRefFile("../tests/kwayBigRef.tsv");
+		bigMerged.save(bigMergeFile, nThreads);
+		std::vector<BayesicSpace::SimilarityMatrix> bigRefRuns{makeBigRuns()};
+		BayesicSpace::SimilarityMatrix bigReference;
+		for (auto &eachRun : bigRefRuns) {
+			bigReference.append(eachRun);
+		}
+		bigReference.sortAndDeduplicate();
+		bigReference.save(bigRefFile, nThreads);
+		const std::vector<std::string> bigMergedLines{readMatrixFile(bigMergeFile)};
+		const std::vector<std::string> bigReferenceLines{readMatrixFile(bigRefFile)};
+		std::remove( bigMergeFile.c_str() ); // NOLINT
+		std::remove( bigRefFile.c_str() );   // NOLINT
+		REQUIRE( bigMergedLines.size() == (nBigRuns * perRun) + overlapN );
+		REQUIRE( bigMergedLines == bigReferenceLines );                            // parallel merge matches the serial reference
 
 		std::vector<BayesicSpace::SimilarityMatrix> noRuns;
 		REQUIRE( BayesicSpace::SimilarityMatrix::mergeSortedRuns(noRuns).nElements() == 0 ); // no runs
