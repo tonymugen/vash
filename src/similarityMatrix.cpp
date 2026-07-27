@@ -136,6 +136,8 @@ namespace {
 		const size_t nPartitions{params.nPartitions};
 		const uint64_t keyShift{params.keyShift};
 		const auto lessByKey = [keyShift](const uint64_t packed, const uint64_t key) { return (packed >> keyShift) < key; };
+		VASH_BENCH_NOTE("    consolidation: key-range partitions", nPartitions);
+		VASH_BENCH_TP(vashMergePhase);
 
 		// Splitter keys partition the vectorized-index space into nPartitions ascending, half-open ranges
 		// of roughly equal element count. countBelow(key) is the number of elements with a smaller index
@@ -179,17 +181,31 @@ namespace {
 				boundaryKeys[splitIndex] = low;
 			}
 		);
+		VASH_BENCH_LAP("    consolidation: splitter search (cross-run rank binary search)", vashMergePhase);
 
 		// Merge each key range independently: for range [boundaryKeys[p], boundaryKeys[p + 1]) the span of
 		// a run is the contiguous run of indexes in that half-open interval, found by two binary searches.
 		std::vector<std::vector<uint64_t>> partitionOut(nPartitions);
 		std::vector<size_t> partitionIdx(nPartitions);
 		std::iota( partitionIdx.begin(), partitionIdx.end(), static_cast<size_t>(0) );
+#ifdef VASH_BENCHMARK
+		// Record each partition's wall time and surviving element count in its own slot (disjoint indexes
+		// -> no synchronization) so the spread below separates a straggler range from uniform slowness.
+		std::vector<double> vashPartitionMillis(nPartitions, 0.0);
+		std::vector<size_t> vashPartitionElements(nPartitions, 0);
+		const auto vashRangeStart = std::chrono::steady_clock::now();
+#endif
 		std::for_each(
 			parallelPolicy,
 			partitionIdx.cbegin(),
 			partitionIdx.cend(),
+#ifdef VASH_BENCHMARK
+			[&partitionOut, &boundaryKeys, &runSpans, &lessByKey, keyShift,
+					&vashPartitionMillis, &vashPartitionElements](const size_t partition) {
+				const auto vashP0 = std::chrono::steady_clock::now();
+#else
 			[&partitionOut, &boundaryKeys, &runSpans, &lessByKey, keyShift](const size_t partition) {
+#endif
 				const uint64_t lowKey{ boundaryKeys[partition] };
 				const uint64_t highKey{ boundaryKeys[partition + 1] };
 				if (lowKey >= highKey) {
@@ -208,12 +224,39 @@ namespace {
 				}
 				partitionOut[partition].reserve(preDedup);
 				kWayMerge(spans, partitionOut[partition], keyShift);
+#ifdef VASH_BENCHMARK
+				vashPartitionElements[partition] = partitionOut[partition].size();
+				vashPartitionMillis[partition] =
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - vashP0).count();
+#endif
 			}
 		);
+		VASH_BENCH_LAP("    consolidation: parallel range merge (wall)", vashMergePhase);
+#ifdef VASH_BENCHMARK
+		{
+			const double vashWall =
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - vashRangeStart).count();
+			const auto vashMinIt   = std::min_element(vashPartitionMillis.cbegin(), vashPartitionMillis.cend());
+			const auto vashMaxIt   = std::max_element(vashPartitionMillis.cbegin(), vashPartitionMillis.cend());
+			const double vashSum   = std::accumulate(vashPartitionMillis.cbegin(), vashPartitionMillis.cend(), 0.0);
+			const double vashMean  = vashSum / static_cast<double>(nPartitions);
+			const size_t vashElems =
+				std::accumulate(vashPartitionElements.cbegin(), vashPartitionElements.cend(), static_cast<size_t>(0));
+			// Busy-sum over wall is the effective width of the range merge; max/mean says whether a shortfall
+			// is one slow range (imbalance) or every range running wide (contention or too few partitions).
+			std::cerr << "[vash-bench]     consolidation partition spread: " << nPartitions << " partitions, busy-sum "
+				<< vashSum << " ms, min " << *vashMinIt << " ms, mean " << vashMean << " ms"
+				<< ", max " << *vashMaxIt << " ms (partition " << (vashMaxIt - vashPartitionMillis.cbegin()) << ")"
+				<< ", max/mean " << ( *vashMaxIt / std::max(vashMean, 1e-9) )
+				<< ", effective parallelism " << ( vashSum / std::max(vashWall, 1e-9) ) << "x"
+				<< ", surviving elements " << vashElems << "\n";
+		}
+#endif
 
 		// The runs are fully consumed into the partition buffers; free them before allocating the result
 		// so peak memory stays at ~2x the pre-dedup total (runs + partitions, then partitions + result).
 		runData.clear();
+		VASH_BENCH_LAP("    consolidation: free source runs", vashMergePhase);
 
 		// Partitions are in ascending key order, so concatenating them in order gives a globally sorted,
 		// de-duplicated result. Prefix offsets let each partition copy into a disjoint region in parallel.
@@ -221,7 +264,10 @@ namespace {
 		for (size_t partition = 0; partition < nPartitions; ++partition) {
 			offsets[partition + 1] = offsets[partition] + partitionOut[partition].size();
 		}
+		// Value-initialized, so this both allocates and zero-fills the whole result before the copy below
+		// overwrites every element; timed separately because that write pass is pure overhead.
 		std::vector<uint64_t> result( offsets.back() );
+		VASH_BENCH_LAP("    consolidation: allocate + zero-fill result", vashMergePhase);
 		std::for_each(
 			parallelPolicy,
 			partitionIdx.cbegin(),
@@ -235,6 +281,7 @@ namespace {
 				std::vector<uint64_t>().swap(partitionOut[partition]);   // release each buffer as it is copied
 			}
 		);
+		VASH_BENCH_LAP("    consolidation: concatenate partitions (parallel copy)", vashMergePhase);
 		return result;
 	}
 
@@ -507,8 +554,12 @@ SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix>
 	const auto autoThreads = static_cast<size_t>( std::max(std::thread::hardware_concurrency(), 1U) );
 	const size_t requestedThreads{ maxThreads > 0 ? maxThreads : autoThreads };
 	constexpr size_t minElementsPerPartition{ 1UL << 16U };
+	// Over-decompose so the scheduler can steal work: a range's merge cost tracks how many runs overlap it
+	// and how much de-duplication it does, not its element count, so count-balanced ranges still differ
+	// several-fold in cost. More, smaller ranges spread that skew across threads.
+	constexpr size_t partitionsPerThread{8};
 	const size_t partitionCeiling{ std::max( totalElements / minElementsPerPartition, static_cast<size_t>(1) ) };
-	const size_t nPartitions{ std::min( requestedThreads * 4UL, partitionCeiling ) };
+	const size_t nPartitions{ std::min( requestedThreads * partitionsPerThread, partitionCeiling ) };
 
 	SimilarityMatrix result;
 	if (nPartitions <= 1) {
@@ -604,6 +655,15 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	// shows how much of the stringify actually overlaps across threads.
 	double vashStringifyBusy{0.0};
 	size_t vashBytesWritten{0};
+	// Per-buffer totals summed over every chunk, so the spread reported at the end covers the whole save
+	// and distinguishes a slow slice from all slices running wide. The start/end offsets are measured
+	// from the launch of each chunk's parallel section: clustered starts with staggered ends mean the
+	// slices really do cost different amounts, whereas staggered starts with clustered ends mean the
+	// slices contend for a shared resource and finer decomposition would not help.
+	std::vector<double> vashBufferMillis( saveBuffers_.size(), 0.0 );
+	std::vector<double> vashBufferStart( saveBuffers_.size(), 0.0 );
+	std::vector<double> vashBufferEnd( saveBuffers_.size(), 0.0 );
+	std::vector<size_t> vashBufferBytes( saveBuffers_.size(), 0 );
 #endif
 
 	std::fstream outStream;
@@ -631,6 +691,8 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 		std::iota(bufferIndexes.begin(), bufferIndexes.end(), static_cast<size_t>(0));
 #ifdef VASH_BENCHMARK
 		std::vector<double> vashSliceMillis(usedBuffers, 0.0);
+		std::vector<double> vashSliceStart(usedBuffers, 0.0);
+		std::vector<double> vashSliceEnd(usedBuffers, 0.0);
 #endif
 		VASH_BENCH_TP(vashChunkStamp);
 		std::for_each(
@@ -638,11 +700,16 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 			bufferIndexes.cbegin(),
 			bufferIndexes.cend(),
 #ifdef VASH_BENCHMARK
-			[this, &sliceRanges, &locusNames, &vashSliceMillis](const size_t &iBuffer) {
+			// vashChunkStamp is copied, not captured by reference: the accumulator re-arms it once the
+			// section returns, and the offsets must stay relative to the launch.
+			[this, &sliceRanges, &locusNames, &vashSliceMillis, &vashSliceStart, &vashSliceEnd,
+					vashChunkStamp](const size_t &iBuffer) {
 				const auto vashS0 = std::chrono::steady_clock::now();
 				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, saveBuffers_[iBuffer]);
-				vashSliceMillis[iBuffer] =
-					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - vashS0).count();
+				const auto vashS1        = std::chrono::steady_clock::now();
+				vashSliceStart[iBuffer]  = std::chrono::duration<double, std::milli>(vashS0 - vashChunkStamp).count();
+				vashSliceEnd[iBuffer]    = std::chrono::duration<double, std::milli>(vashS1 - vashChunkStamp).count();
+				vashSliceMillis[iBuffer] = std::chrono::duration<double, std::milli>(vashS1 - vashS0).count();
 			}
 #else
 			[this, &sliceRanges, &locusNames](const size_t &iBuffer) {
@@ -654,7 +721,11 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 #ifdef VASH_BENCHMARK
 		vashStringifyBusy += std::accumulate(vashSliceMillis.cbegin(), vashSliceMillis.cend(), 0.0);
 		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
-			vashBytesWritten += saveBuffers_[iBuffer].size();
+			vashBytesWritten          += saveBuffers_[iBuffer].size();
+			vashBufferMillis[iBuffer] += vashSliceMillis[iBuffer];
+			vashBufferStart[iBuffer]  += vashSliceStart[iBuffer];
+			vashBufferEnd[iBuffer]    += vashSliceEnd[iBuffer];
+			vashBufferBytes[iBuffer]  += saveBuffers_[iBuffer].size();
 		}
 #endif
 		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
@@ -673,6 +744,29 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	std::cerr << "[vash-bench]     save: stringify busy-sum " << vashStringifyBusy << " ms over "
 		<< saveBuffers_.size() << " buffer(s), effective parallelism "
 		<< ( vashStringifyBusy / std::max(vashStringifyAcc.totalMilliseconds, 1e-9) ) << "x\n";
+	if ( !vashBufferMillis.empty() ) {
+		const auto vashMinIt   = std::min_element(vashBufferMillis.cbegin(), vashBufferMillis.cend());
+		const auto vashMaxIt   = std::max_element(vashBufferMillis.cbegin(), vashBufferMillis.cend());
+		const double vashMean  = vashStringifyBusy / static_cast<double>( vashBufferMillis.size() );
+		const auto vashMinByte = std::min_element(vashBufferBytes.cbegin(), vashBufferBytes.cend());
+		const auto vashMaxByte = std::max_element(vashBufferBytes.cbegin(), vashBufferBytes.cend());
+		// Slices are equal in element count by construction, so a max/mean much above 1 is a straggler
+		// thread rather than uneven work; bytes min/max confirms the slices really did carry equal loads.
+		std::cerr << "[vash-bench]     save: stringify buffer spread: min " << *vashMinIt << " ms, mean "
+			<< vashMean << " ms, max " << *vashMaxIt << " ms (buffer " << (vashMaxIt - vashBufferMillis.cbegin()) << ")"
+			<< ", max/mean " << ( *vashMaxIt / std::max(vashMean, 1e-9) )
+			<< ", bytes per buffer min " << *vashMinByte << ", max " << *vashMaxByte << "\n";
+		const auto vashStartMinMax = std::minmax_element(vashBufferStart.cbegin(), vashBufferStart.cend());
+		const auto vashEndMinMax   = std::minmax_element(vashBufferEnd.cbegin(), vashBufferEnd.cend());
+		const double vashStartMean =
+			std::accumulate(vashBufferStart.cbegin(), vashBufferStart.cend(), 0.0) / static_cast<double>( vashBufferStart.size() );
+		const double vashEndMean =
+			std::accumulate(vashBufferEnd.cbegin(), vashBufferEnd.cend(), 0.0) / static_cast<double>( vashBufferEnd.size() );
+		std::cerr << "[vash-bench]     save: stringify buffer timeline (ms from launch): start min "
+			<< *(vashStartMinMax.first) << ", mean " << vashStartMean << ", max " << *(vashStartMinMax.second)
+			<< " | end min " << *(vashEndMinMax.first) << ", mean " << vashEndMean
+			<< ", max " << *(vashEndMinMax.second) << "\n";
+	}
 	const double vashWriteSeconds{ vashWriteAcc.totalMilliseconds / 1e3 };
 	std::cerr << "[vash-bench]     save: bytes written " << vashBytesWritten
 		<< " (" << ( static_cast<double>(vashBytesWritten) / (1024.0 * 1024.0) ) << " MiB), write rate "

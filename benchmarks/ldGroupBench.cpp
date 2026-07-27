@@ -32,14 +32,19 @@
  *
  * Usage:
  *   ldGroupBench --input-bed FILE --n-individuals N --hash-size K --n-rows-per-band R
- *                [--threads T] [--min-similarity S] [--max-mem GB]
+ *                [--threads T] [--min-similarity S] [--max-mem GB] [--seed S]
  *                [--out-file OUT] [--log-file LOG] [--group-reps M] [--skip-ld]
+ *
+ * Pass `--seed` to fix the PRNG seed. Without it every run draws a fresh seed, so the LD groups,
+ * the pair count, and hence the amount of work all differ between runs; timings are then not
+ * comparable across invocations.
  */
 
 #include <cstdlib>
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <optional>
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
@@ -135,7 +140,7 @@ int main(int argc, char *argv[]) {
 			|| flags.count("hash-size") == 0 || flags.count("n-rows-per-band") == 0 ) {
 		std::cerr <<
 			"Usage: ldGroupBench --input-bed FILE --n-individuals N --hash-size K --n-rows-per-band R\n"
-			"                    [--threads T] [--min-similarity S] [--max-mem GB]\n"
+			"                    [--threads T] [--min-similarity S] [--max-mem GB] [--seed S]\n"
 			"                    [--out-file OUT] [--log-file LOG] [--group-reps M] [--skip-ld]\n";
 		return 1;
 	}
@@ -154,6 +159,13 @@ int main(int argc, char *argv[]) {
 		const size_t groupReps{ std::stoul( flagOr(flags, "group-reps", "3") ) };
 		const bool skipLD{flags.count("skip-ld") != 0};
 
+		// An absent --seed leaves the table to draw its own seed, which makes the LD groups (and
+		// therefore the pair count and every downstream timing) differ from run to run.
+		std::optional<uint64_t> ranSeed;
+		if (flags.count("seed") != 0) {
+			ranSeed = static_cast<uint64_t>( std::stoull( flags.at("seed") ) );
+		}
+
 		BayesicSpace::MemoryParameters memParams{};
 		if (maxMemGB > 0.0) {
 			constexpr double bytesPerGB{1073741824.0};
@@ -167,10 +179,11 @@ int main(int argc, char *argv[]) {
 		std::cout << "input: " << inputBed << " | individuals: " << nIndividuals
 			<< " | hash-size: " << kSketches << " | rows/band: " << nRowsPerBand
 			<< " | threads: " << nThreads
-			<< " | max-mem(GB): " << (maxMemGB > 0.0 ? std::to_string(maxMemGB) : std::string("auto")) << "\n\n";
+			<< " | max-mem(GB): " << (maxMemGB > 0.0 ? std::to_string(maxMemGB) : std::string("auto"))
+			<< " | seed: " << ( ranSeed.has_value() ? std::to_string( ranSeed.value() ) : std::string("auto (runs NOT comparable)") ) << "\n\n";
 
 		const auto tCtor0 = clockType::now();
-		BayesicSpace::GenoTableHash hashTable(inputBed, indivSketches, nThreads, logFile, memParams);
+		BayesicSpace::GenoTableHash hashTable(inputBed, indivSketches, nThreads, logFile, memParams, ranSeed);
 		const auto tCtor1 = clockType::now();
 		std::cout << "[time] construction (read .bed + OPH sketching): "
 			<< std::fixed << std::setprecision(1) << millisBetween(tCtor0, tCtor1) << " ms\n\n";
