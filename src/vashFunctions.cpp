@@ -301,8 +301,11 @@ std::pair<HashGroupItPairCount, HashGroupItPairCount>
 }
 
 void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-														const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
-	RanDraw prng;
+														const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus, const uint64_t &ranSeed) {
+	// Seeding explicitly makes the heterozygote assignment a function of the caller's seed rather than
+	// of the machine state, so a run can be reproduced. It also skips the std::random_device draw the
+	// default constructor makes, which this function would otherwise pay once per locus.
+	RanDraw prng(ranSeed);
 	constexpr size_t word64size{8};                                                            // size of uint64_t word in bytes
 	constexpr size_t word32size{4};                                                            // size of uint32_t word in bytes
 	constexpr size_t word32sizeInBits{32};                                                     // size of uint32_t word in bits
@@ -383,14 +386,15 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 	}
 }
 
-void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus) {
+void BayesicSpace::binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus, const uint64_t &ranSeed) {
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	constexpr uint8_t byteSize{8};
 	constexpr uint8_t oneBit{0b00000001};       // One set bit for masking
 	constexpr uint8_t middleMask{0b10000011};
 	constexpr uint8_t endTwoBitMask{0b00000011};
-	RanDraw locPRNG;
+	// see binarizeBedLocus() on why the seed is passed in rather than drawn here
+	RanDraw locPRNG(ranSeed);
 	auto remainderInd = static_cast<uint8_t>( (binLocusWindow.length * byteSize) - macLocus.size() );
 	const auto lastByteMask{static_cast<uint8_t>(0b11111111 >> remainderInd)};
 	remainderInd = byteSize - remainderInd;
@@ -514,10 +518,11 @@ void BayesicSpace::extractCLinfo(const std::unordered_map<std::string, std::stri
 	const std::array<std::string, 1> requiredStringVariables{"input-bed"};
 	const std::array<std::string, 4> optionalStringVariables{"log-file", "out-file", "only-groups", "add-locus-names"};
 	const std::array<std::string, 1> requiredIntVariables{"n-individuals"};
-	const std::array<std::string, 3> optionalIntVariables{"hash-size", "threads", "n-rows-per-band"};
+	const std::array<std::string, 4> optionalIntVariables{"hash-size", "threads", "n-rows-per-band", "seed"};
 	const std::array<std::string, 2> optionalFloatVariables{"min-similarity", "max-mem"};
 
-	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0} };
+	// a negative seed means "none given": the caller then draws one, as with a negative thread count
+	const std::unordered_map<std::string, int>         defaultIntValues{ {"hash-size", 0}, {"threads", -1}, {"n-rows-per-band", 0}, {"seed", -1} };
 	const std::unordered_map<std::string, float>       defaultFloatValues{ {"min-similarity", 0.0F}, {"max-mem", 0.0F} };
 	const std::unordered_map<std::string, std::string> defaultStringValues{ {"log-file", "ldblocks.log"}, {"out-file", "ldblocksOut.tsv"},
 																			{"only-groups", "unset"}, {"add-locus-names", "unset"} };

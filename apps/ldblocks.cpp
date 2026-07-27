@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -69,6 +70,21 @@ namespace BayesicSpace {
 				? static_cast<size_t>( std::thread::hardware_concurrency() )
 				: static_cast<size_t>( intVariables.at("threads") );
 		}
+		/** \brief Seed from the command line
+		 *
+		 * A negative `--seed` value means none was given, in which case the constructors draw one and
+		 * record it in the log so the run can be repeated with `--seed`.
+		 *
+		 * \param[in] intVariables integer-valued input flag variables
+		 * \return the seed if one was given, empty otherwise
+		 */
+		std::optional<uint64_t> seedFromCL(const std::unordered_map<std::string, int> &intVariables) {
+			const int seedValue{ intVariables.at("seed") };
+			if (seedValue < 0) {
+				return std::nullopt;
+			}
+			return static_cast<uint64_t>(seedValue);
+		}
 		/** \brief Full Jaccard estimates
 		 *
 		 * Run the full Jaccard estimates after binary conversion.
@@ -86,7 +102,7 @@ namespace BayesicSpace {
 			try {
 				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") );
 				allJaccard = BayesicSpace::GenoTableBin(stringVariables.at("input-bed"), nIndiv, logFileName,
-														threadCountFromCL(intVariables), memoryParamsFromCL(floatVariables));
+														threadCountFromCL(intVariables), memoryParamsFromCL(floatVariables), seedFromCL(intVariables));
 				if (stringVariables.at("add-locus-names") == "set") {
 					InOutFileNames bimAndLD{};
 					bimAndLD.inputFileName  = bimFileName;
@@ -122,7 +138,7 @@ namespace BayesicSpace {
 			try {
 				const std::string logFileName = (stringVariables.at("log-file") == "none" ? "" : stringVariables.at("log-file") );
 				groupLD = BayesicSpace::GenoTableHash(stringVariables.at("input-bed"), indivSketches,
-														threadCountFromCL(intVariables), logFileName, memoryParamsFromCL(floatVariables));
+														threadCountFromCL(intVariables), logFileName, memoryParamsFromCL(floatVariables), seedFromCL(intVariables));
 				if (intVariables.at("n-rows-per-band") == 0) {
 					if (stringVariables.at("add-locus-names") == "set") {
 						InOutFileNames bimAndLD{};
@@ -187,6 +203,8 @@ int main(int argc, char *argv[]) {
 		"                     Larger values give better similarity estimates at the expense of speed. Set to 0 or omit to obtain precise Jaccard similarity estimates.\n"
 		"  --threads          number_of_threads (maximal number of threads to use; defaults to maximal available).\n"
 		"  --max-mem          memory_budget_in_gigabytes (caps total RAM use; 0, negative, or absent = auto, three quarters of available RAM).\n"
+		"  --seed             pseudo-random number generator seed (non-negative integer). Absent or negative draws one.\n"
+		"                     The seed used is recorded in the log file; passing it back reproduces the run exactly.\n"
 		"  --min-similarity   minimal similarity value for pairs to be saved.\n"
 		"  --log-file         log_file_name (log file name; default is ldblocks.log; log file not saved if 'none').\n"
 		"  --out-file         output_file_name (output name file; default ldblocksOut.tsv).\n"

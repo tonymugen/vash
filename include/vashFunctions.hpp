@@ -199,9 +199,10 @@ namespace BayesicSpace {
 	 * \param[in] nIndividuals number of individuals
 	 * \param[in] binLocusWindow binary locus window
 	 * \param[out] binLocus vector of binary format bytes
+	 * \param[in] ranSeed seed for the heterozygote coin flips; the same seed reproduces the same assignment
 	 */
 	void binarizeBedLocus(const LocationWithLength &bedLocusWindow, const std::vector<char> &bedLocus, const size_t &nIndividuals,
-													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
+													const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus, const uint64_t &ranSeed);
 	/** \brief Convert a locus from a vector of minor allele counts
 	 *
 	 * Convert minor allele counts to one-bit binary.
@@ -215,8 +216,9 @@ namespace BayesicSpace {
 	 * \param[in] macLocus vector of minor allele counts at a locus
 	 * \param[in] binLocusWindow window into the binary vector giving the locus index and length in bytes
 	 * \param[out] binLocus vector of binary format bytes
+	 * \param[in] ranSeed seed for the heterozygote coin flips; the same seed reproduces the same assignment
 	 */
-	void binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus);
+	void binarizeMacLocus(const std::vector<int> &macLocus, const LocationWithLength &binLocusWindow, std::vector<uint8_t> &binLocus, const uint64_t &ranSeed);
 	/** \brief Extract locus names 
 	 *
 	 * Extract locus names from a _.bim_ file.

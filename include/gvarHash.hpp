@@ -31,6 +31,7 @@
 
 #include <cstddef>
 #include <fstream>
+#include <optional>
 #include <vector>
 #include <utility>        // for std::pair
 #include <string>
@@ -159,7 +160,7 @@ namespace BayesicSpace {
 	class GenoTableBin {
 	public:
 		/** \brief Default constructor */
-		GenoTableBin() : nIndividuals_{0}, nLoci_{0}, binLocusSize_{0}, nThreads_{1}, workingRAMbytes_{0} {};
+		GenoTableBin() : nIndividuals_{0}, nLoci_{0}, binLocusSize_{0}, nThreads_{1}, workingRAMbytes_{0}, locusSeed_{0} {};
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -184,8 +185,10 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] memParams memory-use caps (total RAM budget and _.bed_ chunk size; defaults mean auto)
+		 * \param[in] ranSeed pseudo-random number generator seed; if empty, one is drawn and recorded in the log
 		 */
-		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams = MemoryParameters{});
+		GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads,
+						const MemoryParameters &memParams = MemoryParameters{}, const std::optional<uint64_t> &ranSeed = std::nullopt);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -214,8 +217,10 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file, log not saved if empty
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] memParams memory-use caps (total RAM budget; the _.bed_ chunk cap is unused for count-vector input)
+		 * \param[in] ranSeed pseudo-random number generator seed; if empty, one is drawn and recorded in the log
 		 */
-		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams = MemoryParameters{});
+		GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads,
+						const MemoryParameters &memParams = MemoryParameters{}, const std::optional<uint64_t> &ranSeed = std::nullopt);
 
 		/** \brief Copy constructor (deleted) */
 		GenoTableBin(const GenoTableBin &toCopy) = delete;
@@ -274,6 +279,13 @@ namespace BayesicSpace {
 		 * and the `SimilarityMatrix` work for LD calculations.
 		 */
 		size_t workingRAMbytes_;
+		/** \brief Base seed for per-locus heterozygote assignment
+		 *
+		 * Locus _i_ is binarized with seed `locusSeed_ + i`. Keying on the global locus index rather than
+		 * on a thread or chunk makes the binarized table independent of the thread count and of how the
+		 * input is split into memory chunks.
+		 */
+		uint64_t locusSeed_;
 		/** \brief Leading bytes for _.bed_ files */
 		static const size_t nMagicBytes_;
 		/** \brief One set bit for masking */
@@ -337,7 +349,7 @@ namespace BayesicSpace {
 	class GenoTableHash {
 	public:
 		/** \brief Default constructor */
-		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, workingRAMbytes_{0}, emptyBinIdxSeed_{0} {};
+		GenoTableHash() : nIndividuals_{0}, kSketches_{0}, sketchSize_{0}, nLoci_{0}, locusSize_{0}, nFullWordBytes_{0}, nThreads_{1}, workingRAMbytes_{0}, emptyBinIdxSeed_{0}, locusSeed_{0}, bandHashSeed_{0} {};
 		/** \brief Constructor with input file name and thread number
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -353,8 +365,10 @@ namespace BayesicSpace {
 		 * \param[in] nThreads maximal number of threads to use
 		 * \param[in] logFileName name of the log file
 		 * \param[in] memParams memory-use caps (total RAM budget and _.bed_ chunk size; defaults mean auto)
+		 * \param[in] ranSeed pseudo-random number generator seed; if empty, one is drawn and recorded in the log
 		 */
-		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams = MemoryParameters{});
+		GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName,
+						const MemoryParameters &memParams = MemoryParameters{}, const std::optional<uint64_t> &ranSeed = std::nullopt);
 		/** \brief Constructor with input file name
 		 *
 		 * The file should be in the `plink` [.bed format](https://www.cog-genomics.org/plink/1.9/formats#bed).
@@ -389,7 +403,8 @@ namespace BayesicSpace {
 		 * \param[in] logFileName name of the log file
 		 * \param[in] memParams memory-use caps (total RAM budget; the _.bed_ chunk cap is unused for count-vector input)
 		 */
-		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams = MemoryParameters{});
+		GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName,
+						const MemoryParameters &memParams = MemoryParameters{}, const std::optional<uint64_t> &ranSeed = std::nullopt);
 		/** \brief Constructor with count vector
 		 *
 		 * Input is a vector of minor allele counts (0, 1, or 2) or -9 for missing data.
@@ -508,6 +523,19 @@ namespace BayesicSpace {
 		 * The index set must be the same across loci (although not necessarily the same number is actually used).
 		 */
 		uint64_t emptyBinIdxSeed_;
+		/** \brief Base seed for per-locus heterozygote assignment
+		 *
+		 * Locus _i_ is binarized with seed `locusSeed_ + i`. Keying on the global locus index rather than
+		 * on a thread or chunk makes the OPH sketches independent of the thread count and of how the
+		 * input is split into memory chunks.
+		 */
+		uint64_t locusSeed_;
+		/** \brief Band hash seed
+		 *
+		 * Seeds the MurMurHash of each sketch band in `makeLDgroups()`, and therefore which loci collide
+		 * into an LD group. Fixed at construction so that repeated grouping calls agree with each other.
+		 */
+		uint32_t bandHashSeed_;
 		/** \brief Log object */
 		mutable VashLog logMessages_;
 		/** \brief Leading bytes for _.bed_ files */
@@ -547,6 +575,17 @@ namespace BayesicSpace {
 		 * \param[in,out] binLocus vector of genotypes for a locus
 		 */
 		void locusOPH_(const size_t &locusInd, const std::vector<size_t> &permutation, std::vector<uint8_t> &binLocus);
+		/** \brief Fill the empty sketches of a locus
+		 *
+		 * One-permutation hashing leaves a sketch empty wherever the locus has no set bit in the
+		 * corresponding stretch of individuals. Each empty sketch takes the value of a filled one,
+		 * picked by a random index progression that must be identical across loci.
+		 *
+		 * \param[in] filledIndexes indexes of the sketches that received a value; must not be more
+		 *            numerous than the sketches, and an empty vector marks a monomorphic locus
+		 * \param[in] sketchBeg index of the first sketch belonging to the locus
+		 */
+		void densifySketches_(std::vector<size_t> filledIndexes, const size_t &sketchBeg);
 		/** \brief OPH from _.bed_ file input
 		 *
 		 * Hashes a portion of a vector of input from a _.bed_ file that corresponds to a range of loci.
