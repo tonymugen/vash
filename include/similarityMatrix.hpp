@@ -43,6 +43,7 @@ namespace BayesicSpace {
 	struct DiffElementPair;
 	struct FullIdxTrio;
 	struct InOutFileNames;
+	class RowColCursor;
 	class SimilarityMatrix;
 	class SimilarityMatrixSink;
 
@@ -102,6 +103,68 @@ namespace BayesicSpace {
 	 * \return row and column index pair
 	 */
 	[[nodiscard]] RowColIdx recoverRCindexes(const uint64_t &vecIdx) noexcept;
+
+	/** \brief Ascending-order row and column cursor
+	 *
+	 * Recovers row and column indexes from vectorized matrix indexes, like `recoverRCindexes()`,
+	 * but for a range of indexes visited in ascending order. Indexes must be presented to
+	 * `advanceTo()` in non-decreasing order, none of them smaller than the index the cursor was
+	 * constructed with; the results are otherwise undefined. Amortized over such a range this is
+	 * cheaper per element than `recoverRCindexes()`, which remains the way to resolve an isolated
+	 * index. A cursor holds the position of one traversal, so concurrently visited ranges (for
+	 * example the slices of a threaded save) each need their own.
+	 */
+	class RowColCursor {
+	public:
+		/** \brief Default constructor (deleted) */
+		RowColCursor() = delete;
+		/** \brief Constructor with the first index of a range
+		 *
+		 * \param[in] firstVecIdx smallest vectorized index the cursor will be presented with
+		 */
+		explicit RowColCursor(const uint64_t &firstVecIdx) noexcept;
+		/** \brief Copy constructor
+		 *
+		 * \param[in] toCopy object to copy
+		 */
+		RowColCursor(const RowColCursor &toCopy) noexcept = default;
+		/** \brief Copy assignment operator
+		 *
+		 * \param[in] toCopy object to copy
+		 * \return `RowColCursor` object
+		 */
+		RowColCursor& operator=(const RowColCursor &toCopy) noexcept = default;
+		/** \brief Move constructor
+		 *
+		 * \param[in] toMove object to move
+		 */
+		RowColCursor(RowColCursor &&toMove) noexcept = default;
+		/** \brief Move assignment operator
+		 *
+		 * \param[in] toMove object to move
+		 * \return `RowColCursor` object
+		 */
+		RowColCursor& operator=(RowColCursor &&toMove) noexcept = default;
+		/** \brief Destructor */
+		~RowColCursor() = default;
+
+		/** \brief Row and column indexes of the next element
+		 *
+		 * Advances the cursor to `vecIdx` and returns the corresponding index pair.
+		 * The index must be no smaller than the one passed to the previous call.
+		 *
+		 * \param[in] vecIdx index into the vectorized matrix
+		 * \return row and column index pair
+		 */
+		[[nodiscard]] RowColIdx advanceTo(const uint64_t &vecIdx) noexcept;
+	private:
+		/** \brief Current row index */
+		uint64_t row_;
+		/** \brief Vectorized index of the first element of the current row */
+		uint64_t rowStart_;
+		/** \brief Vectorized index of the first element of the next row */
+		uint64_t nextRowStart_;
+	};
 
 	/** \brief Build a similarity matrix from independent blocks in parallel
 	 *
@@ -276,6 +339,12 @@ namespace BayesicSpace {
 		 * that correspond to the quantized representation in the `matrix_`.
 		 */
 		static const std::array<const char*, 256> stringLookUp_;
+		/** \brief Length of every `stringLookUp_` entry
+		 *
+		 * All quantized values render to the same fixed width, so the entries can be appended
+		 * without measuring them and output lines have a constant-width value field.
+		 */
+		static const size_t valueStringLength_;
 		/** \brief Maximal index bit-field value */
 		static const uint64_t maxIdxBitfield_;
 		/** \brief Maximal row and column value 
@@ -295,6 +364,7 @@ namespace BayesicSpace {
 		 * Add locus names if the `locusNames` vector is not empty.
 		 * Enables multi-threaded saving to file.
 		 * The `target` string is cleared first (its capacity is retained, enabling buffer reuse).
+		 * The elements in `[start, end)` must be in ascending index order.
 		 *
 		 * \param[in] start start iterator for the matrix
 		 * \param[in] end end iterator for the matrix
