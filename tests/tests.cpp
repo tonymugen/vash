@@ -464,6 +464,34 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		BayesicSpace::RowColIdx rowColValues{BayesicSpace::recoverRCindexes( vecIdxArray.at(0) )};
 		REQUIRE( rowColValues.iRow == rowIndexes.at(0) );
 		REQUIRE( rowColValues.jCol == colIndexes.at(0) );
+
+		// the ascending-order cursor must agree with recoverRCindexes element for element
+		BayesicSpace::RowColCursor cursor{ vecIdxArray.at(0) };
+		bool cursorMatches{true};
+		for (const auto &eachVecIdx : vecIdxArray) {
+			const BayesicSpace::RowColIdx expected{BayesicSpace::recoverRCindexes(eachVecIdx)};
+			const BayesicSpace::RowColIdx fromCursor{ cursor.advanceTo(eachVecIdx) };
+			cursorMatches = cursorMatches && (fromCursor.iRow == expected.iRow) && (fromCursor.jCol == expected.jCol);
+		}
+		REQUIRE(cursorMatches);
+
+		// a repeated index must not advance the cursor, and every index of a contiguous stretch
+		// spanning several rows must resolve correctly
+		BayesicSpace::RowColCursor repeatCursor{ vecIdxArray.at(0) };
+		const BayesicSpace::RowColIdx firstVisit{ repeatCursor.advanceTo( vecIdxArray.at(0) ) };
+		const BayesicSpace::RowColIdx secondVisit{ repeatCursor.advanceTo( vecIdxArray.at(0) ) };
+		REQUIRE( firstVisit.iRow == secondVisit.iRow );
+		REQUIRE( firstVisit.jCol == secondVisit.jCol );
+
+		constexpr uint64_t nContiguous{200};
+		BayesicSpace::RowColCursor sweepCursor{0};
+		bool sweepMatches{true};
+		for (uint64_t eachVecIdx = 0; eachVecIdx < nContiguous; ++eachVecIdx) {
+			const BayesicSpace::RowColIdx expected{BayesicSpace::recoverRCindexes(eachVecIdx)};
+			const BayesicSpace::RowColIdx fromCursor{ sweepCursor.advanceTo(eachVecIdx) };
+			sweepMatches = sweepMatches && (fromCursor.iRow == expected.iRow) && (fromCursor.jCol == expected.jCol);
+		}
+		REQUIRE(sweepMatches);
 	}
 	SECTION("SimilarityMatrix methods") {
 		std::array<BayesicSpace::RowColIdx, rowIndexes.size()> idxPairs{};
@@ -1315,6 +1343,142 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		REQUIRE( bufferedLines.size() == vecIndexesA.size() + vecIndexesB.size() ); // every element written
 		REQUIRE( bufferedLines == referenceLines );                                // chunking preserves content and order
+	}
+
+	SECTION("Saved indexes are recovered across row boundaries") {
+		// save() tracks the row incrementally rather than recovering it per element, re-seeding once
+		// per slice; these indexes are the first and last column of each listed row, so slices begin
+		// at row starts, at row ends and after jumps of many rows.
+		constexpr std::array<uint64_t, 6> testRows{1, 2, 3, 100, 101, 4096};
+		constexpr uint64_t nUnionVal{254};
+		constexpr uint64_t isectStep{20};
+		constexpr uint64_t isectBase{7};
+		constexpr size_t nThreads{4};
+		const std::string outFileName("../tests/rowBoundarySave.tsv");
+		const std::string bimFile("../tests/ind197_397.bim");
+
+		std::vector<uint64_t> vecIndexes;
+		for (const auto &eachRow : testRows) {
+			const uint64_t rowStart{eachRow * (eachRow - 1) / 2};
+			vecIndexes.push_back(rowStart);                        // first column of the row
+			if (eachRow > 1) {                                     // row 1 has a single element
+				vecIndexes.push_back(rowStart + eachRow - 1);      // last column of the row
+			}
+		}
+		BayesicSpace::SimilarityMatrix matrix;
+		for (size_t idx = 0; idx < vecIndexes.size(); ++idx) {
+			BayesicSpace::JaccardPair jPair{};
+			jPair.nUnion     = nUnionVal;
+			jPair.nIntersect = (static_cast<uint64_t>(idx) * isectStep) + isectBase;
+			matrix.insert(BayesicSpace::recoverRCindexes( vecIndexes.at(idx) ), jPair);
+		}
+		REQUIRE( matrix.nElements() == vecIndexes.size() );
+
+		auto readIndexPairs = [](const std::string &fileName) {
+			std::vector<BayesicSpace::RowColIdx> filePairs;
+			std::fstream inFile(fileName, std::ios::in);
+			std::string fileLine;
+			while ( std::getline(inFile, fileLine) ) {
+				std::stringstream lineStream;
+				lineStream.str(fileLine);
+				std::string field;
+				BayesicSpace::RowColIdx parsedPair{};
+				lineStream >> field;
+				parsedPair.iRow = static_cast<uint32_t>( std::stoul(field) ) - 1;  // the saved indexes are base-1
+				lineStream >> field;
+				parsedPair.jCol = static_cast<uint32_t>( std::stoul(field) ) - 1;
+				filePairs.push_back(parsedPair);
+			}
+			inFile.close();
+			return filePairs;
+		};
+
+		std::remove( outFileName.c_str() ); // NOLINT
+		matrix.save(outFileName, nThreads);
+		const std::vector<BayesicSpace::RowColIdx> savedPairs{ readIndexPairs(outFileName) };
+
+		// the line layout save() assumes when sizing its buffers: two un-padded base-1 index
+		// fields and a fixed-width value field, tab-separated
+		constexpr size_t valueFieldWidth{6};
+		std::fstream formatFile(outFileName, std::ios::in);
+		std::string formatLine;
+		bool allLinesWellFormed{true};
+		size_t nFormatLines{0};
+		while ( std::getline(formatFile, formatLine) ) {
+			const size_t firstTab{ formatLine.find('\t') };
+			const size_t secondTab{ formatLine.find('\t', firstTab + 1) };
+			allLinesWellFormed = allLinesWellFormed
+					&& (firstTab != std::string::npos) && (secondTab != std::string::npos)
+					&& (formatLine.find('\t', secondTab + 1) == std::string::npos)
+					&& (formatLine.size() - secondTab - 1 == valueFieldWidth)
+					&& (formatLine.front() != '0') && (formatLine.at(firstTab + 1) != '0');
+			++nFormatLines;
+		}
+		formatFile.close();
+		std::remove( outFileName.c_str() ); // NOLINT
+		REQUIRE( nFormatLines == vecIndexes.size() );
+		REQUIRE(allLinesWellFormed);
+
+		REQUIRE( savedPairs.size() == vecIndexes.size() );
+		bool allPairsMatch{true};
+		for (size_t idx = 0; idx < vecIndexes.size(); ++idx) {
+			const BayesicSpace::RowColIdx expected{BayesicSpace::recoverRCindexes( vecIndexes.at(idx) )};
+			allPairsMatch = allPairsMatch && (savedPairs.at(idx).iRow == expected.iRow)
+											&& (savedPairs.at(idx).jCol == expected.jCol);
+		}
+		REQUIRE(allPairsMatch);                              // matches the per-element square-root recovery
+
+		// a one-line-per-buffer budget re-seeds the row on every element
+		std::remove( outFileName.c_str() ); // NOLINT
+		matrix.reserve(1);
+		matrix.save(outFileName, nThreads);
+		const std::vector<BayesicSpace::RowColIdx> chunkedPairs{ readIndexPairs(outFileName) };
+		std::remove( outFileName.c_str() ); // NOLINT
+		REQUIRE( chunkedPairs.size() == savedPairs.size() );
+		bool chunkedMatch{true};
+		for (size_t idx = 0; idx < savedPairs.size(); ++idx) {
+			chunkedMatch = chunkedMatch && (chunkedPairs.at(idx).iRow == savedPairs.at(idx).iRow)
+										&& (chunkedPairs.at(idx).jCol == savedPairs.at(idx).jCol);
+		}
+		REQUIRE(chunkedMatch);
+
+		// the same rows resolved to locus names, dropping the rows beyond the .bim file
+		const std::vector<std::string> locusNames{ BayesicSpace::getLocusNames(bimFile) };
+		BayesicSpace::SimilarityMatrix namedMatrix;
+		std::vector<uint64_t> namedIndexes;
+		for (const auto &eachIndex : vecIndexes) {
+			if ( BayesicSpace::recoverRCindexes(eachIndex).iRow < locusNames.size() ) {
+				namedIndexes.push_back(eachIndex);
+				BayesicSpace::JaccardPair jPair{};
+				jPair.nUnion     = nUnionVal;
+				jPair.nIntersect = isectBase;
+				namedMatrix.insert(BayesicSpace::recoverRCindexes(eachIndex), jPair);
+			}
+		}
+		std::remove( outFileName.c_str() ); // NOLINT
+		namedMatrix.save(outFileName, nThreads, bimFile);
+		std::vector<std::string> nameFields;
+		std::fstream namedFile(outFileName, std::ios::in);
+		std::string namedLine;
+		while ( std::getline(namedFile, namedLine) ) {
+			std::stringstream lineStream;
+			lineStream.str(namedLine);
+			std::string field;
+			lineStream >> field;
+			nameFields.push_back(field);
+			lineStream >> field;
+			nameFields.push_back(field);
+		}
+		namedFile.close();
+		std::remove( outFileName.c_str() ); // NOLINT
+		REQUIRE( nameFields.size() == 2 * namedIndexes.size() );
+		bool allNamesMatch{true};
+		for (size_t idx = 0; idx < namedIndexes.size(); ++idx) {
+			const BayesicSpace::RowColIdx expected{BayesicSpace::recoverRCindexes( namedIndexes.at(idx) )};
+			allNamesMatch = allNamesMatch && ( nameFields.at(2 * idx) == locusNames.at(expected.iRow) )
+										&& ( nameFields.at( (2 * idx) + 1 ) == locusNames.at(expected.jCol) );
+		}
+		REQUIRE(allNamesMatch);
 	}
 }
 

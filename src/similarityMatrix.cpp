@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <charconv>
 #include <cassert>
 #include <algorithm>
 #include <thread>
@@ -235,6 +236,23 @@ namespace {
 		);
 		return result;
 	}
+
+	/** \brief Append a base-1 index to a string
+	 *
+	 * Converts a base-0 index to its base-1 decimal representation and appends the digits to the target.
+	 * `std::to_chars` writes into a stack buffer, avoiding the temporary `std::string` that
+	 * `std::to_string` allocates for every field.
+	 *
+	 * \param[in] base0idx base-0 index
+	 * \param[out] target string the digits are appended to
+	 */
+	void appendBase1index(const uint32_t &base0idx, std::string &target) {
+		constexpr size_t maxDigits{10};                              // largest number of decimal digits in a uint32_t
+		std::array<char, maxDigits> digits{};
+		// the buffer accommodates any uint32_t value, so the conversion cannot fail
+		const char *digitEnd = std::to_chars(digits.data(), digits.data() + digits.size(), base0idx + 1U).ptr;
+		target.append( digits.data(), static_cast<size_t>( digitEnd - digits.data() ) );
+	}
 } // anonymous namespace
 
 RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
@@ -246,6 +264,25 @@ RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
 	result.iRow    = static_cast<uint32_t>(row);
 
 	return result;
+}
+
+RowColCursor::RowColCursor(const uint64_t &firstVecIdx) noexcept :
+			row_{ recoverRCindexes(firstVecIdx).iRow },
+			rowStart_{row_ * (row_ - 1) / 2}, nextRowStart_{rowStart_ + row_} {
+	// The one square root of the range: from here the row is tracked by arithmetic alone. Row r
+	// occupies the half-open index interval [r(r - 1)/2, r(r + 1)/2), so its bounds are maintained
+	// by addition as the row advances.
+}
+
+RowColIdx RowColCursor::advanceTo(const uint64_t &vecIdx) noexcept {
+	// Because indexes arrive in ascending order, the loop advances at most once per row spanned by
+	// the range, not once per element: over a whole range this costs one comparison per element
+	// amortized, against a square root per element for recoverRCindexes().
+	while (vecIdx >= nextRowStart_) {
+		rowStart_      = nextRowStart_;
+		nextRowStart_ += ++row_;
+	}
+	return RowColIdx{ static_cast<uint32_t>(row_), static_cast<uint32_t>(vecIdx - rowStart_) };
 }
 
 SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, const std::function<SimilarityMatrix(size_t)> &blockToMatrix) {
@@ -336,6 +373,7 @@ constexpr std::array<const char*, 256> SimilarityMatrix::stringLookUp_{
 
 constexpr uint64_t SimilarityMatrix::maxIdxBitfield_{0x00FFFFFFFFFFFFFF};
 constexpr uint32_t SimilarityMatrix::maxRowColValue_{379625062};
+constexpr size_t   SimilarityMatrix::valueStringLength_{6};
 constexpr uint64_t SimilarityMatrix::valueMask_{0x00000000000000FF};
 constexpr uint64_t SimilarityMatrix::valueSize_{8};
 constexpr uint64_t SimilarityMatrix::maxValueIdx_{0x00000000000000FF};
@@ -345,7 +383,7 @@ void SimilarityMatrix::reserve(const size_t &nElements) {
 	// remaining 1/4: since matrix bytes = nElements * elementSize is three parts, one part is
 	// nElements * elementSize / 3 bytes (string element size is 1, so bytes == char count).
 	constexpr size_t stringShareDenominator{3};
-	saveBufferBudget_ = (nElements * this->elementSize()) / stringShareDenominator;
+	saveBufferBudget_ = ( nElements * this->elementSize() ) / stringShareDenominator;
 	matrix_.reserve(nElements);
 }
 
@@ -514,8 +552,8 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 			[](const std::string &lhs, const std::string &rhs) { return lhs.size() < rhs.size(); }
 		)->size();
 	}
-	constexpr size_t perLineOverhead{ 2UL + 6UL + 1UL };            // two tabs, a fixed-width value, a newline
-	const size_t worstLine{ (2UL * widestField) + perLineOverhead };
+	constexpr size_t nSeparators{3};                                // two tabs and a newline
+	const size_t worstLine{ (2UL * widestField) + valueStringLength_ + nSeparators };
 
 	// Give each thread its own share of the byte budget, and size chunks so every thread stringifies
 	// at most perBufferEntries entries into its buffer: worst-case that is perBufferBytes, so a buffer
@@ -568,18 +606,37 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 void SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
 								const std::vector<std::string> &locusNames, std::string &target) {
 	target.clear();   // retains capacity, enabling buffer reuse across chunks
+	if (start == end) {
+		return;
+	}
+	/*
+	 * Each field is appended in place rather than assembled with `operator+`: the concatenated line
+	 * exceeds the small-string capacity, so the expression form heap-allocates once per line, and at
+	 * hundreds of millions of lines that allocation traffic, not the file write, dominates saving.
+	 * The range is sorted, so the row index also comes from an incremental cursor instead of a
+	 * square root per element.
+	 */
+	RowColCursor rowColCursor{ (*start) >> valueSize_ };
 	if ( locusNames.empty() ) {
 		for (auto matIt = start; matIt != end; ++matIt) {
-			const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
-			const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
-			target += std::to_string(currentPair.iRow + 1) + "\t" + std::to_string(currentPair.jCol + 1) + "\t" + similarityValue + "\n";
+			const RowColIdx currentPair{ rowColCursor.advanceTo( (*matIt) >> valueSize_ ) };
+			appendBase1index(currentPair.iRow, target);
+			target += '\t';
+			appendBase1index(currentPair.jCol, target);
+			target += '\t';
+			target.append(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_);
+			target += '\n';
 		}
 		return;
 	}
 	for (auto matIt = start; matIt != end; ++matIt) {
-		const RowColIdx currentPair{recoverRCindexes( (*matIt) >> valueSize_ )};
-		const std::string similarityValue = stringLookUp_.at( (*matIt) & valueMask_ );
-		target += locusNames[currentPair.iRow] + "\t" + locusNames[currentPair.jCol] + "\t" + similarityValue + "\n";
+		const RowColIdx currentPair{ rowColCursor.advanceTo( (*matIt) >> valueSize_ ) };
+		target += locusNames[currentPair.iRow];
+		target += '\t';
+		target += locusNames[currentPair.jCol];
+		target += '\t';
+		target.append(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_);
+		target += '\n';
 	}
 }
 
