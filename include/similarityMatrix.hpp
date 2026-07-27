@@ -111,8 +111,7 @@ namespace BayesicSpace {
 	 * `advanceTo()` in non-decreasing order, none of them smaller than the index the cursor was
 	 * constructed with; the results are otherwise undefined. Amortized over such a range this is
 	 * cheaper per element than `recoverRCindexes()`, which remains the way to resolve an isolated
-	 * index. A cursor holds the position of one traversal, so concurrently visited ranges (for
-	 * example the slices of a threaded save) each need their own.
+	 * index. A cursor holds the position of one traversal, so concurrently visited ranges each need their own.
 	 */
 	class RowColCursor {
 	public:

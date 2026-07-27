@@ -55,6 +55,19 @@
 using namespace BayesicSpace;
 
 namespace {
+	/** \brief Draw a seed for a run that was not given one
+	 *
+	 * The drawn value is limited to the range a signed 32-bit integer can hold, so that the seed a run
+	 * records in its log can always be handed back through an integer-typed interface (the `--seed`
+	 * command line flag) to repeat that run. The reduced width costs nothing here: the seed only has to
+	 * be unpredictable across runs, not cryptographically strong.
+	 *
+	 * \return the drawn seed
+	 */
+	uint64_t drawReplayableSeed() {
+		return RanDraw().ranInt() % static_cast<uint64_t>( std::numeric_limits<int>::max() );
+	}
+
 	/** \brief Element budget for a streaming similarity-matrix sink
 	 *
 	 * Three quarters of half the residual RAM budget (the memory left after the resident genotype
@@ -86,14 +99,22 @@ constexpr uint8_t  GenoTableBin::bedGenoPerByte_ = 4;                // Number o
 constexpr uint8_t  GenoTableBin::llWordSize_     = 8;                // 64 bit word size in bytes
 
 // Constructors
-GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams)
-															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, workingRAMbytes_{0} {
+GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads,
+					const MemoryParameters &memParams, const std::optional<uint64_t> &ranSeed)
+															: nIndividuals_{nIndividuals}, nThreads_{nThreads}, workingRAMbytes_{0}, locusSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
 		lfMessage.initialMessage = "Genotype binarization from the " + inputFileName + " .bed file";
 		logMessages_             = VashLog(lfMessage);
 	}
+	// The seed is resolved before anything else so that it is the first log entry after the header and
+	// every stochastic step below can be replayed from it. Drawing sub-seeds from one master stream keeps
+	// the purposes independent: reusing the master directly would give, say, the first locus the same
+	// stream as the permutation.
+	const uint64_t masterSeed{ ranSeed.value_or( drawReplayableSeed() ) };
+	logMessages_.add( "Random number generator seed: " + std::to_string(masterSeed) );
+	locusSeed_ = RanDraw(masterSeed).ranInt();
 	if (nIndividuals <= 1) {
 		logMessages_.add("ERROR: the number of individuals (" + std::to_string(nIndividuals) + ") is too small; aborting");
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -181,14 +202,22 @@ GenoTableBin::GenoTableBin(const std::string &inputFileName, const uint32_t &nIn
 	logMessages_.add("Genotype binarization completed");
 }
 
-GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads, const MemoryParameters &memParams)
-							: nIndividuals_{nIndividuals}, nLoci_{static_cast<uint32_t>( maCounts.size() / static_cast<size_t>(nIndividuals) )}, nThreads_{nThreads}, workingRAMbytes_{0} {
+GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIndividuals, const std::string &logFileName, const size_t &nThreads,
+					const MemoryParameters &memParams, const std::optional<uint64_t> &ranSeed)
+							: nIndividuals_{nIndividuals}, nLoci_{static_cast<uint32_t>( maCounts.size() / static_cast<size_t>(nIndividuals) )}, nThreads_{nThreads}, workingRAMbytes_{0}, locusSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
 		lfMessage.initialMessage = "Genotype binarization from minor allele count vector";
 		logMessages_             = VashLog(lfMessage);
 	}
+	// The seed is resolved before anything else so that it is the first log entry after the header and
+	// every stochastic step below can be replayed from it. Drawing sub-seeds from one master stream keeps
+	// the purposes independent: reusing the master directly would give, say, the first locus the same
+	// stream as the permutation.
+	const uint64_t masterSeed{ ranSeed.value_or( drawReplayableSeed() ) };
+	logMessages_.add( "Random number generator seed: " + std::to_string(masterSeed) );
+	locusSeed_ = RanDraw(masterSeed).ranInt();
 	if ( ( maCounts.size() / static_cast<size_t>(nIndividuals) ) > std::numeric_limits<uint32_t>::max() ) {
 		logMessages_.add("ERROR: too many loci");
 		throw std::string("ERROR: there must be fewer than 2^32 loci in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -210,7 +239,7 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 	nThreads_ = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
 	nThreads_ = std::max(nThreads_, 1UL);
 
-	logMessages_.add( "Nworkumber of individuals: " + std::to_string(nIndividuals_) );
+	logMessages_.add( "Number of individuals: " + std::to_string(nIndividuals_) );
 	logMessages_.add( "Number of loci: "        + std::to_string(nLoci_) );
 	logMessages_.add( "Number of threads: "     + std::to_string(nThreads_) );
 
@@ -248,7 +277,7 @@ GenoTableBin::GenoTableBin(const std::vector<int> &maCounts, const uint32_t &nIn
 				nIndividuals_,
 				macLocus.begin()
 			);
-			binarizeMacLocus(macLocus, binLocusRange, binGenotypes_);
+			binarizeMacLocus(macLocus, binLocusRange, binGenotypes_, locusSeed_ + iLocus);
 		}
 	);
 	logMessages_.add("Genotype binarization completed");
@@ -322,6 +351,9 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 	// Define constants. Some can be taken outside of the function as an optimization
 	// Opting for more encapsulation for now unless I find significant performance penalties
 	size_t begByte{locusSpan.start * binLocusSize_};
+	// locusSpan.start is this range's first output locus (see bed2binThreaded_), so iLocus tracks the
+	// global locus index the seed must key on
+	size_t iLocus{locusSpan.start};
 	for (size_t iBedLocus = bedLocusIndRange.first; iBedLocus < bedLocusIndRange.second; ++iBedLocus) {
 		LocationWithLength bedWindow{0, 0};
 		bedWindow.start  = iBedLocus * locusSpan.length;
@@ -329,8 +361,9 @@ void GenoTableBin::bed2binBlk_(const std::vector<char> &bedData, const std::pair
 		LocationWithLength binWindow{0, 0};
 		binWindow.start  = begByte;
 		binWindow.length = binLocusSize_;
-		binarizeBedLocus(bedWindow, bedData, nIndividuals_, binWindow, binGenotypes_);
+		binarizeBedLocus(bedWindow, bedData, nIndividuals_, binWindow, binGenotypes_, locusSeed_ + iLocus);
 		begByte += binLocusSize_;
+		++iLocus;
 	}
 }
 
@@ -390,7 +423,7 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 			RowColIdx localRC{};
 			localRC.iRow = iRow;
 			localRC.jCol = jCol;
-			JaccardPair localJP{makeJaccardPair_(localRC)};
+			const JaccardPair localJP{makeJaccardPair_(localRC)};
 			result.insert(localRC, localJP);
 		}
 		++iRow;
@@ -399,7 +432,7 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 				RowColIdx localRC{};
 				localRC.iRow = iRow;
 				localRC.jCol = jCol;
-				JaccardPair localJP{makeJaccardPair_(localRC)};
+				const JaccardPair localJP{makeJaccardPair_(localRC)};
 				result.insert(localRC, localJP);
 			}
 			++iRow;
@@ -408,7 +441,7 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 			RowColIdx localRC{};
 			localRC.iRow = iRow;
 			localRC.jCol = jColRem;
-			JaccardPair localJP{makeJaccardPair_(localRC)};
+			const JaccardPair localJP{makeJaccardPair_(localRC)};
 			result.insert(localRC, localJP);
 		}
 		return result;
@@ -419,7 +452,7 @@ SimilarityMatrix GenoTableBin::jaccardBlock_(const std::pair<RowColIdx, RowColId
 		RowColIdx localRC{};
 		localRC.iRow = iRow;
 		localRC.jCol = jCol;
-		JaccardPair localJP{makeJaccardPair_(localRC)};
+		const JaccardPair localJP{makeJaccardPair_(localRC)};
 		result.insert(localRC, localJP);
 	}
 	return result;
@@ -453,18 +486,31 @@ constexpr size_t   GenoTableHash::wordSizeInBits_ = 64;                         
 constexpr uint16_t GenoTableHash::emptyBinToken_  = std::numeric_limits<uint16_t>::max(); // Value corresponding to an empty token 
 
 // Constructors
-GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams) :
+GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName,
+					const MemoryParameters &memParams, const std::optional<uint64_t> &ranSeed) :
 					kSketches_{indivSketchCounts.kSketches},
 					nLoci_{0},
 					nThreads_{nThreads},
 					workingRAMbytes_{0},
-					emptyBinIdxSeed_{0} {
+					emptyBinIdxSeed_{0},
+					locusSeed_{0},
+					bandHashSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
 		lfMessage.initialMessage = "Genotype hashing from the " + inputFileName + " .bed file";
 		logMessages_             = VashLog(lfMessage);
 	}
+	// The seed is resolved before anything else so that it is the first log entry after the header and
+	// every stochastic step below can be replayed from it. Sub-seeds are drawn from one master stream so
+	// the purposes stay independent: reusing the master directly would give, say, the first locus the
+	// same stream as the permutation.
+	const uint64_t masterSeed{ ranSeed.value_or( drawReplayableSeed() ) };
+	logMessages_.add( "Random number generator seed: " + std::to_string(masterSeed) );
+	RanDraw prng(masterSeed);
+	emptyBinIdxSeed_ = prng.ranInt();
+	locusSeed_       = prng.ranInt();
+	bandHashSeed_    = static_cast<uint32_t>( prng.ranInt() );
 	if (indivSketchCounts.nIndividuals <= 1) {
 		logMessages_.add("ERROR: the number of individuals (" + std::to_string(indivSketchCounts.nIndividuals) + ") is too small; aborting");
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -516,8 +562,6 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	logMessages_.add( "Number of loci: "                + std::to_string(nLoci_) );
 	logMessages_.add( "Hash size: "                     + std::to_string(kSketches_) );
 
-	RanDraw prng;
-	emptyBinIdxSeed_ = prng.ranInt();
 	locusSize_       = ( ( nIndividuals_ + (byteSize_ - 1) ) & roundMask_ ) / byteSize_;                    // round up to the nearest multiple of 8
 	nFullWordBytes_  = (nIndividuals_ - 1) / byteSize_;
 	// Establish the memory budget before allocating the hashed genotype table.
@@ -569,7 +613,7 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 		logMessages_.add("Re-sampled individuals: " + addIndexes);
 	}
 	// generate the sequence of random integers; each column must be permuted the same
-	std::vector<size_t> ranInts{prng.fyIndexesUp(nIndividuals_)};
+	const std::vector<size_t> ranInts{prng.fyIndexesUp(nIndividuals_)};
 
 	locusGroupAttributes.firstLocusIdx = 0;
 	locusGroupAttributes.firstLocusIdx = bed2oph_(locusGroupAttributes, inStream, ranInts, addIndv);
@@ -584,19 +628,32 @@ GenoTableHash::GenoTableHash(const std::string &inputFileName, const IndividualA
 	logMessages_.add("Genotype hashing completed");
 }
 
-GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName, const MemoryParameters &memParams) :
+GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualAndSketchCounts &indivSketchCounts, const size_t &nThreads, const std::string &logFileName,
+					const MemoryParameters &memParams, const std::optional<uint64_t> &ranSeed) :
 								nIndividuals_{indivSketchCounts.nIndividuals},
 								kSketches_{indivSketchCounts.kSketches},
 								nLoci_{static_cast<uint32_t>(maCounts.size() / indivSketchCounts.nIndividuals)},
 								nThreads_{nThreads},
 								workingRAMbytes_{0},
-								emptyBinIdxSeed_{0} {
+								emptyBinIdxSeed_{0},
+								locusSeed_{0},
+								bandHashSeed_{0} {
 	if ( !logFileName.empty() ) {
 		LogFileNameWithMessage lfMessage;
 		lfMessage.logFileName    = logFileName;
 		lfMessage.initialMessage = "Genotype hashing from a minor allele count vector";
 		logMessages_             = VashLog(lfMessage);
 	}
+	// The seed is resolved before anything else so that it is the first log entry after the header and
+	// every stochastic step below can be replayed from it. Sub-seeds are drawn from one master stream so
+	// the purposes stay independent: reusing the master directly would give, say, the first locus the
+	// same stream as the permutation.
+	const uint64_t masterSeed{ ranSeed.value_or( drawReplayableSeed() ) };
+	logMessages_.add( "Random number generator seed: " + std::to_string(masterSeed) );
+	RanDraw prng(masterSeed);
+	emptyBinIdxSeed_ = prng.ranInt();
+	locusSeed_       = prng.ranInt();
+	bandHashSeed_    = static_cast<uint32_t>( prng.ranInt() );
 	if (indivSketchCounts.nIndividuals <= 1) {
 		logMessages_.add("ERROR: the number of individuals (" + std::to_string(indivSketchCounts.nIndividuals) + ") is too small; aborting");
 		throw std::string("ERROR: number of individuals must be greater than 1 in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
@@ -619,9 +676,6 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 		logMessages_.add("ERROR: number of sketches (" + std::to_string(kSketches_) + ") is larger than the number of individuals; aborting");
 		throw std::string("ERROR: sketch number must be smaller than the number of individuals in ") + std::string( static_cast<const char*>(__PRETTY_FUNCTION__) );
 	}
-
-	RanDraw prng;
-	emptyBinIdxSeed_ = prng.ranInt();
 
 	nThreads_ = std::min( nThreads_, static_cast<size_t>( std::thread::hardware_concurrency() ) );
 	nThreads_ = std::max(nThreads_, 1UL);
@@ -669,7 +723,7 @@ GenoTableHash::GenoTableHash(const std::vector<int> &maCounts, const IndividualA
 
 	const size_t nLociPerThread = nLoci_ / nThreads_;
 	if (nLociPerThread == 0) {
-		std::pair<size_t, size_t> allLoci{0, nLoci_};
+		const std::pair<size_t, size_t> allLoci{0, nLoci_};
 		mac2ophBlk_(maCounts, allLoci, ranInts, addIndv);
 		return;
 	}
@@ -748,8 +802,6 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	logMessages_.add( "Number of rows per band: " + std::to_string(nRowsPerBand) );
 	logMessages_.add( "Number of bands: "         + std::to_string(nBands) );
 
-	RanDraw prng;
-	const auto sketchSeed = static_cast<uint32_t>( prng.ranInt() );
 	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                           // the hash table
 
 	VASH_BENCH_TP(vashBenchLDgroups);
@@ -767,19 +819,24 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			LocationWithLength bandVecWindow{0, 0};
 			bandVecWindow.start  = 0;
 			bandVecWindow.length = bandVec.size();
-			const uint32_t hash  = murMurHash(bandVec, bandVecWindow, sketchSeed);
+			const uint32_t hash  = murMurHash(bandVec, bandVecWindow, bandHashSeed_);
 			ldGroups[hash].push_back( static_cast<uint32_t>(iLocus) );
 			iSketch += nRowsPerBand;
 		}
 	}
 	VASH_BENCH_LAP("makeLDgroups: banding + hash-table build", vashBenchLDgroups);
+	// Keep only the buckets with more than one locus: a lone locus contributes no pairs. The members are
+	// moved rather than copied, since the hash table is not used again after this.
 	std::vector< std::vector<uint32_t> > groups;
-	for (auto &[hash, members] : ldGroups) {
-		// remove groups with one locus
-		if (members.size() >= 2) {
-			groups.emplace_back(members);
+	std::for_each(
+		ldGroups.begin(),
+		ldGroups.end(),
+		[&groups](std::pair<const uint32_t, std::vector<uint32_t>> &hashAndMembers) {
+			if (hashAndMembers.second.size() >= 2) {
+				groups.emplace_back( std::move(hashAndMembers.second) );
+			}
 		}
-	}
+	);
 	// pre-sort the groups by position
 	// this carries a ~30% overhead, but speeds the downstream pair sorting
 	// enough that overall there is a ~10% speed-up and at least no overhead
@@ -797,8 +854,8 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	auto lastUniqueIt = std::unique(
 		groups.begin(),
 		groups.end(),
-		[sketchSeed](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
-			return murMurHash(first, sketchSeed) == murMurHash(second, sketchSeed);
+		[this](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
+			return murMurHash(first, bandHashSeed_) == murMurHash(second, bandHashSeed_);
 		}
 	);
 	groups.erase( lastUniqueIt, groups.end() );
@@ -844,7 +901,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 }
 
 void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileNames &bimAndGroupNames) const {
-	std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
+	const std::vector<HashGroup> ldGroups{this->makeLDgroups(nRowsPerBand)};
 	logMessages_.add("Saving group IDs only");
 	std::vector<std::string> locusNames{};
 	if ( !bimAndGroupNames.inputFileName.empty() ) {
@@ -1005,14 +1062,11 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 	// Start with a permutation to make OPH
 	permuteBits_(permutation, binLocus);
 	// Now make the sketches
-	RanDraw prng(emptyBinIdxSeed_);
-	std::vector<uint32_t> seeds{static_cast<uint32_t>( prng.ranInt() )};
 	std::vector<size_t> filledIndexes;                                                       // indexes of the non-empty sketches
 	size_t iByte{0};
-	size_t sketchBeg{locusInd * kSketches_};
+	const size_t sketchBeg{locusInd * kSketches_};
 	size_t iSketch{0};
 	uint64_t sketchTail{0};                                                                  // left over buts from beyond the last full byte of the previous sketch
-	size_t locusChunkSize = (llWordSize_ > binLocus.size() ? binLocus.size() : llWordSize_);
 	while ( iByte < binLocus.size() ) {
 		uint64_t nWordUnsetBits{wordSizeInBits_};
 		uint64_t nSumUnsetBits{0};
@@ -1021,7 +1075,7 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 			assert( ( iByte < binLocus.size() ) // NOLINT
 					&& "ERROR: iByte must be less than locus size in bytes in locusOPH_()" );
 			const size_t nRemainingBytes{binLocus.size() - iByte};
-			locusChunkSize = (static_cast<size_t>(nRemainingBytes >= llWordSize_) * llWordSize_) + (static_cast<size_t>(nRemainingBytes < llWordSize_) * nRemainingBytes);
+			const size_t locusChunkSize{ (static_cast<size_t>(nRemainingBytes >= llWordSize_) * llWordSize_) + (static_cast<size_t>(nRemainingBytes < llWordSize_) * nRemainingBytes) };
 			memcpy(&locusChunk, binLocus.data() + iByte, locusChunkSize);
 			locusChunk    &= allBitsSet_ << sketchTail;
 			nWordUnsetBits = _tzcnt_u64(locusChunk);
@@ -1042,10 +1096,18 @@ void GenoTableHash::locusOPH_(const size_t &locusInd, const std::vector<size_t> 
 	}
 	assert( (filledIndexes.size() <= kSketches_) // NOLINT
 					&& "ERROR: filledIndexes.size() must not be greater than sketch number (kSketches_) in locusOPH_()" );
-	size_t iSeed = 0;                                           // index into the seed vector
+	densifySketches_(filledIndexes, sketchBeg);
+}
+
+void GenoTableHash::densifySketches_(std::vector<size_t> filledIndexes, const size_t &sketchBeg) {
+	// The index progression is seeded identically for every locus, so an empty sketch resolves to the
+	// same filled one across loci and the sketches stay comparable.
+	RanDraw prng(emptyBinIdxSeed_);
+	std::vector<uint32_t> seeds{static_cast<uint32_t>( prng.ranInt() )};
 	if ( filledIndexes.empty() ) {                              // if the whole locus is monomorphic, pick a random index as filled
 		filledIndexes.push_back( prng.sampleInt(kSketches_) );
 	}
+	size_t iSeed = 0;                                           // index into the seed vector
 	size_t emptyCount = kSketches_ - filledIndexes.size();
 	while (emptyCount > 0) {
 		for (const auto eachFI : filledIndexes) {
@@ -1078,7 +1140,7 @@ void GenoTableHash::bed2ophBlk_(const std::vector<char> &bedData, const std::pai
 		bedWindow.length = bedLocusSpan.length;
 		LocationWithLength binWindow{0, 0};
 		binWindow.length = locusSize_;
-		binarizeBedLocus(bedWindow, bedData, nIndividuals_, binWindow, binLocus);
+		binarizeBedLocus(bedWindow, bedData, nIndividuals_, binWindow, binLocus, locusSeed_ + iLocus);
 		// pad the locus to have a whole number of sketches 
 		for (const auto &addI : padIndiv) {
 			const size_t iLocByte    = addI.first / byteSize_;
@@ -1174,7 +1236,7 @@ void GenoTableHash::mac2ophBlk_(const std::vector<int> &macData, const std::pair
 				++iPad;
 			}
 		);
-		binarizeMacLocus(macLocus, binLocusRange, binLocus);
+		binarizeMacLocus(macLocus, binLocusRange, binLocus, locusSeed_ + iLocus);
 		locusOPH_(iLocus, permutation, binLocus);
 	}
 }
@@ -1187,7 +1249,7 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColI
 			RowColIdx localRC{};
 			localRC.iRow = locusIndexes[iRow];
 			localRC.jCol = locusIndexes[jCol];
-			JaccardPair localJP{makeJaccardPair_(localRC)};
+			const JaccardPair localJP{makeJaccardPair_(localRC)};
 			if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
 				result.insert(localRC, localJP);
 			}
@@ -1198,7 +1260,7 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColI
 				RowColIdx localRC{};
 				localRC.iRow = locusIndexes[iRow];
 				localRC.jCol = locusIndexes[jCol];
-				JaccardPair localJP{makeJaccardPair_(localRC)};
+				const JaccardPair localJP{makeJaccardPair_(localRC)};
 				if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
 					result.insert(localRC, localJP);
 				}
@@ -1209,7 +1271,7 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColI
 			RowColIdx localRC{};
 			localRC.iRow = locusIndexes[iRow];
 			localRC.jCol = locusIndexes[jColRem];
-			JaccardPair localJP{makeJaccardPair_(localRC)};
+			const JaccardPair localJP{makeJaccardPair_(localRC)};
 			if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
 				result.insert(localRC, localJP);
 			}
@@ -1220,7 +1282,7 @@ SimilarityMatrix GenoTableHash::hashJacBlock_(const std::pair<RowColIdx, RowColI
 		RowColIdx localRC{};
 		localRC.iRow = locusIndexes[iRow];
 		localRC.jCol = locusIndexes[jCol];
-		JaccardPair localJP{makeJaccardPair_(localRC)};
+		const JaccardPair localJP{makeJaccardPair_(localRC)};
 		if (static_cast<float>(localJP.nIntersect) / static_cast<float>(localJP.nUnion) >= similarityCutOff) {
 			result.insert(localRC, localJP);
 		}

@@ -292,11 +292,11 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
 			std::vector<char> bedByteVec{bedBytes.cbegin(), bedBytes.cend()};
 			std::vector<uint8_t> binBytesBed(nBinBytes, 0);
-			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytesBed);
+			BayesicSpace::binarizeBedLocus(bedWindow, bedByteVec, nIndividuals, binWindow, binBytesBed, iRanIt);
 			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytesBed) * 2);
 			std::vector<int> macVec{macArray.cbegin(), macArray.cend()};
 			std::vector<uint8_t> binBytesMAC(nBinBytes, 0);
-			BayesicSpace::binarizeMacLocus(macVec, binWindow, binBytesMAC);
+			BayesicSpace::binarizeMacLocus(macVec, binWindow, binBytesMAC, iRanIt);
 			REQUIRE(nIndividuals >= BayesicSpace::countSetBits(binBytesMAC) * 2);
 			uint32_t binBed{0};
 			memcpy( &binBed, binBytesBed.data(), binBytesBed.size() );
@@ -400,6 +400,7 @@ TEST_CASE("Command line parsing works", "[commandLine]") {
 		REQUIRE( intVariables.at("hash-size")         == 0 );
 		REQUIRE( intVariables.at("threads")           == -1 );
 		REQUIRE( intVariables.at("n-rows-per-band")   == 0 );
+		REQUIRE( intVariables.at("seed")              == -1 );   // negative means "none given"
 		REQUIRE( floatVariables.at("min-similarity")  == 0.0F );
 		REQUIRE( stringVariables.at("input-bed")      == "test.bed" );
 		REQUIRE( stringVariables.at("log-file")       == "ldblocks.log" );
@@ -410,7 +411,7 @@ TEST_CASE("Command line parsing works", "[commandLine]") {
 		// explicit values override the defaults
 		const std::unordered_map<std::string, std::string> fullCLI{
 			{"input-bed", "data.bed"}, {"n-individuals", "500"}, {"hash-size", "100"},
-			{"threads", "4"}, {"n-rows-per-band", "5"}, {"min-similarity", "0.75"},
+			{"threads", "4"}, {"n-rows-per-band", "5"}, {"min-similarity", "0.75"}, {"seed", "12345"},
 			{"log-file", "my.log"}, {"out-file", "my.tsv"}, {"only-groups", "set"}, {"add-locus-names", "set"}
 		};
 		REQUIRE_NOTHROW( BayesicSpace::extractCLinfo(fullCLI, intVariables, floatVariables, stringVariables) );
@@ -418,11 +419,13 @@ TEST_CASE("Command line parsing works", "[commandLine]") {
 		constexpr int correctHashSize{100};
 		constexpr int correctThreads{4};
 		constexpr int correctNrows{5};
+		constexpr int correctSeed{12345};
 		constexpr float correctMinSim{0.75F}; // exactly representable in binary
 		REQUIRE( intVariables.at("n-individuals")     == correctFullNind );
 		REQUIRE( intVariables.at("hash-size")         == correctHashSize );
 		REQUIRE( intVariables.at("threads")           == correctThreads );
 		REQUIRE( intVariables.at("n-rows-per-band")   == correctNrows );
+		REQUIRE( intVariables.at("seed")              == correctSeed );
 		REQUIRE( floatVariables.at("min-similarity")  == correctMinSim );
 		REQUIRE( stringVariables.at("input-bed")      == "data.bed" );
 		REQUIRE( stringVariables.at("log-file")       == "my.log" );
@@ -1343,6 +1346,34 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 
 		REQUIRE( bufferedLines.size() == vecIndexesA.size() + vecIndexesB.size() ); // every element written
 		REQUIRE( bufferedLines == referenceLines );                                // chunking preserves content and order
+
+		// Many chunks over a larger matrix: the scratch buffers are cleared and refilled for every
+		// chunk, so each chunk must reach the file before the next overwrites the buffers, and the
+		// chunks must arrive in matrix order.
+		constexpr size_t nManyElements{3000};
+		constexpr uint64_t indexStride{7};
+		BayesicSpace::SimilarityMatrix manyMatrix;
+		for (size_t idx = 0; idx < nManyElements; ++idx) {
+			BayesicSpace::JaccardPair jPair{};
+			jPair.nUnion     = nUnionVal;
+			jPair.nIntersect = (idx % nUnionVal) + 1;
+			manyMatrix.insert(BayesicSpace::recoverRCindexes( static_cast<uint64_t>(idx) * indexStride ), jPair);
+		}
+		REQUIRE( manyMatrix.nElements() == nManyElements );
+
+		std::remove( refFileName.c_str() ); // NOLINT
+		manyMatrix.save(refFileName, nThreads);                    // RAM-sized budget: a single chunk
+		const std::vector<std::string> manyReference{readMatrixFile(refFileName)};
+		std::remove( refFileName.c_str() ); // NOLINT
+
+		std::remove( bufFileName.c_str() ); // NOLINT
+		manyMatrix.reserve(1);                                     // smallest possible bank: hundreds of chunks
+		manyMatrix.save(bufFileName, nThreads);
+		const std::vector<std::string> manyPipelined{readMatrixFile(bufFileName)};
+		std::remove( bufFileName.c_str() ); // NOLINT
+
+		REQUIRE( manyReference.size() == nManyElements );
+		REQUIRE( manyPipelined == manyReference );
 	}
 
 	SECTION("Saved indexes are recovered across row boundaries") {
@@ -1512,6 +1543,43 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, undivNind, logFileName),
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
 	}
+	SECTION("A fixed seed makes GenoTableBin reproducible") {
+		// The .bed file has heterozygotes, whose assignment is a coin flip, so an unseeded run differs
+		// every time. A seed must pin the result, and must pin it independently of the thread count and
+		// of how the input is split into memory chunks: the seed is keyed on the global locus index.
+		constexpr uint64_t testSeed{42};
+		constexpr size_t oneThread{1};
+		const std::string binFileName("../tests/tmpSeedBinary.bin");
+		auto binaryBytes = [&binFileName](BayesicSpace::GenoTableBin &table) {
+			std::remove( binFileName.c_str() ); // NOLINT
+			table.saveGenoBinary(binFileName);
+			std::fstream binIn(binFileName, std::ios::in | std::ios::binary);
+			const std::vector<char> bytes( (std::istreambuf_iterator<char>(binIn)), std::istreambuf_iterator<char>() );
+			binIn.close();
+			std::remove( binFileName.c_str() ); // NOLINT
+			return bytes;
+		};
+
+		BayesicSpace::GenoTableBin seeded1(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{}, testSeed);
+		BayesicSpace::GenoTableBin seeded2(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{}, testSeed);
+		const std::vector<char> firstRun{ binaryBytes(seeded1) };
+		REQUIRE( !firstRun.empty() );
+		REQUIRE( binaryBytes(seeded2) == firstRun );                       // same seed, same table
+
+		BayesicSpace::GenoTableBin otherSeed(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{}, testSeed + 1);
+		REQUIRE( binaryBytes(otherSeed) != firstRun );                     // a different seed moves the coin flips
+
+		BayesicSpace::GenoTableBin oneThreaded(inputBedName, nIndividuals, logFileName, oneThread, BayesicSpace::MemoryParameters{}, testSeed);
+		REQUIRE( binaryBytes(oneThreaded) == firstRun );                   // independent of the thread count
+
+		// a tiny per-chunk locus cap forces many .bed read chunks
+		BayesicSpace::GenoTableBin chunked(inputBedName, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{0, 7}, testSeed);
+		REQUIRE( binaryBytes(chunked) == firstRun );                       // independent of the chunk split
+
+		BayesicSpace::GenoTableBin unseeded1(inputBedName, nIndividuals, logFileName, nThreads);
+		BayesicSpace::GenoTableBin unseeded2(inputBedName, nIndividuals, logFileName, nThreads);
+		REQUIRE( binaryBytes(unseeded1) != binaryBytes(unseeded2) );       // no seed still means a fresh draw
+	}
 	SECTION("GenoTableBin constructors and methods with correct data") {
 		constexpr size_t nChunks{3};
 		BayesicSpace::GenoTableBin bedGTB(inputBedName, nIndividuals, logFileName, nThreads);
@@ -1626,7 +1694,8 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				std::next( macVector.cbegin(), static_cast<std::ptrdiff_t>( (iLocus + 1) * nIndividualsSmall ) )
 			);
 			const BayesicSpace::LocationWithLength binWindow{iLocus, binLocusSize};
-			BayesicSpace::binarizeMacLocus(macLocus, binWindow, expected);
+			// the counts hold no heterozygotes, so the seed cannot affect the result and any value matches
+			BayesicSpace::binarizeMacLocus(macLocus, binWindow, expected, 0);
 		}
 
 		REQUIRE( savedBytes.size() == expected.size() );
@@ -1819,6 +1888,45 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		} // destructor must not create a file
 		std::fstream logIn(slfLogName, std::ios::in);
 		REQUIRE( !logIn.good() );
+	}
+	SECTION("A fixed seed makes GenoTableHash reproducible") {
+		// Three separate stochastic steps feed the sketches: the heterozygote coin flips (per locus),
+		// the OPH permutation and empty-bin densification (per object), and the band hash that assigns
+		// loci to LD groups. All are derived from the one seed, so it must pin the whole pipeline --
+		// again independently of the thread count and of the .bed chunk split.
+		constexpr uint64_t testSeed{2024};
+		constexpr size_t oneThread{1};
+		constexpr size_t rowsPerBand{2};
+		auto groupSignature = [](const std::vector<BayesicSpace::HashGroup> &groups) {
+			std::vector<uint32_t> flattened;
+			for (const auto &eachGroup : groups) {
+				flattened.push_back( static_cast<uint32_t>( eachGroup.locusIndexes.size() ) );
+				flattened.insert( flattened.end(), eachGroup.locusIndexes.cbegin(), eachGroup.locusIndexes.cend() );
+			}
+			return flattened;
+		};
+
+		const BayesicSpace::GenoTableHash seeded1(inputBedName, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{}, testSeed);
+		const BayesicSpace::GenoTableHash seeded2(inputBedName, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{}, testSeed);
+		const std::vector<uint32_t> reference{ groupSignature( seeded1.makeLDgroups(rowsPerBand) ) };
+		REQUIRE( !reference.empty() );
+		REQUIRE( groupSignature( seeded2.makeLDgroups(rowsPerBand) ) == reference );   // same seed, same groups
+
+		// repeated grouping on one object must agree: the band hash seed is fixed at construction
+		REQUIRE( groupSignature( seeded1.makeLDgroups(rowsPerBand) ) == reference );
+
+		const BayesicSpace::GenoTableHash otherSeed(inputBedName, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{}, testSeed + 1);
+		REQUIRE( groupSignature( otherSeed.makeLDgroups(rowsPerBand) ) != reference );
+
+		const BayesicSpace::GenoTableHash oneThreaded(inputBedName, sketchParameters, oneThread, logFileName, BayesicSpace::MemoryParameters{}, testSeed);
+		REQUIRE( groupSignature( oneThreaded.makeLDgroups(rowsPerBand) ) == reference );
+
+		const BayesicSpace::GenoTableHash chunked(inputBedName, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{0, 7}, testSeed);
+		REQUIRE( groupSignature( chunked.makeLDgroups(rowsPerBand) ) == reference );
+
+		const BayesicSpace::GenoTableHash unseeded1(inputBedName, sketchParameters, nThreads, logFileName);
+		const BayesicSpace::GenoTableHash unseeded2(inputBedName, sketchParameters, nThreads, logFileName);
+		REQUIRE( groupSignature( unseeded1.makeLDgroups(rowsPerBand) ) != groupSignature( unseeded2.makeLDgroups(rowsPerBand) ) );
 	}
 	SECTION("GenoTableHash .bed file constructor and methods with correct data") {
 		BayesicSpace::GenoTableHash bedHSH(inputBedName, sketchParameters, nThreads, logFileName);
