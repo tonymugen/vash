@@ -283,15 +283,15 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 			return out;
 		};
 #endif
+	// The ceiling caps both the parallel block compute below and the parallel key-range merge that
+	// consolidates the shards.
+	const ThreadCeiling threadCeiling(blockCounts.ceiling);
 	VASH_BENCH_TP(vashParPhase);
-	{
-		const ThreadCeiling threadCeiling(blockCounts.ceiling);
 #ifdef VASH_BENCHMARK
-		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), vashTimedBlock);
+	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), vashTimedBlock);
 #else
-		std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
+	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 #endif
-	}
 	VASH_BENCH_LAP("  parallelBuild: parallel block compute (wall)", vashParPhase);
 #ifdef VASH_BENCHMARK
 	if (!vashBlockMillis.empty()) {
@@ -312,19 +312,14 @@ SimilarityMatrix BayesicSpace::parallelBuild(const WorkloadLimits &blockCounts, 
 			<< ", max/mean " << vashImbal << ", max/ideal " << vashStraggle << "\n";
 	}
 #endif
-	VASH_BENCH_TP(vashConsPhase);
-	// The ceiling spans both the parallel block compute and the consolidation, so the parallel sort
-	// inside sortAndDeduplicate() is capped to the same worker count as the block transform.
-	VASH_BENCH_LAP("  parallelBuild: serial consolidation (append + sortAndDeduplicate)", vashConsPhase);
-	// The ceiling caps both the parallel block compute below and the parallel key-range merge that
-	// consolidates the shards.
-	const ThreadCeiling threadCeiling(blockCounts.ceiling);
-	std::transform(parallelPolicy, blockIndexes.cbegin(), blockIndexes.cend(), shards.begin(), blockToMatrix);
 	// Each shard is an individually sorted, de-duplicated run (every block is built through insert()),
 	// so consolidate with a parallel key-range k-way merge rather than appending all shards and
 	// re-sorting the union: O(N log k) in the surviving-pair count N and block count k, versus
 	// O(N log N) for a full sort, and no per-shard set_union rebuild.
-	return SimilarityMatrix::mergeSortedRuns(shards, blockCounts.ceiling);
+	VASH_BENCH_TP(vashConsPhase);
+	SimilarityMatrix consolidated{ SimilarityMatrix::mergeSortedRuns(shards, blockCounts.ceiling) };
+	VASH_BENCH_LAP("  parallelBuild: shard consolidation (parallel key-range merge)", vashConsPhase);
+	return consolidated;
 }
 
 constexpr std::array<float, 256> SimilarityMatrix::floatLookUp_{
@@ -537,6 +532,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	// The per-thread string scratch lives on the object and is cleared+reused by stringify_(), so
 	// re-saving never reallocates it. Its byte budget comes from reserve() when set (the sink path);
 	// standalone callers have no budget, so fall back to ~half of currently-available RAM.
+	VASH_BENCH_TP(vashSavePhase);
 	const size_t actualThreadCount{std::max( nThreads, static_cast<size_t>(1) )};
 	const ThreadCeiling threadCeiling(actualThreadCount);
 	saveBuffers_.resize(actualThreadCount);
@@ -574,8 +570,23 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 		eachBuffer.reserve(perBufferBytes);                        // idempotent if the caller pre-reserved
 	}
 
+	VASH_BENCH_LAP("    save: setup (locus names + line sizing + buffer reserve)", vashSavePhase);
+	VASH_BENCH_NOTE("    save: elements", matrix_.size());
+	VASH_BENCH_NOTE("    save: buffers (threads)", saveBuffers_.size());
+	VASH_BENCH_NOTE("    save: elements per chunk", chunkElements);
+	VASH_BENCH_NOTE("    save: worst-case line bytes", worstLine);
+	VASH_BENCH_ACC(vashStringifyAcc);
+	VASH_BENCH_ACC(vashWriteAcc);
+#ifdef VASH_BENCHMARK
+	// Busy-sum of the per-slice conversions: comparing it with the wall time of the parallel section
+	// shows how much of the stringify actually overlaps across threads.
+	double vashStringifyBusy{0.0};
+	size_t vashBytesWritten{0};
+#endif
+
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
+	VASH_BENCH_LAP("    save: open output stream", vashSavePhase);
 	// Cap concurrency to the buffer (thread) count for the stringify below.
 	size_t chunkStart{0};
 	while (chunkStart < matrix_.size()) {
@@ -596,20 +607,56 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 		// Each slice is disjoint and stringifies into its own buffer, so the conversion is data-parallel.
 		std::vector<size_t> bufferIndexes(usedBuffers);
 		std::iota(bufferIndexes.begin(), bufferIndexes.end(), static_cast<size_t>(0));
+#ifdef VASH_BENCHMARK
+		std::vector<double> vashSliceMillis(usedBuffers, 0.0);
+#endif
+		VASH_BENCH_TP(vashChunkStamp);
 		std::for_each(
 			parallelPolicy,
 			bufferIndexes.cbegin(),
 			bufferIndexes.cend(),
+#ifdef VASH_BENCHMARK
+			[this, &sliceRanges, &locusNames, &vashSliceMillis](const size_t &iBuffer) {
+				const auto vashS0 = std::chrono::steady_clock::now();
+				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, saveBuffers_[iBuffer]);
+				vashSliceMillis[iBuffer] =
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - vashS0).count();
+			}
+#else
 			[this, &sliceRanges, &locusNames](const size_t &iBuffer) {
 				stringify_(sliceRanges[iBuffer].first, sliceRanges[iBuffer].second, locusNames, saveBuffers_[iBuffer]);
 			}
+#endif
 		);
+		VASH_BENCH_ACC_ADD(vashStringifyAcc, vashChunkStamp);
+#ifdef VASH_BENCHMARK
+		vashStringifyBusy += std::accumulate(vashSliceMillis.cbegin(), vashSliceMillis.cend(), 0.0);
+		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
+			vashBytesWritten += saveBuffers_[iBuffer].size();
+		}
+#endif
 		for (size_t iBuffer = 0; iBuffer < usedBuffers; ++iBuffer) {
 			outStream.write( saveBuffers_[iBuffer].c_str(), static_cast<std::streamsize>( saveBuffers_[iBuffer].size() ) );
 		}
+		VASH_BENCH_ACC_ADD(vashWriteAcc, vashChunkStamp);
 		chunkStart += thisChunk;
 	}
+	VASH_BENCH_TP(vashClosePhase);
 	outStream.close();
+	VASH_BENCH_LAP("    save: close output stream (final flush to disk)", vashClosePhase);
+	VASH_BENCH_ACC_REPORT("    save: stringify (parallel, wall)", vashStringifyAcc);
+	VASH_BENCH_ACC_REPORT("    save: ostream write (serial)", vashWriteAcc);
+#ifdef VASH_BENCHMARK
+	// Busy-sum over wall time is the effective width of the stringify; compare with the thread cap.
+	std::cerr << "[vash-bench]     save: stringify busy-sum " << vashStringifyBusy << " ms over "
+		<< saveBuffers_.size() << " buffer(s), effective parallelism "
+		<< ( vashStringifyBusy / std::max(vashStringifyAcc.totalMilliseconds, 1e-9) ) << "x\n";
+	const double vashWriteSeconds{ vashWriteAcc.totalMilliseconds / 1e3 };
+	std::cerr << "[vash-bench]     save: bytes written " << vashBytesWritten
+		<< " (" << ( static_cast<double>(vashBytesWritten) / (1024.0 * 1024.0) ) << " MiB), write rate "
+		<< ( static_cast<double>(vashBytesWritten) / (1024.0 * 1024.0) / std::max(vashWriteSeconds, 1e-9) )
+		<< " MiB/s\n";
+#endif
 }
 
 void SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
@@ -692,7 +739,11 @@ void SimilarityMatrixSink::flush_() {
 	// Cap the parallel sort to the sink's thread count (save() installs its own equal ceiling).
 	// Harmless when nested under add()'s ceiling: global_control stacks and the value is identical.
 	const ThreadCeiling threadCeiling(nThreads_);
+	VASH_BENCH_NOTE("  flush_: buffered elements", buffer_.nElements());
+	VASH_BENCH_TP(vashFlushPhase);
 	buffer_.sortAndDeduplicate();
+	VASH_BENCH_LAP("  flush_: sortAndDeduplicate (parallel sort + unique)", vashFlushPhase);
 	buffer_.save(outFileName_, nThreads_, locusNameFile_);   // no-op on an empty buffer
+	VASH_BENCH_LAP("  flush_: save (stringify + write)", vashFlushPhase);
 	buffer_.clear();                                          // retains reserved capacity
 }

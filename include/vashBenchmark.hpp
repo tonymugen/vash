@@ -31,6 +31,13 @@
  * `std::cerr` with a `[vash-bench]` prefix so they are visible immediately without touching the
  * logger. Use `VASH_BENCH_TP(name)` to stamp a starting time point and `VASH_BENCH_LAP(label, name)`
  * to report the elapsed milliseconds since that stamp and re-arm it for the next phase.
+ *
+ * Phases inside a loop (e.g. the per-chunk stringify and write in `SimilarityMatrix::save`) would
+ * flood the output one line per iteration, so they use the accumulator markers instead:
+ * `VASH_BENCH_ACC(acc)` declares a totals slot, `VASH_BENCH_ACC_ADD(acc, name)` folds the elapsed
+ * time since `name` into it (re-arming `name`), and `VASH_BENCH_ACC_REPORT(label, acc)` prints the
+ * total, the iteration count and the per-iteration mean once the loop is done. `VASH_BENCH_NOTE`
+ * reports a scalar (a size, a rate) alongside the timings.
  */
 #ifndef VASH_BENCHMARK_HPP
 #define VASH_BENCHMARK_HPP
@@ -39,6 +46,7 @@
 
 #include <chrono>
 #include <iostream>
+#include <cstddef>
 
 // Stamp a monotonic starting time point in a local variable. A function cannot introduce a
 // caller-scoped variable, so this is deliberately a macro; `name` is a declarator, not an
@@ -58,6 +66,53 @@
 		(name) = vashBenchNow_;                                                           \
 	} while (false)
 
+// Declare a totals slot for a phase measured repeatedly inside a loop. Like VASH_BENCH_TP this
+// introduces a caller-scoped variable, so it has to be a macro and `name` must not be parenthesized.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage,bugprone-macro-parentheses)
+#define VASH_BENCH_ACC(name) BayesicSpace::BenchAccumulator name
+
+// Fold the time since `stamp` into the accumulator and re-arm `stamp` for the next phase.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_ACC_ADD(acc, stamp)                                                    \
+	do {                                                                                  \
+		const auto vashBenchNow_ = std::chrono::steady_clock::now();                      \
+		(acc).totalMilliseconds +=                                                        \
+			std::chrono::duration<double, std::milli>(vashBenchNow_ - (stamp)).count();   \
+		++(acc).nIterations;                                                              \
+		(stamp) = vashBenchNow_;                                                          \
+	} while (false)
+
+// Report an accumulated phase: total milliseconds, how many iterations contributed, and the mean.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_ACC_REPORT(label, acc)                                                 \
+	do {                                                                                  \
+		std::cerr << "[vash-bench] " << (label) << ": " << (acc).totalMilliseconds         \
+			<< " ms over " << (acc).nIterations << " call(s)";                            \
+		if ((acc).nIterations > 0) {                                                      \
+			std::cerr << ", mean "                                                        \
+				<< ( (acc).totalMilliseconds / static_cast<double>( (acc).nIterations ) ) \
+				<< " ms";                                                                 \
+		}                                                                                 \
+		std::cerr << '\n';                                                                \
+	} while (false)
+
+// Report a scalar quantity (a count, a size, a rate) next to the phase timings.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_NOTE(label, value)                                                     \
+	do {                                                                                  \
+		std::cerr << "[vash-bench] " << (label) << ": " << (value) << '\n';               \
+	} while (false)
+
+namespace BayesicSpace {
+	/** \brief Running total for a phase timed repeatedly inside a loop */
+	struct BenchAccumulator {
+		/** \brief Summed wall time of every measured iteration, milliseconds */
+		double totalMilliseconds{0.0};
+		/** \brief Number of iterations folded into the total */
+		size_t nIterations{0};
+	};
+}
+
 #else
 
 // No-ops: `name` is never declared, so nothing downstream references it.
@@ -67,6 +122,14 @@
 #define VASH_BENCH_TP(name)         ( (void)0 )
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define VASH_BENCH_LAP(label, name) ( (void)0 )
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_ACC(name)              ( (void)0 )
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_ACC_ADD(acc, stamp)    ( (void)0 )
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_ACC_REPORT(label, acc) ( (void)0 )
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define VASH_BENCH_NOTE(label, value)     ( (void)0 )
 
 #endif // VASH_BENCHMARK
 
