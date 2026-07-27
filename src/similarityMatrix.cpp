@@ -238,22 +238,6 @@ namespace {
 		return result;
 	}
 
-	/** \brief Append a base-1 index to a string
-	 *
-	 * Converts a base-0 index to its base-1 decimal representation and appends the digits to the target.
-	 * `std::to_chars` writes into a stack buffer, avoiding the temporary `std::string` that
-	 * `std::to_string` allocates for every field.
-	 *
-	 * \param[in] base0idx base-0 index
-	 * \param[out] target string the digits are appended to
-	 */
-	void appendBase1index(const uint32_t &base0idx, std::string &target) {
-		constexpr size_t maxDigits{10};                              // largest number of decimal digits in a uint32_t
-		std::array<char, maxDigits> digits{};
-		// the buffer accommodates any uint32_t value, so the conversion cannot fail
-		const char *digitEnd = std::to_chars(digits.data(), digits.data() + digits.size(), base0idx + 1U).ptr;
-		target.append( digits.data(), static_cast<size_t>( digitEnd - digits.data() ) );
-	}
 } // anonymous namespace
 
 RowColIdx BayesicSpace::recoverRCindexes(const uint64_t &vecIdx) noexcept {
@@ -704,33 +688,47 @@ void SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, s
 		return;
 	}
 	/*
-	 * Each field is appended in place rather than assembled with `operator+`: the concatenated line
-	 * exceeds the small-string capacity, so the expression form heap-allocates once per line, and at
-	 * hundreds of millions of lines that allocation traffic, not the file write, dominates saving.
-	 * The range is sorted, so the row index also comes from an incremental cursor instead of a
-	 * square root per element.
+	 * Lines are not assembled with `operator+`: the concatenated line exceeds the small-string
+	 * capacity, so the expression form heap-allocates once per line, and at hundreds of millions of
+	 * lines that allocation traffic, not the file write, dominates saving. The range is sorted, so
+	 * the row index also comes from an incremental cursor instead of a square root per element.
 	 */
 	RowColCursor rowColCursor{ (*start) >> valueSize_ };
 	if ( locusNames.empty() ) {
+		// With numeric indexes a line has a compile-time size bound, so it is built in a stack buffer
+		// and handed to the target in a single `append`. Growing the target field by field instead
+		// costs an out-of-line library call per field, which measurably dominates the formatting
+		// itself once the per-line allocation is gone.
+		constexpr size_t maxIndexDigits{10};                       // widest decimal rendering of a uint32_t
+		constexpr size_t nSeparators{3};                           // two tabs and a newline
+		constexpr size_t maxLineBytes{ (2UL * maxIndexDigits) + valueStringLength_ + nSeparators };
+		std::array<char, maxLineBytes> line{};
 		for (auto matIt = start; matIt != end; ++matIt) {
 			const RowColIdx currentPair{ rowColCursor.advanceTo( (*matIt) >> valueSize_ ) };
-			appendBase1index(currentPair.iRow, target);
-			target += '\t';
-			appendBase1index(currentPair.jCol, target);
-			target += '\t';
-			target.append(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_);
-			target += '\n';
+			// each field is written into its own bounded sub-range, so the writes provably stay inside `line`
+			char *lineEnd = line.data();
+			lineEnd    = std::to_chars(lineEnd, lineEnd + maxIndexDigits, currentPair.iRow + 1U).ptr;
+			*lineEnd++ = '\t';
+			lineEnd    = std::to_chars(lineEnd, lineEnd + maxIndexDigits, currentPair.jCol + 1U).ptr;
+			*lineEnd++ = '\t';
+			lineEnd    = std::copy_n(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_, lineEnd);
+			*lineEnd++ = '\n';
+			target.append( line.data(), static_cast<size_t>(lineEnd - line.data()) );
 		}
 		return;
 	}
+	// Locus names have no compile-time width bound, so they are appended directly; only the fixed
+	// tail that follows them is staged in a buffer and appended in one piece.
+	std::array<char, valueStringLength_ + 2UL> lineTail{};          // a tab, the value, a newline
+	lineTail.front() = '\t';
+	lineTail.back()  = '\n';
 	for (auto matIt = start; matIt != end; ++matIt) {
 		const RowColIdx currentPair{ rowColCursor.advanceTo( (*matIt) >> valueSize_ ) };
 		target += locusNames[currentPair.iRow];
 		target += '\t';
 		target += locusNames[currentPair.jCol];
-		target += '\t';
-		target.append(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_);
-		target += '\n';
+		std::copy_n(stringLookUp_.at( (*matIt) & valueMask_ ), valueStringLength_, lineTail.data() + 1);
+		target.append( lineTail.data(), lineTail.size() );
 	}
 }
 
