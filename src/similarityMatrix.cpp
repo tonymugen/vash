@@ -220,6 +220,9 @@ namespace {
 		for (size_t partition = 0; partition < nPartitions; ++partition) {
 			offsets[partition + 1] = offsets[partition] + partitionOut[partition].size();
 		}
+		// Value-initialized, so the whole result is zero-filled before the copy below overwrites every
+		// element. That serial pass costs about twice the parallel copy it precedes; skipping it needs a
+		// default-initializing allocator on the element vector, since reserve() plus resize() re-zeroes.
 		std::vector<uint64_t> result( offsets.back() );
 		std::for_each(
 			parallelPolicy,
@@ -465,8 +468,13 @@ SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix>
 	const auto autoThreads = static_cast<size_t>( std::max(std::thread::hardware_concurrency(), 1U) );
 	const size_t requestedThreads{ maxThreads > 0 ? maxThreads : autoThreads };
 	constexpr size_t minElementsPerPartition{ 1UL << 16U };
+	// Over-decompose so the scheduler can steal work: a range's merge cost tracks how many runs overlap it
+	// and how much de-duplication it does, not its element count, so count-balanced ranges still differ
+	// several-fold in cost. More, smaller ranges spread that skew across threads and keep each range's
+	// working set closer to cache-resident.
+	constexpr size_t partitionsPerThread{8};
 	const size_t partitionCeiling{ std::max( totalElements / minElementsPerPartition, static_cast<size_t>(1) ) };
-	const size_t nPartitions{ std::min( requestedThreads * 4UL, partitionCeiling ) };
+	const size_t nPartitions{ std::min( requestedThreads * partitionsPerThread, partitionCeiling ) };
 
 	SimilarityMatrix result;
 	if (nPartitions <= 1) {
@@ -509,12 +517,17 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	if ( matrix_.empty() ) {
 		return;
 	}
-	// The per-thread string scratch lives on the object and is cleared+reused by stringify_(), so
+	// The string scratch lives on the object and is cleared+reused by stringify_(), so
 	// re-saving never reallocates it. Its byte budget comes from reserve() when set (the sink path);
 	// standalone callers have no budget, so fall back to ~half of currently-available RAM.
 	const size_t actualThreadCount{std::max( nThreads, static_cast<size_t>(1) )};
 	const ThreadCeiling threadCeiling(actualThreadCount);
-	saveBuffers_.resize(actualThreadCount);
+	// More buffers than threads: per-slice stringify cost varies several-fold at equal element counts,
+	// so one slice per thread leaves threads idle behind a straggler. Over-decomposing lets the
+	// scheduler steal the surplus slices. This does not change the byte budget, which is a single
+	// total split across however many buffers there are, nor the number of chunks written.
+	constexpr size_t buffersPerThread{4};
+	saveBuffers_.resize(actualThreadCount * buffersPerThread);
 	const size_t stringBudget{ saveBufferBudget_ > 0 ? saveBufferBudget_ : getAvailableRAM() / 2UL };
 	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
 	// six characters. The last (largest-index) element gives the widest base-1 index; with locus
@@ -539,9 +552,10 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	constexpr size_t nSeparators{3};                                // two tabs and a newline
 	const size_t worstLine{ (2UL * widestField) + valueStringLength_ + nSeparators };
 
-	// Give each thread its own share of the byte budget, and size chunks so every thread stringifies
-	// at most perBufferEntries entries into its buffer: worst-case that is perBufferBytes, so a buffer
-	// reserved to perBufferBytes never reallocates.
+	// Give each buffer its own share of the byte budget, and size chunks so a buffer receives at most
+	// perBufferEntries entries: worst-case that is perBufferBytes, so a buffer reserved to
+	// perBufferBytes never reallocates. Splitting the same budget more ways leaves the chunk element
+	// count (and therefore the number of chunks and writes) unchanged.
 	const size_t perBufferBytes{ std::max( stringBudget / saveBuffers_.size(), worstLine ) };
 	const size_t perBufferEntries{ std::max( perBufferBytes / worstLine, static_cast<size_t>(1) ) };
 	const size_t chunkElements{perBufferEntries * saveBuffers_.size()};
@@ -551,7 +565,6 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 
 	std::fstream outStream;
 	outStream.open(outFileName, std::ios::out | std::ios::binary | std::ios::app);
-	// Cap concurrency to the buffer (thread) count for the stringify below.
 	size_t chunkStart{0};
 	while (chunkStart < matrix_.size()) {
 		const size_t thisChunk{ std::min(chunkElements, matrix_.size() - chunkStart) };
