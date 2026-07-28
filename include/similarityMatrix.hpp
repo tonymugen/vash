@@ -301,8 +301,8 @@ namespace BayesicSpace {
 		 *
 		 * Uses multi-threaded data prep to speed up saving.
 		 * If the output file already exists, appends to it.
-		 * Sizes its string scratch from currently-available RAM; prefer the reusable-buffer overload
-		 * when the memory budget is managed externally.
+		 * The string scratch is sized from the budget set by `reserve()`, falling back to a share of
+		 * currently-available RAM if the object was never reserved.
 		 *
 		 * \param[in] outFileName output file name
 		 * \param[in] nThreads number of threads
@@ -317,7 +317,7 @@ namespace BayesicSpace {
 		 * The rest encode the vectorized index of the element.
 		 */
 		std::vector<uint64_t> matrix_;
-		/** \brief Per-thread string scratch buffers for saving to file (reused across chunks)
+		/** \brief String scratch buffers for saving to file (reused across chunks)
 		 *
 		 * Scratch state for the logically-const `save()`, hence `mutable`.
 		 */
@@ -449,7 +449,7 @@ namespace BayesicSpace {
 		/** \brief Accumulation buffer
 		 *
 		 * Holds the matrix data (reserved to the 3/4 matrix share of the memory budget) and owns the
-		 * per-thread save string scratch (the remaining 1/4, sized inside `SimilarityMatrix::reserve`).
+		 * save string scratch (the remaining 1/4, sized inside `SimilarityMatrix::reserve`).
 		 */
 		SimilarityMatrix buffer_;
 		/** \brief Output file name */
