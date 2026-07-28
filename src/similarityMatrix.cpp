@@ -522,12 +522,6 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	// standalone callers have no budget, so fall back to ~half of currently-available RAM.
 	const size_t actualThreadCount{std::max( nThreads, static_cast<size_t>(1) )};
 	const ThreadCeiling threadCeiling(actualThreadCount);
-	// More buffers than threads: per-slice stringify cost varies several-fold at equal element counts,
-	// so one slice per thread leaves threads idle behind a straggler. Over-decomposing lets the
-	// scheduler steal the surplus slices. This does not change the byte budget, which is a single
-	// total split across however many buffers there are, nor the number of chunks written.
-	constexpr size_t buffersPerThread{8};
-	saveBuffers_.resize(actualThreadCount * buffersPerThread);
 	const size_t stringBudget{ saveBufferBudget_ > 0 ? saveBufferBudget_ : getAvailableRAM() / 2UL };
 	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
 	// six characters. The last (largest-index) element gives the widest base-1 index; with locus
@@ -552,10 +546,22 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	constexpr size_t nSeparators{3};                                // two tabs and a newline
 	const size_t worstLine{ (2UL * widestField) + valueStringLength_ + nSeparators };
 
+	// Buffer count is chosen so each buffer stringifies about targetBufferBytes of output, because that
+	// is what per-element stringify cost actually tracks: it is flat from roughly 20 to 70 MiB per
+	// buffer and then degrades sharply (about threefold by 160 MiB). Deriving the count from the thread
+	// count instead makes buffer size grow with the data, which walks a large enough matrix off that
+	// cliff. The floor of two buffers per thread keeps enough surplus slices for the scheduler to steal,
+	// since per-slice cost still varies several-fold at equal element counts.
+	// The chunk element count does not depend on the buffer count (perBufferBytes below is the budget
+	// divided by that count, and the chunk multiplies it back), so this leaves chunking untouched.
+	constexpr size_t targetBufferBytes{ 64UL << 20U };
+	const size_t chunkCeiling{ std::min( std::max( stringBudget / worstLine, static_cast<size_t>(1) ), matrix_.size() ) };
+	const size_t nBuffers{ std::max(chunkCeiling * worstLine / targetBufferBytes, 2UL * actualThreadCount) };
+	saveBuffers_.resize(nBuffers);
+
 	// Give each buffer its own share of the byte budget, and size chunks so a buffer receives at most
 	// perBufferEntries entries: worst-case that is perBufferBytes, so a buffer reserved to
-	// perBufferBytes never reallocates. Splitting the same budget more ways leaves the chunk element
-	// count (and therefore the number of chunks and writes) unchanged.
+	// perBufferBytes never reallocates.
 	const size_t perBufferBytes{ std::max( stringBudget / saveBuffers_.size(), worstLine ) };
 	const size_t perBufferEntries{ std::max( perBufferBytes / worstLine, static_cast<size_t>(1) ) };
 	const size_t chunkElements{perBufferEntries * saveBuffers_.size()};
