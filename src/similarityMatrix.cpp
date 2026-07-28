@@ -614,7 +614,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	// so one slice per thread leaves threads idle behind a straggler. Over-decomposing lets the
 	// scheduler steal the surplus slices. This does not change the byte budget, which is a single
 	// total split across however many buffers there are, nor the number of chunks written.
-	constexpr size_t buffersPerThread{4};
+	constexpr size_t buffersPerThread{8};
 	saveBuffers_.resize(actualThreadCount * buffersPerThread);
 	const size_t stringBudget{ saveBufferBudget_ > 0 ? saveBufferBudget_ : getAvailableRAM() / 2UL };
 	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
