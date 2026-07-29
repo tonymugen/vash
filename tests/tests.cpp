@@ -13,6 +13,8 @@
 #include <sstream>
 #include <unordered_map>
 #include <set>
+#include <memory>
+#include <type_traits>
 #include <popcntintrin.h>
 
 #include "gvarHash.hpp"
@@ -76,6 +78,14 @@ TEST_CASE("Can count set bits correctly", "[countSetBits]") {
 	constexpr uint64_t correctVectorWindowCount{20};
 	const uint64_t vectorWindowCount{BayesicSpace::countSetBits(byteVector, byteVectorWindow)};
 	REQUIRE(vectorWindowCount == correctVectorWindowCount);
+	// A window whose length is an exact multiple of the 8-byte word is consumed entirely by the
+	// whole-word loop, leaving the trailing-bytes branch unused; every window above has a remainder.
+	constexpr BayesicSpace::LocationWithLength wholeWordWindow{0, 8};
+	constexpr uint64_t correctWholeWordCount{43};
+	REQUIRE(BayesicSpace::countSetBits(byteVector, wholeWordWindow) == correctWholeWordCount);
+	constexpr BayesicSpace::LocationWithLength offsetWholeWordWindow{6, 8};
+	constexpr uint64_t correctOffsetWholeWordCount{37};
+	REQUIRE(BayesicSpace::countSetBits(byteVector, offsetWholeWordWindow) == correctOffsetWholeWordCount);
 }
 
 TEST_CASE("Available RAM query returns a usable value", "[getAvailableRAM]") {
@@ -306,6 +316,56 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			REQUIRE(_mm_popcnt_u32(macBedUnion) >= correctMinUnion);
 		}
 
+		// Individual counts that divide evenly leave no trailing bytes: the .bed window is a whole
+		// number of 64-bit words and the binary window a whole number of 32-bit words, so both
+		// trailing-byte branches are skipped. Every count above (and in the .bed test files) has a
+		// remainder, so this is the only shape that exercises the loops alone.
+		constexpr size_t nEvenIndividuals{128};
+		constexpr size_t nEvenBedBytes{nEvenIndividuals / nIndivPerBedByte};        // 32 == 4 * 8
+		constexpr size_t nEvenBinBytes{nEvenIndividuals / nIndivPerBinByte};        // 16 == 4 * 4
+		// repeating genotype pattern: two hom-minor, one het, one missing, four hom-major per eight
+		constexpr std::array<int, nIndivPerBinByte> macPattern{0, 2, 0, 0, 2, 0, -9, 1};
+		constexpr std::array<uint8_t, 2> bedPattern{0b00001100, 0b10010011};        // same eight genotypes, .bed coded
+		constexpr size_t nHomMinorPerPattern{2};
+		constexpr size_t nHetPerPattern{1};
+		const size_t nPatternRepeats{nEvenIndividuals / macPattern.size()};
+		// hets are set with probability one half, so the count is bounded below by the hom-minor
+		// count and above by hom-minor plus hets; neither bound is close to a minor-allele flip
+		const size_t minEvenSetBits{nHomMinorPerPattern * nPatternRepeats};
+		const size_t maxEvenSetBits{(nHomMinorPerPattern + nHetPerPattern) * nPatternRepeats};
+		std::vector<char> evenBedVec;
+		std::vector<int> evenMacVec;
+		evenBedVec.reserve(nEvenBedBytes);
+		evenMacVec.reserve(nEvenIndividuals);
+		for (size_t iRepeat = 0; iRepeat < nPatternRepeats; ++iRepeat) {
+			for (const auto &eachBedByte : bedPattern) {
+				evenBedVec.push_back( static_cast<char>(eachBedByte) );
+			}
+			for (const auto &eachMac : macPattern) {
+				evenMacVec.push_back(eachMac);
+			}
+		}
+		REQUIRE( evenBedVec.size() == nEvenBedBytes );
+		REQUIRE( evenMacVec.size() == nEvenIndividuals );
+		const BayesicSpace::LocationWithLength evenBedWindow{0, nEvenBedBytes};
+		const BayesicSpace::LocationWithLength evenBinWindow{0, nEvenBinBytes};
+		for (uint16_t iRanIt = 0; iRanIt < N_RAN_ITERATIONS; ++iRanIt) {
+			std::vector<uint8_t> evenBinFromBed(nEvenBinBytes, 0);
+			BayesicSpace::binarizeBedLocus(evenBedWindow, evenBedVec, nEvenIndividuals, evenBinWindow, evenBinFromBed, iRanIt);
+			const uint64_t bedSetBits{BayesicSpace::countSetBits(evenBinFromBed)};
+			REQUIRE(bedSetBits >= minEvenSetBits);
+			REQUIRE(bedSetBits <= maxEvenSetBits);
+			std::vector<uint8_t> evenBinFromMac(nEvenBinBytes, 0);
+			BayesicSpace::binarizeMacLocus(evenMacVec, evenBinWindow, evenBinFromMac, iRanIt);
+			const uint64_t macSetBits{BayesicSpace::countSetBits(evenBinFromMac)};
+			REQUIRE(macSetBits >= minEvenSetBits);
+			REQUIRE(macSetBits <= maxEvenSetBits);
+			// the same seed must reproduce the same het draws, so a repeat call is bit-identical
+			std::vector<uint8_t> evenBinRepeat(nEvenBinBytes, 0);
+			BayesicSpace::binarizeBedLocus(evenBedWindow, evenBedVec, nEvenIndividuals, evenBinWindow, evenBinRepeat, iRanIt);
+			REQUIRE(evenBinRepeat == evenBinFromBed);
+		}
+
 		// makeGroupRanges tests
 		std::vector<BayesicSpace::HashGroup> groups;
 		constexpr std::array<size_t, 3> groupSizes{7, 5, 11};
@@ -365,6 +425,22 @@ TEST_CASE("Command line parsing works", "[commandLine]") {
 		std::unordered_map<std::string, std::string> emptyCLI;
 		BayesicSpace::parseCL(noFlagArgc, noFlagArgv.data(), emptyCLI);
 		REQUIRE( emptyCLI.empty() );
+
+		// Bare values with no flag ahead of them are discarded: the leading one has no flag to attach
+		// to, and only the first value after a flag is consumed, so the rest are dropped as well.
+		std::vector<std::string> strayArgs{
+			"ldblocks", "stray.bed", "--input-bed", "test.bed", "extra", "alsoExtra"
+		};
+		std::vector<char *> strayArgv;
+		strayArgv.reserve( strayArgs.size() );
+		for (auto &eachArg : strayArgs) {
+			strayArgv.push_back( eachArg.data() );
+		}
+		int strayArgc{static_cast<int>( strayArgv.size() )};
+		std::unordered_map<std::string, std::string> strayCLI;
+		BayesicSpace::parseCL(strayArgc, strayArgv.data(), strayCLI);
+		REQUIRE( strayCLI.size() == 1 );
+		REQUIRE( strayCLI.at("input-bed") == "test.bed" );
 	}
 
 	SECTION("extractCLinfo defaults, overrides, and errors") {
@@ -1065,6 +1141,103 @@ TEST_CASE("SimilarityMatrix methods work", "[SimilarityMatrix]") {
 		std::remove( refFileName.c_str() ); // NOLINT
 		REQUIRE( dedupLines == aloneLines );
 	}
+	SECTION("Degenerate inputs are handled without work") {
+		// save() on an empty matrix returns before opening the stream, so no file appears
+		const std::string unwrittenFileName("../tests/neverWritten.tsv");
+		std::remove( unwrittenFileName.c_str() ); // NOLINT
+		const BayesicSpace::SimilarityMatrix emptyMatrix;
+		constexpr size_t nSaveThreads{2};
+		REQUIRE( emptyMatrix.nElements() == 0 );
+		emptyMatrix.save(unwrittenFileName, nSaveThreads);
+		std::fstream unwrittenTest(unwrittenFileName, std::ios::in);
+		REQUIRE( !unwrittenTest.good() );                                          // nothing was created
+		unwrittenTest.close();
+
+		// parallelBuild over zero blocks never calls the block builder and yields an empty matrix
+		bool builderCalled{false};
+		const BayesicSpace::SimilarityMatrix noBlocks{
+			BayesicSpace::parallelBuild(
+				BayesicSpace::WorkloadLimits{0, 0},
+				[&builderCalled](size_t) {
+					builderCalled = true;
+					return BayesicSpace::SimilarityMatrix{};
+				}
+			)
+		};
+		REQUIRE( noBlocks.nElements() == 0 );
+		REQUIRE( !builderCalled );
+	}
+	SECTION("Merge partitions with an empty key range are skipped") {
+		// A key range is empty when two adjacent splitters resolve to the same key. That needs every
+		// element to share one index while the pre-dedup total still buys three partitions (the count
+		// is capped at totalElements / 65536), so it takes one single-element run per element. Both
+		// inner splitters then land on maxKey + 1 and the last two ranges are empty.
+		constexpr size_t nSingleRuns{3UL * (1UL << 16U)};
+		constexpr uint32_t sharedRow{5};
+		constexpr uint32_t sharedCol{2};
+		constexpr uint64_t nUnionVal{200};
+		constexpr uint64_t nIntersectVal{50};
+		constexpr size_t forceThreeThreads{1};
+		std::vector<BayesicSpace::SimilarityMatrix> singleElementRuns(nSingleRuns);
+		for (auto &eachRun : singleElementRuns) {
+			eachRun.insert( BayesicSpace::RowColIdx{sharedRow, sharedCol}, BayesicSpace::JaccardPair{nIntersectVal, nUnionVal} );
+		}
+		BayesicSpace::SimilarityMatrix collapsed{
+			BayesicSpace::SimilarityMatrix::mergeSortedRuns(singleElementRuns, forceThreeThreads)
+		};
+		REQUIRE( collapsed.nElements() == 1 );                                     // all runs carry the same index
+
+		const std::string collapsedFileName("../tests/emptyRangeMerge.tsv");
+		std::remove( collapsedFileName.c_str() ); // NOLINT
+		constexpr size_t nSaveThreads{2};
+		collapsed.save(collapsedFileName, nSaveThreads);
+		std::fstream collapsedStream(collapsedFileName, std::ios::in);
+		std::string collapsedLine;
+		std::getline(collapsedStream, collapsedLine);
+		const bool onlyOneLine{ !std::getline(collapsedStream, collapsedLine) };
+		collapsedStream.close();
+		std::remove( collapsedFileName.c_str() ); // NOLINT
+		REQUIRE(onlyOneLine);
+	}
+	SECTION("Default-initializing allocator keeps container semantics") {
+		// Packed element storage skips value-initialization, which is safe only because every sized
+		// buffer is completely overwritten before it is read (see mergeRangePartitioned). The merge
+		// sections below cover that buffer end to end; these checks pin the rest of the allocator
+		// contract, which a sized-then-overwritten buffer never exercises. Each one fails loudly if
+		// the no-op construct() is ever widened past default construction of a trivial type.
+		static_assert(
+			std::is_same_v<
+				std::allocator_traits< BayesicSpace::DefaultInitAllocator<uint64_t> >::rebind_alloc<uint32_t>,
+				BayesicSpace::DefaultInitAllocator<uint32_t>
+			>,
+			"rebinding must yield the default-initializing allocator, not std::allocator"
+		);
+
+		constexpr size_t nSized{1024};
+		BayesicSpace::PackedElementVector sized(nSized);
+		REQUIRE( sized.size() == nSized );                                         // sized; contents are indeterminate, so never read here
+
+		constexpr uint64_t firstValue{42};
+		constexpr uint64_t fillValue{7};
+		constexpr uint64_t resizeValue{9};
+		constexpr size_t nFilled{3};
+		constexpr size_t nResized{2};
+		BayesicSpace::PackedElementVector grown;
+		grown.push_back(firstValue);
+		grown.insert(grown.cend(), nFilled, fillValue);
+		grown.resize(grown.size() + nResized, resizeValue);
+		const std::vector<uint64_t> expectedGrown{firstValue, fillValue, fillValue, fillValue, resizeValue, resizeValue};
+		// every value-carrying construction must still run; if the variadic construct() stopped
+		// forwarding, each of these elements would be indeterminate instead
+		REQUIRE( std::vector<uint64_t>( grown.cbegin(), grown.cend() ) == expectedGrown );
+
+		// A non-trivially default constructible element must still be default-constructed, or sizing
+		// would hand out strings that were never built.
+		constexpr size_t nStrings{4};
+		std::vector< std::string, BayesicSpace::DefaultInitAllocator<std::string> > strings(nStrings);
+		REQUIRE( strings.size() == nStrings );
+		REQUIRE( std::all_of( strings.cbegin(), strings.cend(), [](const std::string &eachString) { return eachString.empty(); } ) );
+	}
 	SECTION("SimilarityMatrix k-way merge of pre-sorted runs") {
 		constexpr uint64_t nUnionVal{254};
 		constexpr size_t nThreads{2};
@@ -1542,6 +1715,11 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 				Catch::Matchers::StartsWith("ERROR: number of individuals must be greater than 1") );
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(smallMACvec, undivNind, logFileName),
 				Catch::Matchers::StartsWith("ERROR: length of allele count vector") );
+		// the budget is enforced by the count-vector constructor as well, not just the .bed one
+		constexpr size_t nBudgetLoci{4};
+		const std::vector<int> budgetMACvec(static_cast<size_t>(nIndividuals) * nBudgetLoci, 0);
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableBin(budgetMACvec, nIndividuals, logFileName, nThreads, BayesicSpace::MemoryParameters{1}),
+				Catch::Matchers::StartsWith("ERROR: the genotype table does not fit within the memory budget") );
 	}
 	SECTION("A fixed seed makes GenoTableBin reproducible") {
 		// The .bed file has heterozygotes, whose assignment is a coin flip, so an unseeded run differs
@@ -1765,6 +1943,60 @@ TEST_CASE("GenoTableBin methods work", "[gtBin]") {
 		REQUIRE( singleBytes.size() == chunkNloci * binLocusSize );
 		REQUIRE( singleBytes == multiBytes );
 	}
+	SECTION("allJaccardLD labels rows with .bim locus names") {
+		// Given a .bim, the output carries locus names instead of base-1 indexes. Nothing else drives
+		// this branch: every other call leaves the input file name empty and gets indexes.
+		const std::string bimFileName("../tests/ind197_397.bim");
+		const std::vector<std::string> locusNames{ BayesicSpace::getLocusNames(bimFileName) };
+		const std::set<std::string> knownNames( locusNames.cbegin(), locusNames.cend() );
+		BayesicSpace::GenoTableBin namedGTB(inputBedName, nIndividuals, logFileName, nThreads);
+		const std::string namedLDfileName("../tests/tmpNamedLD.tsv");
+		std::remove( namedLDfileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames namedFiles{};
+		namedFiles.inputFileName  = bimFileName;
+		namedFiles.outputFileName = namedLDfileName;
+		namedGTB.allJaccardLD(namedFiles);
+
+		std::fstream namedIn(namedLDfileName, std::ios::in);
+		std::string namedLine;
+		std::getline(namedIn, namedLine);                                // header
+		size_t nNamedLines{0};
+		bool allNamesKnown{true};
+		while ( std::getline(namedIn, namedLine) ) {
+			std::stringstream lineStream(namedLine);
+			std::string firstName;
+			std::string secondName;
+			lineStream >> firstName >> secondName;
+			allNamesKnown = allNamesKnown && (knownNames.count(firstName) == 1) && (knownNames.count(secondName) == 1);
+			++nNamedLines;
+		}
+		namedIn.close();
+		std::remove( namedLDfileName.c_str() ); // NOLINT
+		constexpr size_t nBimLoci{397};
+		REQUIRE( locusNames.size() == nBimLoci );
+		REQUIRE( nNamedLines == nBimLoci * (nBimLoci - 1) / 2 );
+		REQUIRE(allNamesKnown);
+
+		// naming a .bim that does not exist falls back to base-1 indexes rather than failing
+		const std::string absentLDfileName("../tests/tmpAbsentBimLD.tsv");
+		std::remove( absentLDfileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames absentFiles{};
+		absentFiles.inputFileName  = "../tests/noSuchFile.bim";
+		absentFiles.outputFileName = absentLDfileName;
+		namedGTB.allJaccardLD(absentFiles);
+		std::fstream absentIn(absentLDfileName, std::ios::in);
+		std::string absentLine;
+		std::getline(absentIn, absentLine);                              // header
+		std::getline(absentIn, absentLine);
+		absentIn.close();
+		std::remove( absentLDfileName.c_str() ); // NOLINT
+		std::stringstream absentStream(absentLine);
+		std::string absentFirstField;
+		absentStream >> absentFirstField;
+		const bool indexNotName{ !absentFirstField.empty()
+				&& std::all_of( absentFirstField.cbegin(), absentFirstField.cend(), [](const char eachChar) { return std::isdigit(eachChar) != 0; } ) };
+		REQUIRE(indexNotName);
+	}
 	SECTION("allJaccardLD emits every pair exactly once under a tight budget") {
 		// A small RAM budget forces many small sink flushes; combined with several threads this drives
 		// jaccardBlock_ ranges that lie within a single row. Each unordered pair must still appear
@@ -1865,6 +2097,173 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		const std::vector<int> sentinelMACvec(sentinelNind, 0);
 		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(sentinelMACvec, BayesicSpace::IndividualAndSketchCounts{sentinelNind, sentinelSketch}, logFileName),
 				Catch::Matchers::StartsWith("ERROR: Number of sketches") );
+		// the .bed constructor has the same sentinel check, and reaches it before opening the file, so
+		// the individual count only has to exceed the sketch count for the check to be the one that fires
+		constexpr uint32_t aboveSentinelNind{65537};
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(inputBedName, BayesicSpace::IndividualAndSketchCounts{aboveSentinelNind, sentinelSketch}, nThreads, logFileName),
+				Catch::Matchers::StartsWith("ERROR: Number of sketches") );
+		// the count-vector constructor enforces the memory budget, like its .bed counterpart above
+		REQUIRE_THROWS_WITH( BayesicSpace::GenoTableHash(macVector, sketchParameters, nThreads, logFileName, BayesicSpace::MemoryParameters{1}),
+				Catch::Matchers::StartsWith("ERROR: the genotype table does not fit within the memory budget") );
+	}
+	SECTION("A named but absent .bim falls back to locus indexes") {
+		// Naming a .bim that does not exist is tolerated: no names are read and the output carries
+		// base-1 indexes, exactly as it would with no .bim named at all. All three saving paths must
+		// agree on this -- ldInGroups and allHashLD hand the name to the sink, so an unusable one has
+		// to be dropped before it reaches save().
+		constexpr size_t nRowsPerBand{5};
+		const std::string absentBimName("../tests/noSuchFile.bim");
+		BayesicSpace::GenoTableHash absentBimHSH(inputBedName, sketchParameters, nThreads, logFileName);
+
+		auto firstFieldIsIndex = [](const std::string &outName) {
+			std::fstream fieldIn(outName, std::ios::in);
+			std::string fieldLine;
+			std::getline(fieldIn, fieldLine);                            // header
+			std::getline(fieldIn, fieldLine);
+			fieldIn.close();
+			std::remove( outName.c_str() ); // NOLINT
+			std::stringstream fieldStream(fieldLine);
+			std::string firstField;
+			fieldStream >> firstField;
+			return !firstField.empty()
+				&& std::all_of( firstField.cbegin(), firstField.cend(), [](const char eachChar) { return std::isdigit(eachChar) != 0; } );
+		};
+
+		constexpr float absentCutOff{0.5};
+		BayesicSpace::SparsityParameters absentSparsity{};
+		absentSparsity.similarityCutOff = absentCutOff;
+		absentSparsity.nRowsPerBand     = nRowsPerBand;
+		const std::string absentGroupLDname("../tests/tmpAbsentBimGroupLD.tsv");
+		std::remove( absentGroupLDname.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames absentLDfiles{};
+		absentLDfiles.inputFileName  = absentBimName;
+		absentLDfiles.outputFileName = absentGroupLDname;
+		absentBimHSH.ldInGroups(absentSparsity, absentLDfiles);
+		REQUIRE( firstFieldIsIndex(absentGroupLDname) );
+
+		const std::string absentAllLDname("../tests/tmpAbsentBimAllLD.tsv");
+		std::remove( absentAllLDname.c_str() ); // NOLINT
+		absentLDfiles.outputFileName = absentAllLDname;
+		absentBimHSH.allHashLD(absentCutOff, absentLDfiles);
+		REQUIRE( firstFieldIsIndex(absentAllLDname) );
+		const std::string groupFileName("../tests/tmpAbsentBimGroups.tsv");
+		std::remove( groupFileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames absentBimFiles{};
+		absentBimFiles.inputFileName  = absentBimName;
+		absentBimFiles.outputFileName = groupFileName;
+		absentBimHSH.makeLDgroups(nRowsPerBand, absentBimFiles);
+
+		std::fstream groupIn(groupFileName, std::ios::in);
+		std::string groupLine;
+		std::getline(groupIn, groupLine);                                // header
+		size_t nGroupRows{0};
+		bool allIndexesInRange{true};
+		while ( std::getline(groupIn, groupLine) ) {
+			std::stringstream lineStream(groupLine);
+			std::string groupField;
+			std::string locusField;
+			lineStream >> groupField >> locusField;
+			// indexes, not names: every second field parses as a base-1 locus index
+			const bool allDigits{ !locusField.empty()
+					&& std::all_of( locusField.cbegin(), locusField.cend(), [](const char eachChar) { return std::isdigit(eachChar) != 0; } ) };
+			allIndexesInRange = allIndexesInRange && allDigits;
+			++nGroupRows;
+		}
+		groupIn.close();
+		std::remove( groupFileName.c_str() ); // NOLINT
+		REQUIRE( nGroupRows > 0 );
+		REQUIRE(allIndexesInRange);
+	}
+	SECTION("ldInGroups emits every pair exactly once with single-row blocks") {
+		// Blocks get maxElements / (4 * nThreads) pairs each, and maxElements is capped at
+		// ceil(nPairs / suggestNchunks). A large chunk count therefore drives blocks narrower than a
+		// row, which is the only way a block range starts and ends on the same row -- the case the
+		// wider tests never reach. Every unordered pair above the cutoff must still appear once.
+		constexpr size_t manyChunks{5000};
+		constexpr size_t nRowsPerBand{5};
+		constexpr float grpCutOff{0.75};
+		BayesicSpace::GenoTableHash rowBlockHSH(inputBedName, sketchParameters, nThreads, logFileName);
+		BayesicSpace::SparsityParameters sparsity{};
+		sparsity.similarityCutOff = grpCutOff;
+		sparsity.nRowsPerBand     = nRowsPerBand;
+		const std::string rowBlockFileName("../tests/tmpRowBlockLD.tsv");
+		std::remove( rowBlockFileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames rowBlockFiles{};
+		rowBlockFiles.outputFileName = rowBlockFileName;
+		auto pairsFromRun = [&](const std::string &outName, const size_t &nChunks) {
+			std::remove( outName.c_str() ); // NOLINT
+			BayesicSpace::InOutFileNames runFiles{};
+			runFiles.outputFileName = outName;
+			rowBlockHSH.ldInGroups(sparsity, runFiles, nChunks);
+			std::fstream runIn(outName, std::ios::in);
+			std::string runLine;
+			std::getline(runIn, runLine);                                // header
+			std::set< std::pair<uint32_t, uint32_t> > runPairs;
+			bool aboveCutOff{true};
+			while ( std::getline(runIn, runLine) ) {
+				std::stringstream lineStream(runLine);
+				uint32_t row{0};
+				uint32_t col{0};
+				float jaccard{0.0F};
+				lineStream >> row >> col >> jaccard;
+				runPairs.emplace(row, col);
+				aboveCutOff = aboveCutOff && (jaccard >= grpCutOff - FPREC);
+			}
+			runIn.close();
+			std::remove( outName.c_str() ); // NOLINT
+			REQUIRE(aboveCutOff);
+			return runPairs;
+		};
+		// Overlapping groups can repeat a pair across flush boundaries, which the hash path accepts
+		// (saved pairs can no longer be de-duplicated), so line counts are not comparable. The set of
+		// pairs is: narrow blocks must neither drop a pair nor invent one.
+		const auto narrowBlockPairs{ pairsFromRun(rowBlockFileName, manyChunks) };
+		const auto wideBlockPairs{ pairsFromRun("../tests/tmpWideBlockLD.tsv", 1) };
+		REQUIRE( !narrowBlockPairs.empty() );
+		REQUIRE( narrowBlockPairs == wideBlockPairs );
+	}
+	SECTION("Monomorphic loci and more threads than loci are handled") {
+		// An all-major locus sets no bits, so every one of its sketches stays empty and densification
+		// has no filled index to copy from; it must invent one rather than loop forever. Three loci
+		// against a larger thread count also drives the whole-table fallback taken when the loci do
+		// not divide across the threads.
+		constexpr uint32_t monoNind{20};
+		constexpr uint16_t monoSketches{5};
+		constexpr size_t monoNloci{3};
+		constexpr size_t moreThreadsThanLoci{8};
+		const std::vector<int> monomorphicCounts(static_cast<size_t>(monoNind) * monoNloci, 0);
+		BayesicSpace::GenoTableHash monoHSH(
+			monomorphicCounts,
+			BayesicSpace::IndividualAndSketchCounts{monoNind, monoSketches},
+			moreThreadsThanLoci,
+			logFileName
+		);
+		// Monomorphic loci carry no set bits, so their sketches stay at the empty-bin sentinel and no
+		// band collects two of them: makeLDgroups finds nothing and ldInGroups must emit the header
+		// alone rather than indexing an empty group vector.
+		constexpr float allPairsCutOff{0.0F};
+		constexpr size_t monoRowsPerBand{1};
+		BayesicSpace::SparsityParameters monoSparsity{};
+		monoSparsity.similarityCutOff = allPairsCutOff;
+		monoSparsity.nRowsPerBand     = monoRowsPerBand;
+		const std::string monoFileName("../tests/tmpMonomorphic.tsv");
+		std::remove( monoFileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames monoFiles{};
+		monoFiles.outputFileName = monoFileName;
+		monoHSH.ldInGroups(monoSparsity, monoFiles);
+
+		std::fstream monoIn(monoFileName, std::ios::in);
+		std::string monoHeader;
+		std::getline(monoIn, monoHeader);
+		std::string monoLine;
+		size_t nMonoLines{0};
+		while ( std::getline(monoIn, monoLine) ) {
+			++nMonoLines;
+		}
+		monoIn.close();
+		std::remove( monoFileName.c_str() ); // NOLINT
+		REQUIRE( monoHeader == "locus1\tlocus2\tjaccard" );               // the header is still written
+		REQUIRE( nMonoLines == 0 );                                       // and nothing else
 	}
 	SECTION("The log is flushed to file on destruction") {
 		const std::string slfLogName("../tests/saveLogTest.log");

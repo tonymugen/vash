@@ -35,6 +35,9 @@
 #include <cstdint>
 #include <cstddef>
 #include <functional>
+#include <memory>
+#include <type_traits>
+#include <utility>
 
 namespace BayesicSpace {
 	struct RowColIdx;
@@ -83,6 +86,67 @@ namespace BayesicSpace {
 		/** \brief Associated upper bound (e.g. thread ceiling or element budget) */
 		size_t ceiling;
 	};
+
+	/** \brief Allocator that leaves trivially-constructible elements uninitialized
+	 *
+	 * Behaves exactly like `std::allocator` except that value-initializing a trivially default
+	 * constructible element is a no-op, so sizing a container does not write to the storage. Used for
+	 * buffers that are completely overwritten immediately after they are sized, where the
+	 * value-initialization is a redundant serial pass over the whole allocation.
+	 * No `std::vector` function can be guaranteed to do this without a compiler inserting zero-initialization.
+	 *
+	 * Elements of a container using this allocator hold indeterminate values until written. Reading one
+	 * before it is assigned is undefined behavior, and the sanitizers in the test build do not detect
+	 * it, so every use must overwrite the whole range before reading any of it.
+	 */
+	template<typename T>
+	class DefaultInitAllocator : public std::allocator<T> {
+	public:
+		/** \brief Element type */
+		using value_type = T;
+		/** \brief Allocator for a different element type */
+		template<typename U>
+		struct rebind {                                          // NOLINT(readability-identifier-naming) required allocator interface
+			/** \brief The rebound allocator, which must be this allocator and not `std::allocator` */
+			using other = DefaultInitAllocator<U>;
+		};
+
+		using std::allocator<T>::allocator;
+
+		/** \brief Default-construct an element
+		 *
+		 * Leaves the element uninitialized when that is equivalent to default construction, which is the
+		 * point of this allocator. Non-trivial types are value-initialized as usual.
+		 *
+		 * \param[in] elementPtr pointer to the storage for the element
+		 */
+		template<typename U>
+		void construct(U *elementPtr) noexcept( std::is_nothrow_default_constructible_v<U> ) {
+			if constexpr ( !std::is_trivially_default_constructible_v<U> ) {
+				::new( static_cast<void *>(elementPtr) ) U;
+			} else {
+				static_cast<void>(elementPtr);
+			}
+		}
+		/** \brief Construct an element from arguments
+		 *
+		 * Must forward, or every insertion into the container silently leaves elements uninitialized.
+		 *
+		 * \param[in] elementPtr pointer to the storage for the element
+		 * \param[in] args constructor arguments
+		 */
+		template<typename U, typename... Args>
+		void construct(U *elementPtr, Args&&... args) {
+			::new( static_cast<void *>(elementPtr) ) U( std::forward<Args>(args)... );
+		}
+	};
+
+	/** \brief Packed similarity matrix elements
+	 *
+	 * Storage for packed index/value elements. Sized buffers of these are always filled by an explicit
+	 * copy, so the elements are left uninitialized when the buffer is sized (see `DefaultInitAllocator`).
+	 */
+	using PackedElementVector = std::vector< uint64_t, DefaultInitAllocator<uint64_t> >;
 
 	/** \brief Input and output file names
 	 *
@@ -316,7 +380,7 @@ namespace BayesicSpace {
 		 * The first byte is the quantized similarity value (indexing the look-up table).
 		 * The rest encode the vectorized index of the element.
 		 */
-		std::vector<uint64_t> matrix_;
+		PackedElementVector matrix_;
 		/** \brief String scratch buffers for saving to file (reused across chunks)
 		 *
 		 * Scratch state for the logically-const `save()`, hence `mutable`.
@@ -370,7 +434,7 @@ namespace BayesicSpace {
 		 * \param[in] locusNames locus name vector
 		 * \param[out] target string the output is written into
 		 */
-		static void stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+		static void stringify_(PackedElementVector::const_iterator start, PackedElementVector::const_iterator end,
 								const std::vector<std::string> &locusNames, std::string &target);
 		/** \brief Insert a value (updating the index) 
 		 *

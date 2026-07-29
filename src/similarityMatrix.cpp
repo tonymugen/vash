@@ -80,7 +80,7 @@ namespace {
 	 * \param[out] target reserved vector the merged, de-duplicated elements are appended to
 	 * \param[in] keyShift packed value-field width; `element >> keyShift` is the vectorized-index key
 	 */
-	void kWayMerge(std::vector<RunSpan> spans, std::vector<uint64_t> &target, const uint64_t keyShift) {
+	void kWayMerge(std::vector<RunSpan> spans, PackedElementVector &target, const uint64_t keyShift) {
 		// Min-heap of span slots keyed by each span's current vectorized index (the high bits of the
 		// packed element); storing slot indexes keeps the heap payload to one size_t per live span.
 		std::vector<size_t> heap;
@@ -130,7 +130,7 @@ namespace {
 	 * \param[in] params number of key ranges and the vectorized-index key shift
 	 * \return merged, sorted, de-duplicated packed vector
 	 */
-	std::vector<uint64_t> mergeRangePartitioned(const std::vector<RunSpan> &runSpans, std::vector<std::vector<uint64_t>> &runData,
+	PackedElementVector mergeRangePartitioned(const std::vector<RunSpan> &runSpans, std::vector<PackedElementVector> &runData,
 									const RangeMergeParams &params) {
 		const size_t nPartitions{params.nPartitions};
 		const uint64_t keyShift{params.keyShift};
@@ -181,7 +181,7 @@ namespace {
 
 		// Merge each key range independently: for range [boundaryKeys[p], boundaryKeys[p + 1]) the span of
 		// a run is the contiguous run of indexes in that half-open interval, found by two binary searches.
-		std::vector<std::vector<uint64_t>> partitionOut(nPartitions);
+		std::vector<PackedElementVector> partitionOut(nPartitions);
 		std::vector<size_t> partitionIdx(nPartitions);
 		std::iota( partitionIdx.begin(), partitionIdx.end(), static_cast<size_t>(0) );
 		std::for_each(
@@ -220,10 +220,13 @@ namespace {
 		for (size_t partition = 0; partition < nPartitions; ++partition) {
 			offsets[partition + 1] = offsets[partition] + partitionOut[partition].size();
 		}
-		// Value-initialized, so the whole result is zero-filled before the copy below overwrites every
-		// element. That serial pass costs about twice the parallel copy it precedes; skipping it needs a
-		// default-initializing allocator on the element vector, since reserve() plus resize() re-zeroes.
-		std::vector<uint64_t> result( offsets.back() );
+		// Sized but left uninitialized (see DefaultInitAllocator): the copy below writes every element,
+		// so value-initializing here would be a redundant serial pass over the whole allocation, costing
+		// about twice the parallel copy it precedes. The copy is exhaustive by construction -- offsets is
+		// the prefix sum of exactly the partition sizes the copy consumes, so the regions tile the result
+		// with no gap -- and that is what makes leaving the storage indeterminate safe. Keep it that way:
+		// any element not written here would be read as a garbage index rather than as a zero.
+		PackedElementVector result( offsets.back() );
 		std::for_each(
 			parallelPolicy,
 			partitionIdx.cbegin(),
@@ -232,9 +235,9 @@ namespace {
 				std::copy(
 					partitionOut[partition].cbegin(),
 					partitionOut[partition].cend(),
-					result.begin() + static_cast<std::vector<uint64_t>::difference_type>(offsets[partition])
+					result.begin() + static_cast<PackedElementVector::difference_type>(offsets[partition])
 				);
-				std::vector<uint64_t>().swap(partitionOut[partition]);   // release each buffer as it is copied
+				PackedElementVector().swap(partitionOut[partition]);   // release each buffer as it is copied
 			}
 		);
 		return result;
@@ -444,7 +447,7 @@ SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix>
 	// Move each run's packed data into a locally-owned working set; the source runs are left empty and
 	// freed, so the free-function merge helpers below never touch SimilarityMatrix internals. Only the
 	// non-empty runs contribute a span, paired one-to-one with runData.
-	std::vector<std::vector<uint64_t>> runData;
+	std::vector<PackedElementVector> runData;
 	runData.reserve( runs.size() );
 	size_t totalElements{0};
 	for (auto &eachRun : runs) {
@@ -452,7 +455,7 @@ SimilarityMatrix SimilarityMatrix::mergeSortedRuns(std::vector<SimilarityMatrix>
 		if ( !eachRun.matrix_.empty() ) {
 			runData.emplace_back( std::move(eachRun.matrix_) );
 		}
-		eachRun.matrix_ = std::vector<uint64_t>{};           // guarantee the moved-from run is empty and released
+		eachRun.matrix_ = PackedElementVector{};           // guarantee the moved-from run is empty and released
 	}
 	if (totalElements == 0) {
 		return SimilarityMatrix{};
@@ -501,7 +504,7 @@ void SimilarityMatrix::merge(SimilarityMatrix &toMerge) {
 		return (packedIdx1 >> valueSize_) < (packedIdx2 >> valueSize_);
 	};
 
-	std::vector<uint64_t> mergedMatrix;
+	PackedElementVector mergedMatrix;
 	std::set_union(
 		matrix_.cbegin(), matrix_.cend(),
 		toMerge.matrix_.cbegin(), toMerge.matrix_.cend(),
@@ -577,13 +580,13 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 		const size_t usedBuffers{ std::min( thisChunk, saveBuffers_.size() ) };
 		// NOLINTNEXTLINE(readability-suspicious-call-argument) thisChunk is the element count, usedBuffers the chunk count
 		const std::vector<size_t> sliceSizes{ makeChunkSizes(thisChunk, usedBuffers) };
-		std::vector< std::pair<std::vector<uint64_t>::const_iterator, std::vector<uint64_t>::const_iterator> > sliceRanges;
+		std::vector< std::pair<PackedElementVector::const_iterator, PackedElementVector::const_iterator> > sliceRanges;
 		sliceRanges.reserve(usedBuffers);
 		size_t sliceOffset{chunkStart};
 		for (const auto &eachSlice : sliceSizes) {
 			sliceRanges.emplace_back(
-				matrix_.cbegin() + static_cast<std::vector<uint64_t>::difference_type>(sliceOffset),
-				matrix_.cbegin() + static_cast<std::vector<uint64_t>::difference_type>(sliceOffset + eachSlice)
+				matrix_.cbegin() + static_cast<PackedElementVector::difference_type>(sliceOffset),
+				matrix_.cbegin() + static_cast<PackedElementVector::difference_type>(sliceOffset + eachSlice)
 			);
 			sliceOffset += eachSlice;
 		}
@@ -606,7 +609,7 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	outStream.close();
 }
 
-void SimilarityMatrix::stringify_(std::vector<uint64_t>::const_iterator start, std::vector<uint64_t>::const_iterator end,
+void SimilarityMatrix::stringify_(PackedElementVector::const_iterator start, PackedElementVector::const_iterator end,
 								const std::vector<std::string> &locusNames, std::string &target) {
 	target.clear();   // retains capacity, enabling buffer reuse across chunks
 	if (start == end) {
