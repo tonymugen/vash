@@ -201,6 +201,54 @@ namespace {
 		return groups;
 	}
 
+	/** \brief Drop repeated groups from a sorted group vector
+	 *
+	 * Removes each group whose hash matches that of the last group kept, leaving the survivors in their
+	 * original relative order. Equivalent to `std::unique` under the same hash comparison, but the hash
+	 * of every group is computed once, in parallel, instead of twice per adjacent comparison in a serial
+	 * pass; hashing dominates the cost, so this is where the parallelism has to go.
+	 *
+	 * Only groups that are adjacent after hash removal collapse, so the vector must already be sorted
+	 * such that identical groups are neighbors (the lexicographic sort in `GenoTableHash::makeLDgroups()`
+	 * guarantees this).
+	 *
+	 * \param[in,out] groups sorted groups, de-duplicated in place
+	 * \param[in] hashSeed seed for the group hashes
+	 */
+	void deduplicateGroups(std::vector< std::vector<uint32_t> > &groups, const uint32_t &hashSeed) {
+		if ( groups.empty() ) {
+			return;
+		}
+		std::vector<uint32_t> groupHashes( groups.size() );
+		std::transform(
+			parallelPolicy,
+			groups.cbegin(),
+			groups.cend(),
+			groupHashes.begin(),
+			[&hashSeed](const std::vector<uint32_t> &eachGroup) {
+				return murMurHash(eachGroup, hashSeed);
+			}
+		);
+		// Comparing against the last group kept rather than the immediate predecessor matches
+		// std::unique, which matters when three or more identical groups are adjacent.
+		size_t lastKeptIdx{0};
+		for (size_t iGroup = 1; iGroup < groups.size(); ++iGroup) {
+			if (groupHashes[iGroup] == groupHashes[lastKeptIdx]) {
+				continue;
+			}
+			++lastKeptIdx;
+			if (lastKeptIdx != iGroup) {
+				groups[lastKeptIdx]      = std::move(groups[iGroup]);
+				groupHashes[lastKeptIdx] = groupHashes[iGroup];
+			}
+		}
+		groups.erase(
+			groups.begin() + static_cast<std::vector< std::vector<uint32_t> >::difference_type>(lastKeptIdx + 1UL),
+			groups.end()
+		);
+		groups.shrink_to_fit();
+	}
+
 	/** \brief Element budget for a streaming similarity-matrix sink
 	 *
 	 * Three quarters of half the residual RAM budget (the memory left after the resident genotype
@@ -1037,17 +1085,8 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	VASH_BENCH_LAP("makeLDgroups: sort groups (lexicographic, parallel)", vashBenchLDgroups);
 	// de-duplicate the groups
 	logMessages_.add( "Number of groups before de-duplication: " + std::to_string( groups.size() ) );
-	auto lastUniqueIt = std::unique(
-		groups.begin(),
-		groups.end(),
-		[this](const std::vector<uint32_t> &first, const std::vector<uint32_t> &second) {
-			return murMurHash(first, bandHashSeed_) == murMurHash(second, bandHashSeed_);
-		}
-	);
-	groups.erase( lastUniqueIt, groups.end() );
-	groups.shrink_to_fit();
+	deduplicateGroups(groups, bandHashSeed_);
 	VASH_BENCH_LAP("makeLDgroups: de-duplicate groups", vashBenchLDgroups);
-
 	logMessages_.add( "Number of groups after de-duplication: " + std::to_string( groups.size() ) );
 
 	std::vector<HashGroup> indexedGroups;
