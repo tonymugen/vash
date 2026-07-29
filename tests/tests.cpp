@@ -366,6 +366,26 @@ TEST_CASE(".bed related file and data parsing works", "[bedData]") {
 			REQUIRE(evenBinRepeat == evenBinFromBed);
 		}
 
+		// A minor-allele flip sets every bit past the last individual in the final 32-bit word, and
+		// those have to be cleared again. With sixteen or fewer individuals the word is more than
+		// twice as wide as the data they occupy, which is where taking the remainder of the two
+		// (rather than their difference) leaves the high bits standing. The phantom individuals then
+		// count as set in every flipped locus, so unrelated loci appear to share them.
+		constexpr size_t nSmallIndividuals{10};
+		constexpr size_t nSmallBedBytes{3};
+		constexpr size_t nSmallBinBytes{2};
+		// six individuals homozygous for the second allele and four for the first: a majority of set
+		// bits, so the locus flips, and no heterozygote to make the outcome depend on the draws
+		constexpr std::array<uint8_t, nSmallBedBytes> smallBedBytes{0b11111111, 0b00001111, 0b00000000};
+		constexpr std::array<uint8_t, nSmallBinBytes> correctSmallBin{0b11000000, 0b00000011};   // only the four flipped individuals
+		const std::vector<char> smallBedVec{smallBedBytes.cbegin(), smallBedBytes.cend()};
+		const BayesicSpace::LocationWithLength smallBedWindow{0, nSmallBedBytes};
+		const BayesicSpace::LocationWithLength smallBinWindow{0, nSmallBinBytes};
+		std::vector<uint8_t> smallBin(nSmallBinBytes, 0);
+		BayesicSpace::binarizeBedLocus(smallBedWindow, smallBedVec, nSmallIndividuals, smallBinWindow, smallBin, 1UL);
+		REQUIRE( std::equal( smallBin.cbegin(), smallBin.cend(), correctSmallBin.cbegin() ) );
+		REQUIRE(nSmallIndividuals >= BayesicSpace::countSetBits(smallBin) * 2);
+
 		// makeGroupRanges tests
 		std::vector<BayesicSpace::HashGroup> groups;
 		constexpr std::array<size_t, 3> groupSizes{7, 5, 11};

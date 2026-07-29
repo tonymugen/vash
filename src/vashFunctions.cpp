@@ -367,8 +367,22 @@ void BayesicSpace::binarizeBedLocus(const LocationWithLength &bedLocusWindow, co
 			eachBinWord = (~eachBinWord) & (~missWords[missWordIdx]);                                                     // flip the bits in the binary vector and reset the missing bits to 0
 			++missWordIdx;
 		}
-		const auto padShift{static_cast<uint32_t>( (binWords.size() * word32sizeInBits) % nIndividuals )};
-		const uint32_t lastWordMask{std::numeric_limits<uint32_t>::max() >> padShift};                                    // clear the padding bits after the flip
+		// The flip sets every bit past the last individual in the final word, so those have to be cleared
+		// again. The count of them is the saturating difference between the bits the words hold and the
+		// individuals they describe: a caller may pass a count larger than the _.bed_ data covers (the
+		// hashing path pads it up to a whole number of sketches), and there is then nothing to clear.
+		// A remainder would be wrong in both directions -- it exceeds the word width when the padded
+		// count is the larger, and it leaves the high bits set whenever fewer than 32 individuals share
+		// the single word.
+		const size_t nBinWordBits{binWords.size() * word32sizeInBits};
+		const auto padShift{
+			static_cast<uint32_t>( nBinWordBits > nIndividuals ? nBinWordBits - nIndividuals : 0UL )
+		};
+		// Holds because the caller sizes the _.bed_ window from the same individual count: the words then
+		// overshoot it by less than one word.
+		assert( (padShift < word32sizeInBits) // NOLINT
+				&& "ERROR: more padding bits than fit in a word in binarizeBedLocus()" );
+		const uint32_t lastWordMask{std::numeric_limits<uint32_t>::max() >> padShift};
 		binWords.back() = binWords.back() & lastWordMask;
 	}
 	// copy over the binary bits to the locus vector
