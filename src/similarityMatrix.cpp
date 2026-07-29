@@ -524,12 +524,15 @@ void SimilarityMatrix::save(const std::string &outFileName, const size_t &nThrea
 	const ThreadCeiling threadCeiling(actualThreadCount);
 	// More buffers than threads: per-slice stringify cost varies several-fold at equal element counts,
 	// so one slice per thread leaves threads idle behind a straggler. Over-decomposing lets the
-	// scheduler steal the surplus slices. Per-element cost falls steeply as this ratio rises to about
-	// four and is flat past that; it tracks the ratio rather than the size of a buffer, so deriving the
-	// count from a target buffer size instead measurably regresses smaller matrices. This does not
-	// change the byte budget, which is a single total split across however many buffers there are, nor
-	// the number of chunks written.
-	constexpr size_t buffersPerThread{4};
+	// scheduler steal the surplus slices. This does not change the byte budget, which is a single total
+	// split across however many buffers there are, nor the number of chunks written.
+	// Eight is measured, not derived. Per-element cost is roughly halved going from one buffer per
+	// thread to eight, but what sets the optimum is not understood: across two real data sets it tracks
+	// neither this ratio nor the resulting buffer size (equal ratios and equal buffer sizes both give
+	// costs differing by more than half between the two). Sizing buffers to a byte target instead was
+	// tried and was worse. Eight is the value that is never measurably worse than the alternatives and
+	// is clearly better on the larger input; four ties it on small data and costs 2% on large.
+	constexpr size_t buffersPerThread{8};
 	saveBuffers_.resize(actualThreadCount * buffersPerThread);
 	const size_t stringBudget{ saveBufferBudget_ > 0 ? saveBufferBudget_ : getAvailableRAM() / 2UL };
 	// Worst-case line width. A line is "field1\tfield2\tvalue\n"; every value string is a fixed
