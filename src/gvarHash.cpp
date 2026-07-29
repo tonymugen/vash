@@ -971,6 +971,7 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
 	VASH_BENCH_TP(vashLDinGroups);
 	std::vector<HashGroup> ldGroups{this->makeLDgroups(sparsityValues.nRowsPerBand)};
+	VASH_BENCH_LAP("ldInGroups: makeLDgroups (serial grouping)", vashLDinGroups);
 
 	const InOutFileNames outputNames{ resolveLocusNameFile(bimAndLDnames, nLoci_, logMessages_) };
 
