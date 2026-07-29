@@ -89,6 +89,38 @@ namespace {
 		const size_t forcedBudget   = (nPairs + clampedNchunks - 1UL) / clampedNchunks;      // ceil(nPairs / suggestNchunks)
 		return std::max( std::min(autoBudget, forcedBudget), static_cast<size_t>(1) );
 	}
+
+	/** \brief Resolve the locus name file for saving
+	 *
+	 * The names themselves are read downstream by `SimilarityMatrix::save()`, which is handed this
+	 * file name; all that is decided here is whether to hand it over. A named but absent `.bim` is not
+	 * an error, so the name is cleared and the output falls back to base-1 locus indexes rather than
+	 * `save()` failing to read the file.
+	 *
+	 * \param[in] bimAndOutNames `.bim` and output file names as provided by the caller
+	 * \param[in] nLoci number of loci in the table, checked against the `.bim` record count
+	 * \param[in,out] logMessages log to record the outcome in
+	 * \return the file names to pass downstream, with an unusable `.bim` name removed
+	 */
+	InOutFileNames resolveLocusNameFile(const InOutFileNames &bimAndOutNames, [[maybe_unused]] const size_t &nLoci, VashLog &logMessages) {
+		InOutFileNames resolvedNames{bimAndOutNames};
+		if ( resolvedNames.inputFileName.empty() ) {
+			return resolvedNames;
+		}
+		std::fstream bimExistenceTest(resolvedNames.inputFileName, std::ios::in);
+		const bool bimExists = bimExistenceTest.good();
+		bimExistenceTest.close();
+		if (bimExists) {
+			logMessages.add("Getting locus names from the " + resolvedNames.inputFileName + " .bim file");
+			assert( (getLocusNames(resolvedNames.inputFileName).size() == nLoci) // NOLINT
+					&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+			return resolvedNames;
+		}
+		logMessages.add("WARNING: no .bim file " + resolvedNames.inputFileName + "; falling back to locus indexes");
+		resolvedNames.inputFileName.clear();
+
+		return resolvedNames;
+	}
 }
 
 // GenoTableBin methods
@@ -294,18 +326,7 @@ void GenoTableBin::saveGenoBinary(const std::string &outFileName) const {
 
 void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
 	logMessages_.add("Calculating all pairwise LD using full Jaccard similarity estimates");
-	std::vector<std::string> locusNames{};
-	if ( !bimAndLDnames.inputFileName.empty() ) {
-		std::fstream bimExistenceTest(bimAndLDnames.inputFileName, std::ios::in);
-		const bool bimExists = bimExistenceTest.good();
-		bimExistenceTest.close();
-		if (bimExists) {
-			logMessages_.add("Getting locus names from the " + bimAndLDnames.inputFileName + " .bim file");
-			locusNames = getLocusNames(bimAndLDnames.inputFileName);
-		}
-		assert( (locusNames.size() == nLoci_) // NOLINT
-				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
-	}
+	const InOutFileNames outputNames{ resolveLocusNameFile(bimAndLDnames, nLoci_, logMessages_) };
 
 	const size_t nPairs      = nLoci_ * ( nLoci_ - static_cast<size_t>(1) ) / static_cast<size_t>(2);
 	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks, workingRAMbytes_);
@@ -314,11 +335,11 @@ void GenoTableBin::allJaccardLD(const InOutFileNames &bimAndLDnames, const size_
 
 	// set up the header
 	std::fstream output;
-	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output.open(outputNames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
+	SimilarityMatrixSink sink(outputNames, WorkloadLimits{nThreads_, maxElements});
 	size_t cumChunkIdx{0};
 	uint32_t base1chunkIdx{1};
 	while (cumChunkIdx < nPairs) {
@@ -754,15 +775,17 @@ void GenoTableHash::allHashLD(const float &similarityCutOff, const InOutFileName
 	const size_t nPairs      = static_cast<size_t>(nLoci_) * (static_cast<size_t>(nLoci_) - 1UL) / 2UL;
 	const size_t maxElements = sinkElementBudget(nPairs, suggestNchunks, workingRAMbytes_);
 
+	const InOutFileNames outputNames{ resolveLocusNameFile(bimAndLDnames, nLoci_, logMessages_) };
+
 	logMessages_.add("Calculating all pairwise LD");
 	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
 
 	std::fstream output;
-	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output.open(outputNames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
+	SimilarityMatrixSink sink(outputNames, WorkloadLimits{nThreads_, maxElements});
 	size_t cumChunkIdx{0};
 	while (cumChunkIdx < nPairs) {
 		const size_t batchSize = std::min(maxElements, nPairs - cumChunkIdx);
@@ -908,12 +931,16 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 		std::fstream bimExistenceTest(bimAndGroupNames.inputFileName, std::ios::in);
 		const bool bimExists = bimExistenceTest.good();
 		bimExistenceTest.close();
+		// A named but absent .bim is not an error: the output falls back to base-1 indexes. The
+		// locus-count check therefore only applies when names were actually read.
 		if (bimExists) {
 			logMessages_.add("Getting locus names from the " + bimAndGroupNames.inputFileName + " .bim file");
 			locusNames = getLocusNames(bimAndGroupNames.inputFileName);
+			assert( (locusNames.size() == nLoci_) // NOLINT
+					&& "ERROR: number of loci in the .bim file not the same as nLoci_");
+		} else {
+			logMessages_.add("WARNING: no .bim file " + bimAndGroupNames.inputFileName + "; falling back to locus indexes");
 		}
-		assert( (locusNames.size() == nLoci_) // NOLINT
-				&& "ERROR: number of loci in the .bim file not the same as nLoci_");
 	}
 
 	std::fstream out;
@@ -944,7 +971,20 @@ void GenoTableHash::makeLDgroups(const size_t &nRowsPerBand, const InOutFileName
 void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const InOutFileNames &bimAndLDnames, const size_t &suggestNchunks) const {
 	VASH_BENCH_TP(vashLDinGroups);
 	std::vector<HashGroup> ldGroups{this->makeLDgroups(sparsityValues.nRowsPerBand)};
-	VASH_BENCH_LAP("ldInGroups: makeLDgroups (serial grouping)", vashLDinGroups);
+
+	const InOutFileNames outputNames{ resolveLocusNameFile(bimAndLDnames, nLoci_, logMessages_) };
+
+	// makeLDgroups() returns nothing when no bucket collects two or more loci (e.g. every locus is
+	// unique at the chosen band width). There is then no pair to estimate, so emit the header alone;
+	// the group traversal below indexes back() and cbegin() unconditionally.
+	if ( ldGroups.empty() ) {
+		logMessages_.add("No LD groups with more than one locus; saving an empty similarity matrix");
+		std::fstream emptyOutput;
+		emptyOutput.open(outputNames.outputFileName, std::ios::trunc | std::ios::out);
+		emptyOutput << "locus1\tlocus2\tjaccard\n";
+		emptyOutput.close();
+		return;
+	}
 
 	const size_t totalPairNumber{ldGroups.back().cumulativeNpairs};    // total number of pairs
 	logMessages_.add("Estimating LD in groups");
@@ -954,11 +994,11 @@ void GenoTableHash::ldInGroups(const SparsityParameters &sparsityValues, const I
 	logMessages_.add( "Maximum number of locus pairs held in RAM: " + std::to_string(maxElements) );
 
 	std::fstream output;
-	output.open(bimAndLDnames.outputFileName, std::ios::trunc | std::ios::out);
+	output.open(outputNames.outputFileName, std::ios::trunc | std::ios::out);
 	output << "locus1\tlocus2\tjaccard\n";
 	output.close();
 
-	SimilarityMatrixSink sink(bimAndLDnames, WorkloadLimits{nThreads_, maxElements});
+	SimilarityMatrixSink sink(outputNames, WorkloadLimits{nThreads_, maxElements});
 	HashGroupItPairCount startPair{};
 	startPair.hgIterator = ldGroups.cbegin();
 	startPair.pairCount  = 0;
