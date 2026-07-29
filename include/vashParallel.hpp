@@ -120,4 +120,23 @@ namespace BayesicSpace {
 		std::sort(first, last);
 #endif
 	}
+
+	/** \brief Sort a random-access range in parallel with a comparator
+	 *
+	 * As the two-argument overload, but ordering by `comparator` rather than `operator<`. Neither
+	 * backend is stable, so `comparator` must be a strict weak ordering under which elements that
+	 * compare equivalent are interchangeable for the caller's purpose.
+	 *
+	 * \param[in] first range begin
+	 * \param[in] last range end
+	 * \param[in] comparator strict weak ordering
+	 */
+	template <typename RandomIt, typename Compare>
+	inline void parallelSort(RandomIt first, RandomIt last, Compare comparator) {
+#if defined(VASH_HAVE_TBB)
+		tbb::parallel_sort(first, last, comparator);
+#else
+		std::sort(first, last, comparator);
+#endif
+	}
 } // namespace BayesicSpace

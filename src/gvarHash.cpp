@@ -33,7 +33,6 @@
 #include <string>
 #include <fstream>
 #include <vector>
-#include <unordered_map>
 #include <array>
 #include <utility>  // for std::pair
 #include <iterator>
@@ -65,6 +64,140 @@ namespace {
 	 */
 	uint64_t drawReplayableSeed() {
 		return RanDraw().ranInt() % static_cast<uint64_t>( std::numeric_limits<int>::max() );
+	}
+
+	/** \brief Band key vector
+	 *
+	 * Storage for the packed band-hash/locus-index words built by `GenoTableHash::makeLDgroups()`.
+	 * The buffer is completely overwritten by the fill that follows its sizing, so the elements are
+	 * left uninitialized (see `DefaultInitAllocator`).
+	 */
+	using BandKeyVector = std::vector< uint64_t, BayesicSpace::DefaultInitAllocator<uint64_t> >;
+
+	/** \brief Width of the locus index in a packed band key */
+	constexpr uint32_t bandKeyShift{32};
+
+	/** \brief Extract the band hash from a packed band key
+	 *
+	 * \param[in] packedKey packed band hash and locus index
+	 * \return the band hash
+	 */
+	uint32_t bandHashOf(const uint64_t &packedKey) noexcept {
+		return static_cast<uint32_t>(packedKey >> bandKeyShift);
+	}
+
+	/** \brief Extract the locus index from a packed band key
+	 *
+	 * \param[in] packedKey packed band hash and locus index
+	 * \return the locus index
+	 */
+	uint32_t locusIndexOf(const uint64_t &packedKey) noexcept {
+		return static_cast<uint32_t>( packedKey & std::numeric_limits<uint32_t>::max() );
+	}
+
+	/** \brief Split a span into ranges, one per worker
+	 *
+	 * Ranges are floor-sized so that no range bound can overrun the span, with the remainder folded
+	 * into the last range. A span shorter than the worker count therefore collapses to a single
+	 * non-empty range preceded by empty ones, which the parallel loops that consume the ranges skip.
+	 *
+	 * \param[in] spanLength number of elements to split
+	 * \param[in] nRanges number of ranges (must not be 0)
+	 * \return half-open ranges covering the span
+	 */
+	std::vector< std::pair<size_t, size_t> > makeSpanRanges(const size_t &spanLength, const size_t &nRanges) {
+		CountAndSize rangeCounts{0, 0};
+		rangeCounts.count = nRanges;
+		rangeCounts.size  = spanLength / nRanges;
+		std::vector< std::pair<size_t, size_t> > ranges{ makeThreadRanges(rangeCounts) };
+		ranges.back().second = spanLength;
+
+		return ranges;
+	}
+
+	/** \brief Collect locus groups from sorted band keys
+	 *
+	 * Turns each run of packed keys sharing a band hash into a group of the loci in that run. Runs of
+	 * one locus contribute no pairs and are dropped. The keys must be sorted, which also makes every
+	 * group ascending in locus index because the locus index occupies the low bits of a key.
+	 *
+	 * The scan is split across ranges of the key buffer, with each range boundary pushed forward to
+	 * the start of the next run so that no run straddles two ranges and the ranges can be scanned
+	 * independently. Groups are concatenated in range order, so the result is ordered by band hash and
+	 * does not depend on how the scan was split.
+	 *
+	 * \param[in] bandKeys sorted packed band hash and locus index words
+	 * \param[in] nRanges number of ranges to split the scan into (must not be 0)
+	 * \return groups of loci sharing a band hash, each with at least two members
+	 */
+	std::vector< std::vector<uint32_t> > groupsFromBandKeys(const BandKeyVector &bandKeys, const size_t &nRanges) {
+		const size_t nBandKeys{ bandKeys.size() };
+		std::vector< std::pair<size_t, size_t> > keyRanges{ makeSpanRanges(nBandKeys, nRanges) };
+		for (size_t iRange = 1; iRange < keyRanges.size(); ++iRange) {
+			const size_t nominalStart{keyRanges[iRange].first};
+			size_t snappedStart{nominalStart};
+			// A run longer than the nominal range size leaves the ranges it swallows empty.
+			if ( (nominalStart > 0) && (nominalStart < nBandKeys) ) {
+				const auto runEndIt = std::upper_bound(
+					bandKeys.cbegin() + static_cast<BandKeyVector::difference_type>(nominalStart),
+					bandKeys.cend(),
+					bandKeys[nominalStart - 1UL],
+					[](const uint64_t &lhs, const uint64_t &rhs) {
+						return bandHashOf(lhs) < bandHashOf(rhs);
+					}
+				);
+				snappedStart = static_cast<size_t>( runEndIt - bandKeys.cbegin() );
+			}
+			keyRanges[iRange - 1UL].second = snappedStart;
+			keyRanges[iRange].first        = snappedStart;
+		}
+		std::vector< std::vector< std::vector<uint32_t> > > rangeGroups( keyRanges.size() );
+		std::vector<size_t> rangeIndexes( keyRanges.size() );
+		std::iota( rangeIndexes.begin(), rangeIndexes.end(), static_cast<size_t>(0) );
+		std::for_each(
+			parallelPolicy,
+			rangeIndexes.cbegin(),
+			rangeIndexes.cend(),
+			[&rangeGroups, &keyRanges, &bandKeys](const size_t iRange) {
+				const size_t rangeEnd{keyRanges[iRange].second};
+				size_t runStart{keyRanges[iRange].first};
+				while (runStart < rangeEnd) {
+					const uint32_t runHash{ bandHashOf(bandKeys[runStart]) };
+					size_t runEnd{runStart + 1UL};
+					while ( (runEnd < rangeEnd) && (bandHashOf(bandKeys[runEnd]) == runHash) ) {
+						++runEnd;
+					}
+					if ( (runEnd - runStart) >= 2UL ) {
+						std::vector<uint32_t> members;
+						members.reserve(runEnd - runStart);
+						std::transform(
+							bandKeys.cbegin() + static_cast<BandKeyVector::difference_type>(runStart),
+							bandKeys.cbegin() + static_cast<BandKeyVector::difference_type>(runEnd),
+							std::back_inserter(members),
+							locusIndexOf
+						);
+						rangeGroups[iRange].emplace_back( std::move(members) );
+					}
+					runStart = runEnd;
+				}
+			}
+		);
+		std::vector< std::vector<uint32_t> > groups;
+		groups.reserve(
+			std::accumulate(
+				rangeGroups.cbegin(),
+				rangeGroups.cend(),
+				static_cast<size_t>(0),
+				[](const size_t &runningTotal, const std::vector< std::vector<uint32_t> > &eachRangeGroups) {
+					return runningTotal + eachRangeGroups.size();
+				}
+			)
+		);
+		for (auto &eachRangeGroups : rangeGroups) {
+			std::move( eachRangeGroups.begin(), eachRangeGroups.end(), std::back_inserter(groups) );
+		}
+
+		return groups;
 	}
 
 	/** \brief Element budget for a streaming similarity-matrix sink
@@ -824,48 +957,72 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	logMessages_.add( "Number of rows per band: " + std::to_string(nRowsPerBand) );
 	logMessages_.add( "Number of bands: "         + std::to_string(nBands) );
 
-	std::unordered_map< uint32_t, std::vector<uint32_t> > ldGroups;                                           // the hash table
+	// Grouping is nothing more than collecting the loci that share a band hash, so instead of routing
+	// the hashes through a shared hash table -- which serializes the pass and pays a node allocation
+	// per insertion -- each hash goes into the high half of a 64-bit word with its locus index in the
+	// low half, and the words are sorted. Equal hashes then form contiguous runs, and because the
+	// locus index occupies the low bits every run comes out ascending in locus order, which is the
+	// ordering the group sort, the de-duplication and the std::set_union below all rely on.
+	// The band index is part of the hashed key, so one sort separates the bands without the bands ever
+	// being handled separately: parallelism comes from the locus count rather than the band count,
+	// which matters because there are usually far fewer bands than threads. Eight bytes per
+	// (locus, band) pair is also less than the hash-table node it replaces, so no input that could be
+	// grouped before can fail to be grouped now.
+	const size_t nBandKeys{ static_cast<size_t>(nLoci_) * nBands };
+	logMessages_.add( "Band key buffer (bytes): " + std::to_string( nBandKeys * sizeof(uint64_t) ) );
+	BandKeyVector bandKeys(nBandKeys);                                                                        // sized but not initialized; the fill below writes every element
 
-	for (size_t iLocus = 0; iLocus < nLoci_; ++iLocus) {
-		size_t iSketch = 0;
-		for (uint16_t iBand = 0; iBand < static_cast<uint16_t>(nBands); ++iBand) {
-			std::vector<uint16_t> bandVec{iBand};                                                             // add the band index to the hash, so that only corresponding bands are compared
-
-			auto firstSketchIt = sketches_.cbegin()
-				+ static_cast<std::vector<uint16_t>::difference_type>( iSketch + (iLocus * kSketches_) );     // iSketch tracks band IDs
-			auto lastSketchIt = firstSketchIt
-				+ static_cast<std::vector<uint16_t>::difference_type>(nRowsPerBand);
-			std::copy( firstSketchIt, lastSketchIt, std::back_inserter(bandVec) );
-
-			LocationWithLength bandVecWindow{0, 0};
-			bandVecWindow.start  = 0;
-			bandVecWindow.length = bandVec.size();
-			const uint32_t hash  = murMurHash(bandVec, bandVecWindow, bandHashSeed_);
-			ldGroups[hash].push_back( static_cast<uint32_t>(iLocus) );
-			iSketch += nRowsPerBand;
-		}
-	}
-	// Keep only the buckets with more than one locus: a lone locus contributes no pairs. The members are
-	// moved rather than copied, since the hash table is not used again after this.
-	std::vector< std::vector<uint32_t> > groups;
+	// ThreadCeiling caps concurrency to nThreads_ (a no-op without a TBB backend).
+	const ThreadCeiling threadCeiling(nThreads_);
+	const std::vector< std::pair<size_t, size_t> > locusRanges{ makeSpanRanges(nLoci_, nThreads_) };
+	// Each range writes a disjoint slice of bandKeys and only reads sketches_, so the fill needs no
+	// synchronization; the band vector is hoisted out of the loops to keep it allocation-free.
 	std::for_each(
-		ldGroups.begin(),
-		ldGroups.end(),
-		[&groups](std::pair<const uint32_t, std::vector<uint32_t>> &hashAndMembers) {
-			if (hashAndMembers.second.size() >= 2) {
-				groups.emplace_back( std::move(hashAndMembers.second) );
+		parallelPolicy,
+		locusRanges.cbegin(),
+		locusRanges.cend(),
+		[this, &bandKeys, &nBands, &nRowsPerBand](const std::pair<size_t, size_t> &eachRange) {
+			std::vector<uint16_t> bandVec;
+			bandVec.reserve(nRowsPerBand + 1UL);
+			for (size_t iLocus = eachRange.first; iLocus < eachRange.second; ++iLocus) {
+				for (uint16_t iBand = 0; iBand < static_cast<uint16_t>(nBands); ++iBand) {
+					bandVec.clear();
+					bandVec.push_back(iBand);                                                                 // add the band index to the hash, so that only corresponding bands are compared
+
+					const auto firstSketchIt = sketches_.cbegin()
+						+ static_cast<std::vector<uint16_t>::difference_type>( (iLocus * kSketches_) + (iBand * nRowsPerBand) );
+					const auto lastSketchIt = firstSketchIt
+						+ static_cast<std::vector<uint16_t>::difference_type>(nRowsPerBand);
+					std::copy( firstSketchIt, lastSketchIt, std::back_inserter(bandVec) );
+
+					LocationWithLength bandVecWindow{0, 0};
+					bandVecWindow.start  = 0;
+					bandVecWindow.length = bandVec.size();
+					const uint32_t hash  = murMurHash(bandVec, bandVecWindow, bandHashSeed_);
+					bandKeys[(iLocus * nBands) + iBand] =
+						(static_cast<uint64_t>(hash) << bandKeyShift) | static_cast<uint64_t>(iLocus);
+				}
 			}
 		}
 	);
+	parallelSort( bandKeys.begin(), bandKeys.end() );
+
+	std::vector< std::vector<uint32_t> > groups{groupsFromBandKeys(bandKeys, nThreads_)};
+	bandKeys.clear();
+	bandKeys.shrink_to_fit();                                                                                 // the keys are dead from here on and the buffer is the largest thing alive
+
 	// pre-sort the groups by position
-	// this carries a ~30% overhead, but speeds the downstream pair sorting
-	// enough that overall there is a ~10% speed-up and at least no overhead
-	// it also enables processing by chunks if the whole sparse table does not fit in RAM
-	std::sort(
-		groups.begin(), 
+	// this carries some overhead, but speeds the downstream pair sorting
+	// enough that overall execution timing is comparable.
+	// It also enables processing by chunks if the whole sparse table does not fit in RAM
+	// The comparison is lexicographic over the whole group.
+	// A sort on group subsets (I had first two elements before) would be faster
+	// but cannot guarantee that identical groups will end up adjacent.
+	parallelSort(
+		groups.begin(),
 		groups.end(),
 		[](const std::vector<uint32_t> &group1, const std::vector<uint32_t> &group2) {
-			return (group1[0] == group2[0] ? group1[1] < group2[1] : group1[0] < group2[0]);
+			return std::lexicographical_compare( group1.cbegin(), group1.cend(), group2.cbegin(), group2.cend() );
 		}
 	);
 	// de-duplicate the groups
