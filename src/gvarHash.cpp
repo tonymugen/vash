@@ -958,6 +958,8 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	logMessages_.add( "Number of rows per band: " + std::to_string(nRowsPerBand) );
 	logMessages_.add( "Number of bands: "         + std::to_string(nBands) );
 
+	VASH_BENCH_TP(vashBenchLDgroups);
+
 	// Grouping is nothing more than collecting the loci that share a band hash, so instead of routing
 	// the hashes through a shared hash table -- which serializes the pass and pays a node allocation
 	// per insertion -- each hash goes into the high half of a 64-bit word with its locus index in the
@@ -973,7 +975,8 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	logMessages_.add( "Band key buffer (bytes): " + std::to_string( nBandKeys * sizeof(uint64_t) ) );
 	BandKeyVector bandKeys(nBandKeys);                                                                        // sized but not initialized; the fill below writes every element
 
-	VASH_BENCH_LAP("makeLDgroups: banding + hash-table build", vashBenchLDgroups);
+	VASH_BENCH_NOTE("makeLDgroups: band keys", nBandKeys);
+	VASH_BENCH_LAP("makeLDgroups: band key buffer allocation", vashBenchLDgroups);
 	// ThreadCeiling caps concurrency to nThreads_ (a no-op without a TBB backend).
 	const ThreadCeiling threadCeiling(nThreads_);
 	const std::vector< std::pair<size_t, size_t> > locusRanges{ makeSpanRanges(nLoci_, nThreads_) };
@@ -1007,11 +1010,15 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			}
 		}
 	);
+	VASH_BENCH_LAP("makeLDgroups: band key fill (parallel hash)", vashBenchLDgroups);
 	parallelSort( bandKeys.begin(), bandKeys.end() );
+	VASH_BENCH_LAP("makeLDgroups: band key sort (parallel)", vashBenchLDgroups);
 
 	std::vector< std::vector<uint32_t> > groups{groupsFromBandKeys(bandKeys, nThreads_)};
 	bandKeys.clear();
 	bandKeys.shrink_to_fit();                                                                                 // the keys are dead from here on and the buffer is the largest thing alive
+	VASH_BENCH_NOTE("makeLDgroups: groups before de-duplication", groups.size());
+	VASH_BENCH_LAP("makeLDgroups: run scan into groups (parallel)", vashBenchLDgroups);
 
 	// pre-sort the groups by position
 	// this carries some overhead, but speeds the downstream pair sorting
@@ -1027,7 +1034,7 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 			return std::lexicographical_compare( group1.cbegin(), group1.cend(), group2.cbegin(), group2.cend() );
 		}
 	);
-	VASH_BENCH_LAP("makeLDgroups: filter singletons + sort", vashBenchLDgroups);
+	VASH_BENCH_LAP("makeLDgroups: sort groups (lexicographic, parallel)", vashBenchLDgroups);
 	// de-duplicate the groups
 	logMessages_.add( "Number of groups before de-duplication: " + std::to_string( groups.size() ) );
 	auto lastUniqueIt = std::unique(
