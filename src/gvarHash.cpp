@@ -1089,38 +1089,20 @@ std::vector<HashGroup> GenoTableHash::makeLDgroups(const size_t &nRowsPerBand) c
 	VASH_BENCH_LAP("makeLDgroups: de-duplicate groups", vashBenchLDgroups);
 	logMessages_.add( "Number of groups after de-duplication: " + std::to_string( groups.size() ) );
 
+	// Each surviving group is kept as it came out of banding. Consecutive groups sharing a first locus
+	// were once merged into their union to de-fragment the grouping, but that emits every cross pair
+	// between the two, and those loci share no band: they are outside the candidate set that banding
+	// selected, so their similarity was reported on the strength of a shared smallest index alone. The
+	// merge was also arbitrary in which groups it reached, since only the first (smallest) index was
+	// compared -- two groups sharing any other locus were left apart.
 	std::vector<HashGroup> indexedGroups;
-	if ( groups.empty() ) {
-		return indexedGroups;
+	indexedGroups.reserve( groups.size() );
+	uint64_t cumulativeNpairs{0};
+	for (auto &eachGroup : groups) {
+		// running total, so the last element carries the pair count over all groups
+		cumulativeNpairs += eachGroup.size() * ( eachGroup.size() - 1 ) / 2;
+		indexedGroups.emplace_back( HashGroup{cumulativeNpairs, std::move(eachGroup)} );
 	}
-	HashGroup accumulator{0, std::move(groups[0])};    // will be the union of consecutive groups with equal first elements
-	std::for_each(
-		std::next( groups.begin() ),
-		groups.end(),
-		[&accumulator, &indexedGroups](std::vector<uint32_t> &eachGroup) {
-			// this is a heuristic method to consolidate groups with indexes in common
-			if (accumulator.locusIndexes[0] == eachGroup[0]) {
-				std::vector<uint32_t> output;
-				std::set_union(
-					accumulator.locusIndexes.cbegin(),
-					accumulator.locusIndexes.cend(),
-					eachGroup.cbegin(),
-					eachGroup.cend(),
-					std::back_inserter(output)
-				);
-				std::swap(accumulator.locusIndexes, output);
-				eachGroup.clear();
-				return;
-			}
-			accumulator.cumulativeNpairs += accumulator.locusIndexes.size() * (accumulator.locusIndexes.size() - 1) / 2;
-			indexedGroups.emplace_back(accumulator);
-			std::swap(accumulator.locusIndexes, eachGroup);
-			eachGroup.clear();
-		}
-	);
-	VASH_BENCH_LAP("makeLDgroups: merge groups sharing a first locus", vashBenchLDgroups);
-
-	logMessages_.add( "Number of groups after merger: " + std::to_string( indexedGroups.size() ) );
 
 	return indexedGroups;
 }

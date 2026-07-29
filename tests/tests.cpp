@@ -2258,9 +2258,9 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 			moreThreadsThanLoci,
 			logFileName
 		);
-		// Monomorphic loci carry no set bits, so their sketches stay at the empty-bin sentinel and no
-		// band collects two of them: makeLDgroups finds nothing and ldInGroups must emit the header
-		// alone rather than indexing an empty group vector.
+		// Monomorphic loci carry no set bits, so densification invents the same index for every one of
+		// their sketches: all three end up identical and collide in every band, giving a single group
+		// of three loci whose estimated similarity is a (degenerate) 1.0.
 		constexpr float allPairsCutOff{0.0F};
 		constexpr size_t monoRowsPerBand{1};
 		BayesicSpace::SparsityParameters monoSparsity{};
@@ -2276,14 +2276,59 @@ TEST_CASE("GenoTableHash methods work", "[gtHash]") {
 		std::string monoHeader;
 		std::getline(monoIn, monoHeader);
 		std::string monoLine;
-		size_t nMonoLines{0};
+		std::vector<std::string> monoLines;
 		while ( std::getline(monoIn, monoLine) ) {
-			++nMonoLines;
+			monoLines.push_back(monoLine);
 		}
 		monoIn.close();
 		std::remove( monoFileName.c_str() ); // NOLINT
-		REQUIRE( monoHeader == "locus1\tlocus2\tjaccard" );               // the header is still written
-		REQUIRE( nMonoLines == 0 );                                       // and nothing else
+		REQUIRE( monoHeader == "locus1\tlocus2\tjaccard" );
+		REQUIRE( monoLines.size() == (monoNloci * (monoNloci - 1)) / 2 );   // every pair of the one group
+		REQUIRE( std::all_of( monoLines.cbegin(), monoLines.cend(),
+			[](const std::string &eachLine) { return eachLine.rfind("1.0000") != std::string::npos; } ) );
+
+		// An empty group vector is a separate path: ldInGroups must emit the header alone rather than
+		// index off the end of the vector. Two loci that are minor in opposite halves of the sample
+		// share no sketch, so a four-row band collects neither of them and no group survives.
+		constexpr uint32_t emptyNind{20};
+		constexpr uint16_t emptySketches{5};
+		constexpr size_t emptyRowsPerBand{4};
+		constexpr uint64_t emptySeed{98798};
+		std::vector<int> contrastingCounts(static_cast<size_t>(emptyNind) * 2UL, 0);
+		for (size_t iIndividual = 0; iIndividual < emptyNind / 2; ++iIndividual) {
+			contrastingCounts[iIndividual]                             = 2;   // minor in the first half of locus 1
+			contrastingCounts[emptyNind + (emptyNind / 2) + iIndividual] = 2;   // and the second half of locus 2
+		}
+		const BayesicSpace::GenoTableHash emptyHSH(
+			contrastingCounts,
+			BayesicSpace::IndividualAndSketchCounts{emptyNind, emptySketches},
+			moreThreadsThanLoci,
+			logFileName,
+			BayesicSpace::MemoryParameters{},
+			emptySeed
+		);
+		REQUIRE( emptyHSH.makeLDgroups(emptyRowsPerBand).empty() );
+		BayesicSpace::SparsityParameters emptySparsity{};
+		emptySparsity.similarityCutOff = allPairsCutOff;
+		emptySparsity.nRowsPerBand     = emptyRowsPerBand;
+		const std::string emptyFileName("../tests/tmpEmptyGroups.tsv");
+		std::remove( emptyFileName.c_str() ); // NOLINT
+		BayesicSpace::InOutFileNames emptyFiles{};
+		emptyFiles.outputFileName = emptyFileName;
+		emptyHSH.ldInGroups(emptySparsity, emptyFiles);
+
+		std::fstream emptyIn(emptyFileName, std::ios::in);
+		std::string emptyHeader;
+		std::getline(emptyIn, emptyHeader);
+		std::string emptyLine;
+		size_t nEmptyLines{0};
+		while ( std::getline(emptyIn, emptyLine) ) {
+			++nEmptyLines;
+		}
+		emptyIn.close();
+		std::remove( emptyFileName.c_str() ); // NOLINT
+		REQUIRE( emptyHeader == "locus1\tlocus2\tjaccard" );               // the header is still written
+		REQUIRE( nEmptyLines == 0 );                                       // and nothing else
 	}
 	SECTION("The log is flushed to file on destruction") {
 		const std::string slfLogName("../tests/saveLogTest.log");
